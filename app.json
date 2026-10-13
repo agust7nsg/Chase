@@ -1,0 +1,33 @@
+{
+  "expo": {
+    "name": "Chase",
+    "slug": "chase",
+    "version": "0.1.0",
+    "orientation": "default",
+    "scheme": "chase",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.chase.prototype"
+    },
+    "web": {
+      "output": "single",
+      "favicon": "./assets/brand/icon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#FFFFFF"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "icon": "./assets/brand/icon.png"
+  }
+}

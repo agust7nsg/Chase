@@ -1,0 +1,68 @@
+import { router } from 'expo-router';
+import { StyleSheet, Switch, View } from 'react-native';
+import { Badge, Button, Icon, Label, Panel, Screen, Section, SettingRow, uiStyles } from '@/components/ui';
+import { useChase } from '@/features/app/ChaseProvider';
+import { colors } from '@/theme/tokens';
+
+export function ProfileScreen() {
+  const { state, entitlements, summary, setDevPro } = useChase();
+  const openAccount = (section: string) => router.push({ pathname: '/account', params: { section } });
+
+  return <Screen>
+    <View style={{ gap: 6 }}>
+      <Label kind="eyebrow" style={uiStyles.muted}>YOUR CHASE</Label>
+      <Label kind="title" accessibilityRole="header">Profile</Label>
+    </View>
+
+    <Panel>
+      <View style={uiStyles.row}>
+        <View style={styles.avatar}><Icon name="person-outline" size={28} color={colors.primary} /></View>
+        <View style={{ flex: 1, gap: 4 }}>
+          <Label kind="heading">Collecting as a guest</Label>
+          <Label kind="caption" style={uiStyles.muted}>Your prototype collection is saved on this device.</Label>
+        </View>
+      </View>
+      <Label style={uiStyles.muted}>Account creation and sign in are not connected yet. You can keep exploring Chase without an account.</Label>
+      <Button title="Create Account" onPress={() => openAccount('create')} />
+      <Button title="Sign In" variant="secondary" onPress={() => openAccount('signin')} />
+    </Panel>
+
+    <View style={{ gap: 8 }}>
+      <Section title="Membership" />
+      <Panel>
+        <View style={uiStyles.between}>
+          <Label kind="heading">{state.plan === 'pro' ? 'Chase Pro' : 'Chase Free'}</Label>
+          <Badge>{state.plan === 'pro' ? 'Simulated' : 'Free'}</Badge>
+        </View>
+        <Label style={uiStyles.muted}>{entitlements.maxCards === null ? `${summary.totalCopies} saved copies · unlimited prototype capacity` : `${summary.totalCopies} of ${entitlements.maxCards} total card copies saved`}</Label>
+        <Label kind="caption" style={uiStyles.muted}>{entitlements.unlimitedScans ? 'Unlimited simulated scans. No purchase has been made.' : state.trial.successfulRecognitions === 0 ? 'Your complimentary successful sample scan is available.' : 'Your complimentary successful sample scan has been used.'}</Label>
+        <Button title="Explore Chase Pro" variant="secondary" icon="sparkles-outline" onPress={() => router.push('/paywall')} />
+      </Panel>
+      <SettingRow title="Restore Purchases" subtitle="Not connected in this prototype" icon="refresh-outline" onPress={() => openAccount('restore')} />
+    </View>
+
+    <View>
+      <Section title="Settings & support" />
+      <SettingRow title="Currency" subtitle="USD · v0.1" icon="cash-outline" onPress={() => openAccount('currency')} />
+      <SettingRow title="Privacy Policy" icon="shield-checkmark-outline" onPress={() => openAccount('privacy')} />
+      <SettingRow title="Terms of Service" icon="document-text-outline" onPress={() => openAccount('terms')} />
+      <SettingRow title="Contact Support" icon="help-circle-outline" onPress={() => openAccount('support')} />
+      <SettingRow title="About Chase" icon="information-circle-outline" onPress={() => openAccount('about')} />
+    </View>
+
+    {__DEV__ ? <Panel>
+      <Badge>Development only</Badge>
+      <View style={uiStyles.between}>
+        <View style={{ flex: 1, gap: 6 }}>
+          <Label style={{ fontWeight: '600' }}>Development only · simulate Pro</Label>
+          <Label kind="caption" style={uiStyles.muted}>Changes local prototype access. Does not buy a subscription.</Label>
+        </View>
+        <Switch value={state.plan === 'pro'} onValueChange={setDevPro} accessibilityLabel="Development only · simulate Pro" trackColor={{ false: colors.border, true: colors.primary }} />
+      </View>
+    </Panel> : null}
+  </Screen>;
+}
+
+const styles = StyleSheet.create({
+  avatar: { width: 56, height: 56, borderRadius: 16, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
+});
