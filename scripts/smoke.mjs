@@ -158,7 +158,7 @@ try {
     await button(page, 'View collection').click();
     await page.getByRole('heading', { name: 'Collection', exact: true }).filter({ visible: true }).waitFor();
     await visibleText(page, money(cards[recognizedCard].price)).first().waitFor();
-    await visibleText(page, '1 of 50 free card slots · copies count').waitFor();
+    await visibleText(page, '1 / 50 copies').waitFor();
   });
 
   await scenario('My Cards search and sorting work, and quantity changes update collection valuation', async () => {
@@ -182,7 +182,7 @@ try {
     await page.goBack();
     await button(page, 'My Cards').waitFor();
     await visibleText(page, money(cards[recognizedCard].price * 2)).first().waitFor();
-    await visibleText(page, '2 of 50 free card slots · copies count').waitFor();
+    await visibleText(page, '2 / 50 copies').waitFor();
     await button(page, 'My Cards').click();
     await openCard(page, cards[recognizedCard].name);
     await button(page, `Remove one ${cards[recognizedCard].name} copy`).click();

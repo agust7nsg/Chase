@@ -82,7 +82,7 @@ export function AccountScreen() {
     catch { setLinkError('This link could not be opened. Try again or check your connection.'); }
   };
 
-  return <Screen>
+  return <Screen safeTop={false}>
     <View style={{ gap: 12 }}>
       <Icon name={workflow.icon} size={32} color={colors.primary} />
       <Label kind="title" accessibilityRole="header">{workflow.title}</Label>

@@ -1,11 +1,10 @@
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import { CardRow, money } from '@/components/CardRow';
-import { Badge, Button, EmptyState, Label, Panel, Screen, Section, uiStyles } from '@/components/ui';
+import { Badge, Button, EmptyState, Icon, Label, Panel, Screen, Section, uiStyles } from '@/components/ui';
 import { getCatalogCard } from '@/data/mocks/catalog';
 import { useChase } from '@/features/app/ChaseProvider';
 import { colors } from '@/theme/tokens';
-
 export function CollectionScreen() {
   const { state, summary, entitlements, ready, loadError, retryLoad, persistenceError } = useChase();
   if (!ready) return <Screen>{loadError
@@ -14,38 +13,34 @@ export function CollectionScreen() {
   </Screen>;
   const recent = [...state.items].sort((a, b) => b.addedAt.localeCompare(a.addedAt)).slice(0, 4);
   return <Screen>
-    <View style={{ gap: 6 }}>
-      <Label kind="eyebrow" style={uiStyles.muted}>YOUR CARDS, TOGETHER</Label>
-      <Label kind="title" accessibilityRole="header">Collection</Label>
-      <Label style={uiStyles.muted}>A home for everything you collect.</Label>
-    </View>
-    <Panel style={{ backgroundColor: colors.primarySoft, borderColor: '#DBEAFE' }}>
-      <View style={[uiStyles.between, { flexWrap: 'wrap' }]}><Label style={uiStyles.muted}>Estimated collection value</Label><Badge>DEMO USD</Badge></View>
-      <Label kind="price">{money(summary.totalValue)}</Label>
-      <Label kind="caption" style={uiStyles.muted}>Illustrative ungraded prices, not live market values.</Label>
+    <View style={{ gap: 6 }}><Label kind="eyebrow" style={{ color: colors.primary }}>YOUR CARD WALLET</Label><Label kind="title" accessibilityRole="header">Collection</Label><Label style={uiStyles.muted}>Your favorites, all together.</Label></View>
+    <Panel style={styles.valueCard}>
+      <View style={uiStyles.between}><View style={styles.walletIcon}><Icon name="wallet-outline" color={colors.primary} /></View><Badge tone="neutral">Sample USD</Badge></View>
+      <View style={{ gap: 4 }}><Label kind="caption" style={uiStyles.muted}>Estimated collection value</Label><Label kind="price">{money(summary.totalValue)}</Label></View>
       <View style={styles.stats}>
-        <View style={styles.stat}><Label kind="heading">{summary.uniqueCards}</Label><Label kind="caption" style={uiStyles.muted}>Unique cards</Label></View>
-        <View style={styles.stat}><Label kind="heading">{summary.totalCopies}</Label><Label kind="caption" style={uiStyles.muted}>Total copies</Label></View>
+        <View style={styles.stat}><Label kind="heading" style={styles.statNumber}>{summary.uniqueCards}</Label><Label kind="caption" style={uiStyles.muted}>Unique cards</Label></View>
+        <View style={[styles.stat, styles.statDivider]}><Label kind="heading" style={styles.statNumber}>{summary.totalCopies}</Label><Label kind="caption" style={uiStyles.muted}>Total copies</Label></View>
       </View>
     </Panel>
     <Button title="My Cards" icon="albums-outline" onPress={() => router.push('/my-cards')} />
-    <View style={[uiStyles.between, { flexWrap: 'wrap' }]}>
-      <Label kind="caption" style={[uiStyles.muted, { flexShrink: 1 }]}>{entitlements.maxCards === null ? 'Unlimited collection · Pro' : `${summary.totalCopies} of ${entitlements.maxCards} free card slots · copies count`}</Label>
-      {entitlements.maxCards !== null ? <Button title="Upgrade" variant="ghost" onPress={() => router.push('/paywall')} /> : null}
-    </View>
+    {entitlements.maxCards !== null ? <View style={styles.membership}>
+      <View style={uiStyles.between}><View style={{ flex: 1, gap: 3 }}><Label kind="caption" style={{ fontWeight: '700' }}>Chase Free</Label><Label kind="caption" style={uiStyles.muted}>{summary.totalCopies} / {entitlements.maxCards} copies</Label></View><Button title="Upgrade" variant="ghost" icon="sparkles-outline" onPress={() => router.push('/paywall')} /></View>
+      <View style={styles.track} accessibilityRole="progressbar" accessibilityLabel="Free collection capacity" accessibilityValue={{ min: 0, max: entitlements.maxCards, now: Math.min(summary.totalCopies, entitlements.maxCards) }}><View style={[styles.progress, { width: `${Math.min(1, summary.totalCopies / entitlements.maxCards) * 100}%` }]} /></View>
+    </View> : <Badge tone="warm">Unlimited collection · Pro</Badge>}
     {persistenceError ? <Label accessibilityRole="alert" style={{ color: colors.danger }}>{persistenceError}</Label> : null}
-    <View style={{ gap: 4 }}>
-      <Section title="Recently added" action={recent.length ? 'View all' : undefined} onPress={() => router.push('/my-cards')} />
-      {recent.length ? recent.map((item) => {
-        const card = getCatalogCard(item.cardId);
-        return card ? <CardRow key={card.id} card={card} quantity={item.quantity} /> : null;
-      }) : <EmptyState title="Your collection starts here" message="Find a card in the sample catalog and add your first copy." action="Browse cards" onPress={() => router.push('/search')} />}
+    <View style={{ gap: 4 }}><Section title="Recently added" action={recent.length ? 'View all' : undefined} onPress={() => router.push('/my-cards')} />
+      {recent.length ? recent.map(item => { const card = getCatalogCard(item.cardId); return card ? <CardRow key={card.id} card={card} quantity={item.quantity} /> : null; }) : <EmptyState title="Your collection starts here" message="Find a favorite. Save your first card." action="Browse cards" onPress={() => router.push('/search')} />}
+      {recent.length ? <Label kind="caption" style={[uiStyles.muted, { marginTop: 12 }]}>Sample artwork & prices · USD per copy</Label> : null}
     </View>
   </Screen>;
 }
-
 const styles = StyleSheet.create({
-  stats: { flexDirection: 'row', gap: 24, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#DBEAFE' },
-  stat: { flex: 1, gap: 3 },
+  valueCard: { borderTopWidth: 3, borderTopColor: colors.primary, gap: 20 },
+  walletIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
+  stats: { flexDirection: 'row', paddingTop: 18, borderTopWidth: 1, borderTopColor: colors.border },
+  stat: { flex: 1, gap: 3 }, statDivider: { paddingLeft: 24, borderLeftWidth: 1, borderLeftColor: colors.border },
+  statNumber: { fontSize: 24, lineHeight: 30, fontVariant: ['tabular-nums'] },
+  membership: { padding: 16, paddingTop: 8, gap: 8, backgroundColor: colors.primarySoft, borderRadius: 16, borderWidth: 1, borderColor: colors.tintBorder },
+  track: { height: 4, backgroundColor: colors.tintBorder, borderRadius: 2, overflow: 'hidden' }, progress: { height: 4, backgroundColor: colors.primary, borderRadius: 2 },
   loading: { gap: 16, alignItems: 'center', paddingVertical: 48 },
 });

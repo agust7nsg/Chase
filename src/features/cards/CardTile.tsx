@@ -5,26 +5,21 @@ import { money } from '@/components/CardRow';
 import { Label } from '@/components/ui';
 import { colors } from '@/theme/tokens';
 import type { Card } from '@/types/domain';
-
 export function CardTile({ card, quantity, width }: { card: Card; quantity?: number; width?: number }) {
-  return <Pressable
-    accessibilityRole="button"
-    accessibilityLabel={`View ${card.name}, ${card.setName}, ${card.variant}${quantity ? `, ${quantity} copies` : ''}`}
+  return <Pressable accessibilityRole="button" accessibilityLabel={`View ${card.name}, ${card.setName}, ${card.variant}${quantity ? `, ${quantity} copies` : ''}`}
     onPress={() => router.push({ pathname: '/card/[id]', params: { id: card.id } })}
-    style={({ pressed }) => [styles.tile, width !== undefined ? { width, flexGrow: 0, flexShrink: 0 } : { flex: 1 }, pressed && { opacity: 0.65 }]}
-  >
-    <CardArtwork card={card} compact />
+    style={({ pressed }) => [styles.tile, width !== undefined ? { width, flexGrow: 0, flexShrink: 0 } : { flex: 1 }, pressed && { opacity: 0.65 }]}>
+    <View><CardArtwork card={card} compact />{quantity ? <View style={styles.quantity}><Label kind="caption" style={{ color: colors.primary, fontWeight: '700' }}>×{quantity}</Label></View> : null}</View>
     <View style={styles.info}>
-      <Label style={{ fontWeight: '600' }}>{card.name}</Label>
-      <Label kind="caption" style={{ color: colors.muted }}>{card.setName} · {card.collectorNumber}</Label>
-      <Label kind="caption" style={{ color: colors.muted }}>{card.variant}{quantity ? ` · ×${quantity}` : ''}</Label>
-      <Label style={{ color: colors.primary, fontWeight: '600' }}>{money(card.marketPrice.amount)}</Label>
-      <Label kind="caption" style={{ color: colors.muted }}>Demo USD / copy</Label>
+      <Label style={{ fontWeight: '700' }}>{card.name}</Label>
+      <Label kind="caption" numberOfLines={1} style={{ color: colors.muted }}>{card.setName}</Label>
+      <Label kind="caption" style={{ color: colors.muted }}>{card.variant} · {card.collectorNumber}</Label>
+      <Label style={{ fontWeight: '700', color: colors.primary, paddingTop: 2 }}>{money(card.marketPrice.amount)}</Label>
     </View>
   </Pressable>;
 }
-
 const styles = StyleSheet.create({
-  tile: { minWidth: 0, borderWidth: 1, borderColor: colors.border, borderRadius: 14, padding: 8, gap: 10, backgroundColor: colors.white },
-  info: { gap: 3, paddingHorizontal: 3, paddingBottom: 5 },
+  tile: { minWidth: 0, borderWidth: 1, borderColor: colors.border, borderRadius: 16, padding: 8, gap: 8, backgroundColor: colors.white },
+  info: { gap: 2, paddingHorizontal: 4, paddingBottom: 5 },
+  quantity: { position: 'absolute', bottom: 8, right: 8, minWidth: 28, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, backgroundColor: colors.white },
 });

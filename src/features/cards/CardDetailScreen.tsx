@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { CardArtwork } from '@/components/CardArtwork';
+import { CardStage } from '@/components/CardArtwork';
 import { money } from '@/components/CardRow';
 import { Badge, Button, EmptyState, Label, Panel, Screen, uiStyles } from '@/components/ui';
 import { getCatalogCard } from '@/data/mocks/catalog';
@@ -20,8 +20,8 @@ function CardDetailContent({ cardId }: { cardId: string }) {
   const item = state.items.find((entry) => entry.cardId === cardId);
   const [feedback, setFeedback] = useState<{ ok: boolean; message: string } | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
-  if (!card) return <Screen><EmptyState title="Card not found" message="This card is not available in the sample catalog." action="Browse cards" onPress={() => router.replace('/search')} icon="search-outline" /></Screen>;
-  if (!ready) return <Screen>{loadError ? <EmptyState title="Collection unavailable" message={loadError} action="Try again" onPress={retryLoad} /> : <ActivityIndicator color={colors.primary} accessibilityLabel="Loading card" />}</Screen>;
+  if (!card) return <Screen safeTop={false}><EmptyState title="Card not found" message="This card is not available in the sample catalog." action="Browse cards" onPress={() => router.replace('/search')} icon="search-outline" /></Screen>;
+  if (!ready) return <Screen safeTop={false}>{loadError ? <EmptyState title="Collection unavailable" message={loadError} action="Try again" onPress={retryLoad} /> : <ActivityIndicator color={colors.primary} accessibilityLabel="Loading card" />}</Screen>;
 
   const add = () => {
     const result = addToCollection(card.id);
@@ -34,22 +34,16 @@ function CardDetailContent({ cardId }: { cardId: string }) {
     setConfirmRemove(false);
   };
   const atLimit = entitlements.maxCards !== null && summary.totalCopies >= entitlements.maxCards;
-  return <Screen>
+  return <Screen safeTop={false}>
     <View style={{ gap: 8 }}>
-      <Badge>{card.variant.toUpperCase()}</Badge>
-      <Label kind="title" accessibilityRole="header">{card.name}</Label>
+      <View style={uiStyles.between}><Label kind="title" accessibilityRole="header" style={{ flex: 1 }}>{card.name}</Label><Badge tone="warm">{card.variant}</Badge></View>
       <Label style={uiStyles.muted}>{card.setName} · {card.collectorNumber}</Label>
     </View>
-    <View style={{ width: '100%', maxWidth: 320, alignSelf: 'center' }}><CardArtwork card={card} /></View>
+    <CardStage card={card} compact />
     <Panel>
-      <View style={[uiStyles.between, { flexWrap: 'wrap' }]}><Label>Estimated price per copy</Label><Badge>DEMO USD</Badge></View>
+      <View style={uiStyles.between}><Label kind="caption" style={uiStyles.muted}>Estimated price per copy</Label><Badge tone="neutral">Sample USD</Badge></View>
       <Label kind="price">{money(card.marketPrice.amount)}</Label>
-      <Label kind="caption" style={uiStyles.muted}>Illustrative ungraded price from the sample dataset. Prices are not live quotes and do not account for your card’s condition.</Label>
-      <View style={styles.metadata}>
-        <View style={styles.detailRow}><Label kind="caption" style={uiStyles.muted}>Set</Label><Label kind="caption" style={styles.detailValue}>{card.setName}</Label></View>
-        <View style={styles.detailRow}><Label kind="caption" style={uiStyles.muted}>Card number</Label><Label kind="caption" style={styles.detailValue}>{card.collectorNumber}</Label></View>
-        <View style={styles.detailRow}><Label kind="caption" style={uiStyles.muted}>Variant</Label><Label kind="caption" style={styles.detailValue}>{card.variant}</Label></View>
-      </View>
+      <Label kind="caption" style={uiStyles.muted}>Sample price, not a guaranteed resale value.</Label>
     </Panel>
     <Button title={item ? 'Add one copy' : 'Add to collection'} icon="add-outline" onPress={add} />
     {feedback ? <View style={{ gap: 12 }}>
@@ -77,9 +71,3 @@ function CardDetailContent({ cardId }: { cardId: string }) {
     <Button title="View My Cards" variant="ghost" icon="albums-outline" onPress={() => router.push('/my-cards')} />
   </Screen>;
 }
-
-const styles = StyleSheet.create({
-  metadata: { gap: 10, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 16 },
-  detailRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 16 },
-  detailValue: { flex: 1, textAlign: 'right', fontWeight: '600' },
-});

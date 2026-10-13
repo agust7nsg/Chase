@@ -19,10 +19,10 @@ export function ProfileScreen() {
         <View style={styles.avatar}><Icon name="person-outline" size={28} color={colors.primary} /></View>
         <View style={{ flex: 1, gap: 4 }}>
           <Label kind="heading">Collecting as a guest</Label>
-          <Label kind="caption" style={uiStyles.muted}>Your prototype collection is saved on this device.</Label>
+          <Label kind="caption" style={uiStyles.muted}>Your collection stays on this device.</Label>
         </View>
       </View>
-      <Label style={uiStyles.muted}>Account creation and sign in are not connected yet. You can keep exploring Chase without an account.</Label>
+      <Label style={uiStyles.muted}>Accounts aren’t connected yet. Keep collecting as a guest.</Label>
       <Button title="Create Account" onPress={() => openAccount('create')} />
       <Button title="Sign In" variant="secondary" onPress={() => openAccount('signin')} />
     </Panel>
@@ -55,7 +55,7 @@ export function ProfileScreen() {
       <View style={uiStyles.between}>
         <View style={{ flex: 1, gap: 6 }}>
           <Label style={{ fontWeight: '600' }}>Development only · simulate Pro</Label>
-          <Label kind="caption" style={uiStyles.muted}>Changes local prototype access. Does not buy a subscription.</Label>
+          <Label kind="caption" style={uiStyles.muted}>Local demo access. No purchase.</Label>
         </View>
         <Switch value={state.plan === 'pro'} onValueChange={setDevPro} accessibilityLabel="Development only · simulate Pro" trackColor={{ false: colors.border, true: colors.primary }} />
       </View>

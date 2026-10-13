@@ -12,15 +12,15 @@ function Navigator() {
   if (!ready) return <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.white, gap: 16 }}><ActivityIndicator color={colors.primary} /><Label>Opening Chase…</Label></View>;
   return <View style={{ flex: 1 }}>
     {persistenceError ? <View style={{ backgroundColor: '#FEF2F2', padding: 16 }}><Label kind="caption" accessibilityRole="alert">{persistenceError}</Label></View> : null}
-    <Stack screenOptions={{ headerShadowVisible: false, headerTintColor: colors.text, headerStyle: { backgroundColor: colors.white }, contentStyle: { backgroundColor: colors.white } }}>
+    <Stack screenOptions={{ headerShadowVisible: false, headerTintColor: colors.text, headerStyle: { backgroundColor: colors.background }, headerTitleStyle: { fontSize: 16, fontWeight: '600' }, contentStyle: { backgroundColor: colors.background } }}>
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="onboarding" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen name="scanner" options={{ title: 'Scan a card' }} />
       <Stack.Screen name="paywall" options={{ headerShown: false, presentation: 'modal', gestureEnabled: false }} />
-      <Stack.Screen name="my-cards" options={{ title: 'My Cards' }} />
-      <Stack.Screen name="search" options={{ title: 'Search Cards' }} />
-      <Stack.Screen name="card/[id]" options={{ title: 'Card details' }} />
+      <Stack.Screen name="my-cards" options={{ title: '' }} />
+      <Stack.Screen name="search" options={{ title: '' }} />
+      <Stack.Screen name="card/[id]" options={{ title: '' }} />
       <Stack.Screen name="account" options={{ title: 'Account & settings' }} />
     </Stack>
   </View>;

@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
-import { View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { Badge, Button, EmptyState, Icon, Label, Panel, Screen, Section, uiStyles } from '@/components/ui';
+import { CardIllustration } from '@/components/CardArtwork';
 import { CardRow, money } from '@/components/CardRow';
 import { colors } from '@/theme/tokens';
 import { useChase } from '@/features/app/ChaseProvider';
@@ -11,17 +12,33 @@ export default function HomeScreen() {
   const startScan = () => router.push(canScan(state) ? '/scanner' : '/paywall');
   const recent = [...state.items].sort((a, b) => b.addedAt.localeCompare(a.addedAt)).slice(0, 3);
   return <Screen>
-    <View style={uiStyles.between}><View style={uiStyles.row}><View style={{ width: 38, height: 38, borderRadius: 10, backgroundColor: colors.primary, justifyContent: 'center', alignItems: 'center' }}><Icon name="layers-outline" color={colors.white} /></View><Label kind="heading" style={{ fontSize: 26 }}>Chase</Label></View><Badge>{state.plan === 'pro' ? 'Pro · simulated' : 'Free collector'}</Badge></View>
-    <View style={{ gap: 10, paddingTop: 16 }}><Label kind="eyebrow" style={uiStyles.muted}>YOUR NEXT GREAT FIND</Label><Label kind="title">Every card has{`\n`}a story.</Label><Label style={uiStyles.muted}>Discover your cards. Keep your collection close.</Label></View>
-    <Panel style={{ backgroundColor: colors.primarySoft, borderColor: '#DBEAFE', gap: 20 }}>
-      <View style={uiStyles.row}><Icon name="scan-outline" size={30} color={colors.primary} /><View style={{ flex: 1, gap: 4 }}><Label kind="heading">Find your next chase</Label><Label kind="caption" style={uiStyles.muted}>{state.plan === 'pro' ? 'Development Pro access · simulated scanner' : state.trial.successfulRecognitions === 0 ? 'Your complimentary sample scan is waiting.' : 'Explore Chase Pro to keep scanning.'}</Label></View></View>
-      <Button title="Scan a Card" icon="scan-outline" onPress={startScan} />
-      <Label kind="caption" style={uiStyles.muted}>Prototype scanner · no camera or real recognition</Label>
-    </Panel>
-    <Button title="Search Cards" variant="secondary" icon="search-outline" onPress={() => router.push('/search')} />
-    <View style={{ gap: 4 }}><Section title="Your collection" action="View all" onPress={() => router.push('/(tabs)/collection')} />
-      {summary.totalCopies > 0 ? <Panel><Label kind="caption" style={uiStyles.muted}>ESTIMATED VALUE · DEMO PRICES</Label><Label kind="price">{money(summary.totalValue)}</Label><Label style={uiStyles.muted}>{summary.uniqueCards} unique cards · {summary.totalCopies} total copies</Label></Panel> : <EmptyState title="A collection starts with one card" message="Save a sample scan or find a favorite in the catalog." action="Browse cards" onPress={() => router.push('/search')} />}
+    <View style={uiStyles.between}>
+      <View style={uiStyles.row}><View style={styles.logo}><Icon name="layers-outline" color={colors.white} /></View><Label kind="heading" style={{ fontSize: 25, fontWeight: '700', letterSpacing: -0.8 }}>Chase</Label></View>
+      <Badge tone={state.plan === 'pro' ? 'warm' : 'neutral'}>{state.plan === 'pro' ? 'Pro · demo' : 'Free'}</Badge>
     </View>
-    {recent.length > 0 ? <View><Section title="Recently added" />{recent.map(item => { const card = catalog.find(c => c.id === item.cardId); return card ? <CardRow key={card.id} card={card} quantity={item.quantity} /> : null; })}</View> : null}
+    <View style={{ gap: 6 }}><Label kind="eyebrow" style={uiStyles.muted}>THE COLLECTOR IN YOU</Label><Label kind="title">Your next great find.</Label></View>
+    <View style={styles.hero}>
+      <View style={[uiStyles.row, { alignItems: 'center' }]}>
+        <View style={{ flex: 1, gap: 10 }}><View style={styles.scanIcon}><Icon name="scan-outline" color={colors.white} size={24} /></View><Label style={styles.heroTitle}>Find your next chase.</Label></View>
+        <View style={styles.heroArt} accessibilityElementsHidden importantForAccessibility="no-hide-descendants"><View style={styles.heroBack} /><View style={styles.miniCard}><CardIllustration card={catalog[0]} /><View style={{ height: 3, width: '60%', borderRadius: 2, backgroundColor: colors.tintBorder }} /></View></View>
+      </View>
+      <Label style={{ color: colors.onPrimaryMuted }}>{state.plan === 'pro' ? 'Pro access · sample scans' : state.trial.successfulRecognitions === 0 ? 'Your first sample scan is on us.' : 'Keep discovering with Chase Pro.'}</Label>
+      <Button title="Scan a Card" icon="scan-outline" variant="inverse" onPress={startScan} />
+      <Label kind="caption" style={{ color: colors.onPrimaryMuted, textAlign: 'center' }}>Demo recognition · no camera access</Label>
+    </View>
+    <Button title="Search Cards" variant="secondary" icon="search-outline" onPress={() => router.push('/search')} />
+    <View style={{ gap: 8 }}><Section title="Your collection" action="View all" onPress={() => router.push('/(tabs)/collection')} />
+      {summary.totalCopies > 0 ? <Panel><View style={uiStyles.between}><Label kind="caption" style={uiStyles.muted}>Estimated value</Label><Badge tone="neutral">Sample USD</Badge></View><Label kind="price">{money(summary.totalValue)}</Label><Label kind="caption" style={uiStyles.muted}>{summary.uniqueCards} unique cards · {summary.totalCopies} copies</Label></Panel> : <EmptyState title="Your first card awaits" message="Start with a favorite. Make it your collection." action="Browse cards" onPress={() => router.push('/search')} />}
+    </View>
+    {recent.length > 0 ? <View><Section title="Recently added" />{recent.map(item => { const card = catalog.find(c => c.id === item.cardId); return card ? <CardRow key={card.id} card={card} quantity={item.quantity} /> : null; })}<Label kind="caption" style={[uiStyles.muted, { marginTop: 12 }]}>Sample artwork & prices · USD per copy</Label></View> : null}
   </Screen>;
 }
+const styles = StyleSheet.create({
+  logo: { width: 36, height: 36, borderRadius: 10, backgroundColor: colors.primary, justifyContent: 'center', alignItems: 'center' },
+  hero: { padding: 22, gap: 16, borderRadius: 24, backgroundColor: colors.primary },
+  heroTitle: { color: colors.white, fontSize: 27, lineHeight: 32, fontWeight: '700', letterSpacing: -0.6 },
+  scanIcon: { width: 44, height: 44, backgroundColor: colors.primaryDeep, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  heroArt: { width: 92, marginHorizontal: 4 },
+  heroBack: { position: 'absolute', top: 0, bottom: 0, left: -5, right: 0, backgroundColor: colors.primaryDeep, borderRadius: 10, transform: [{ rotate: '-12deg' }] },
+  miniCard: { padding: 8, backgroundColor: colors.white, borderRadius: 10, gap: 10, transform: [{ rotate: '9deg' }] },
+});
