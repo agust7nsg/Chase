@@ -3,18 +3,16 @@ import { StyleSheet, Switch, View } from 'react-native';
 import { Badge, Button, Icon, Label, Panel, Screen, Section, SettingRow, uiStyles } from '@/components/ui';
 import { useChase } from '@/features/app/ChaseProvider';
 import { colors } from '@/theme/tokens';
+import { CollectorMasthead } from '@/components/CollectorMasthead';
 
 export function ProfileScreen() {
   const { state, entitlements, summary, setDevPro } = useChase();
   const openAccount = (section: string) => router.push({ pathname: '/account', params: { section } });
 
   return <Screen>
-    <View style={{ gap: 6 }}>
-      <Label kind="eyebrow" style={uiStyles.muted}>YOUR CHASE</Label>
-      <Label kind="title" accessibilityRole="header">Profile</Label>
-    </View>
+    <CollectorMasthead title="Profile" eyebrow="A COLLECTOR AT HEART" caption="Every collection tells a story. This one’s yours." cardId="swshp-053" />
 
-    <Panel>
+    <Panel style={{ borderRadius: 0, borderWidth: 0, backgroundColor: 'transparent', padding: 0 }}>
       <View style={uiStyles.row}>
         <View style={styles.avatar}><Icon name="person-outline" size={28} color={colors.primary} /></View>
         <View style={{ flex: 1, gap: 4 }}>
@@ -29,7 +27,7 @@ export function ProfileScreen() {
 
     <View style={{ gap: 8 }}>
       <Section title="Membership" />
-      <Panel>
+      <Panel style={{ borderTopWidth: 3, borderTopColor: colors.primary }}>
         <View style={uiStyles.between}>
           <Label kind="heading">{state.plan === 'pro' ? 'Chase Pro' : 'Chase Free'}</Label>
           <Badge>{state.plan === 'pro' ? 'Simulated' : 'Free'}</Badge>

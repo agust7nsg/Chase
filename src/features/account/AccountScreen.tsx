@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useLocalSearchParams } from 'expo-router';
-import { Linking, View } from 'react-native';
-import { Badge, Button, Icon, Label, Panel, Screen, uiStyles, type IconName } from '@/components/ui';
+import { Linking } from 'react-native';
+import { Badge, Button, Label, Panel, Screen, uiStyles, type IconName } from '@/components/ui';
 import { legalLinks } from '@/config/links';
 import { colors } from '@/theme/tokens';
+import { CollectorMasthead } from '@/components/CollectorMasthead';
 
 type SectionName = 'create' | 'signin' | 'restore' | 'privacy' | 'terms' | 'support' | 'currency' | 'about' | 'delete' | 'logout';
 type Workflow = { title: string; icon: IconName; message: string; detail: string };
@@ -47,7 +48,7 @@ const workflows: Record<SectionName, Workflow> = {
   about: {
     title: 'About Chase', icon: 'information-circle-outline',
     message: 'Chase · v0.1 frontend prototype',
-    detail: 'A simple place to discover sample Pokémon cards and build a local collection. Recognition, prices, and membership access are simulated; artwork is illustrative rather than a real TCG card scan.',
+    detail: 'A place to discover Pokémon TCG artwork and build a local collection. Card images show real printings; recognition, prices, and membership access are simulated.',
   },
   delete: {
     title: 'Delete Account', icon: 'trash-outline',
@@ -83,10 +84,7 @@ export function AccountScreen() {
   };
 
   return <Screen safeTop={false}>
-    <View style={{ gap: 12 }}>
-      <Icon name={workflow.icon} size={32} color={colors.primary} />
-      <Label kind="title" accessibilityRole="header">{workflow.title}</Label>
-    </View>
+    <CollectorMasthead title={workflow.title} eyebrow="YOUR CHASE" caption="A little more about your collection companion." cardId="swsh7-192" />
     <Panel>
       <Badge>{isExternalSection && isHttpsUrl ? 'Configured destination' : activeSection === 'currency' ? 'USD in v0.1' : 'Prototype information'}</Badge>
       <Label kind="heading">{isExternalSection && isHttpsUrl ? `View ${workflow.title.toLowerCase()}` : workflow.message}</Label>
@@ -97,8 +95,8 @@ export function AccountScreen() {
     </Panel>
     {activeSection === 'about' ? <Panel>
       <Label kind="heading">Artwork & attribution</Label>
-      <Label style={uiStyles.muted}>Sample Pokémon artwork is provided by the PokeAPI sprites project. Pokémon © Nintendo / Creatures Inc. / GAME FREAK inc.</Label>
-      <Label kind="caption" style={uiStyles.muted}>Chase is an independent prototype and is not affiliated with or endorsed by those companies. Sample artwork, printing details, and prices do not constitute live card data.</Label>
+      <Label style={uiStyles.muted}>Pokémon TCG card images are supplied by TCGdex. Pokémon © Nintendo / Creatures Inc. / GAME FREAK inc. Background landscapes are original Chase interface artwork.</Label>
+      <Label kind="caption" style={uiStyles.muted}>Chase is an independent prototype and is not affiliated with or endorsed by those companies. Images are bundled references; prices are illustrative, not live market quotes.</Label>
     </Panel> : null}
     <Label kind="caption" style={uiStyles.muted}>You can return to Profile using the back button.</Label>
   </Screen>;

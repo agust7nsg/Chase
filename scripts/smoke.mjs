@@ -382,6 +382,50 @@ try {
     activePage = page;
   });
 
+  await scenario('new chase printings show real images and survive saving and reloading', async () => {
+    const chaseContext = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+    await chaseContext.addInitScript(({ key, value }) => {
+      if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(value));
+    }, { key: storageKey, value: { ...initialState, onboardingComplete: true } });
+    const chasePage = await chaseContext.newPage();
+    watchPage(chasePage);
+    await chasePage.goto(new URL('/search', baseUrl).href, { waitUntil: 'domcontentloaded' });
+    const chases = [
+      ['swsh7-215', 'Umbreon VMAX', 'Evolving Skies', '215/203'],
+      ['swsh7-218', 'Rayquaza VMAX', 'Evolving Skies', '218/203'],
+      ['swsh7-192', 'Dragonite V', 'Evolving Skies', '192/203'],
+      ['swsh8-271', 'Gengar VMAX', 'Fusion Strike', '271/264'],
+      ['swsh11-186', 'Giratina V', 'Lost Origin', '186/196'],
+      ['swsh12-186', 'Lugia V', 'Silver Tempest', '186/195'],
+      ['sv2-203', 'Magikarp', 'Paldea Evolved', '203/193'],
+      ['xyp-XY133', 'Ash-Greninja EX', 'XY Black Star Promos', 'XY133'],
+    ];
+    for (const [id, name, set, number] of chases) {
+      await chasePage.getByRole('textbox', { name: 'Search sample catalog by name, set, or card number' }).fill(name);
+      await visibleText(chasePage, '1 result').waitFor();
+      await openCard(chasePage, name);
+      await visibleText(chasePage, `${set} · ${number}`).waitFor();
+      const image = chasePage.getByRole('img', { name: `${name}, ${set}, ${number}, Pokémon TCG card`, exact: true });
+      await image.waitFor();
+      await image.evaluate(async element => {
+        const img = element instanceof HTMLImageElement ? element : element.querySelector('img');
+        if (!img) throw new Error('Card print does not contain an image');
+        await img.decode();
+        if (img.naturalWidth !== 600 || img.naturalHeight !== 825) throw new Error('Incorrect card image dimensions');
+      });
+      await button(chasePage, 'Add to collection').click();
+      await waitForState(chasePage, value => value.items.some(item => item.cardId === id && item.quantity === 1), `saved ${name}`);
+      await chasePage.goBack();
+    }
+    await chasePage.reload({ waitUntil: 'domcontentloaded' });
+    const saved = await waitForState(chasePage, value => value.items.length === chases.length, 'all new chase printings after reload');
+    assert.deepEqual(saved.items.map(item => item.cardId).sort(), chases.map(([id]) => id).sort());
+    assert.equal(saved.trial.successfulRecognitions, 0, 'Manual additions must not consume the scan trial.');
+    await checkHorizontalLayout(chasePage, 'expanded chase catalog');
+    await chaseContext.close();
+    activePage = page;
+  });
+
   console.log(`Chase browser smoke passed: ${passed} scenarios; no JavaScript runtime errors.`);
 } catch (error) {
   if (activePage && !activePage.isClosed()) {

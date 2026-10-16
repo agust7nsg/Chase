@@ -45,19 +45,21 @@ export const catalog: Card[] = [
     marketPrice: price(69.75),
   },
   {
+    // Retain the original prototype storage key; the actual printing is 51/130.
     id: 'base2-68',
     name: 'Eevee',
     setName: 'Base Set 2',
-    collectorNumber: '68/130',
+    collectorNumber: '51/130',
     variant: 'Normal',
     imageKey: 'eevee',
     marketPrice: price(2.4),
   },
   {
+    // Retain the original prototype storage key; the actual printing is Wizards promo 9.
     id: 'swshp-053',
     name: 'Mew',
-    setName: 'SWSH Black Star Promos',
-    collectorNumber: 'SWSH053',
+    setName: 'Wizards Black Star Promos',
+    collectorNumber: '9',
     variant: 'Holo',
     imageKey: 'mew',
     marketPrice: price(7.65),
@@ -71,6 +73,14 @@ export const catalog: Card[] = [
     imageKey: 'pikachu',
     marketPrice: price(4.2),
   },
+  { id: 'swsh7-215', name: 'Umbreon VMAX', setName: 'Evolving Skies', collectorNumber: '215/203', variant: 'Holo', imageKey: 'umbreon', marketPrice: price(650) },
+  { id: 'swsh7-218', name: 'Rayquaza VMAX', setName: 'Evolving Skies', collectorNumber: '218/203', variant: 'Holo', imageKey: 'rayquaza', marketPrice: price(280) },
+  { id: 'swsh7-192', name: 'Dragonite V', setName: 'Evolving Skies', collectorNumber: '192/203', variant: 'Holo', imageKey: 'dragonite', marketPrice: price(95) },
+  { id: 'swsh8-271', name: 'Gengar VMAX', setName: 'Fusion Strike', collectorNumber: '271/264', variant: 'Holo', imageKey: 'gengar', marketPrice: price(310) },
+  { id: 'swsh11-186', name: 'Giratina V', setName: 'Lost Origin', collectorNumber: '186/196', variant: 'Holo', imageKey: 'giratina', marketPrice: price(290) },
+  { id: 'swsh12-186', name: 'Lugia V', setName: 'Silver Tempest', collectorNumber: '186/195', variant: 'Holo', imageKey: 'lugia', marketPrice: price(155) },
+  { id: 'sv2-203', name: 'Magikarp', setName: 'Paldea Evolved', collectorNumber: '203/193', variant: 'Holo', imageKey: 'magikarp', marketPrice: price(85) },
+  { id: 'xyp-XY133', name: 'Ash-Greninja EX', setName: 'XY Black Star Promos', collectorNumber: 'XY133', variant: 'Holo', imageKey: 'greninja', marketPrice: price(28) },
 ];
 
 export function getCatalogCard(cardId: string): Card | undefined {

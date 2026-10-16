@@ -7,6 +7,7 @@ import { Badge, Button, EmptyState, Label, Panel, Screen, uiStyles } from '@/com
 import { getCatalogCard } from '@/data/mocks/catalog';
 import { useChase } from '@/features/app/ChaseProvider';
 import { colors } from '@/theme/tokens';
+import { visualFor } from '@/data/cardVisuals';
 
 export function CardDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string | string[] }>();
@@ -40,6 +41,7 @@ function CardDetailContent({ cardId }: { cardId: string }) {
       <Label style={uiStyles.muted}>{card.setName} · {card.collectorNumber}</Label>
     </View>
     <CardStage card={card} compact />
+    {visualFor(card).note ? <Label kind="caption" style={uiStyles.muted}>{visualFor(card).note}</Label> : null}
     <Panel>
       <View style={uiStyles.between}><Label kind="caption" style={uiStyles.muted}>Estimated price per copy</Label><Badge tone="neutral">Sample USD</Badge></View>
       <Label kind="price">{money(card.marketPrice.amount)}</Label>

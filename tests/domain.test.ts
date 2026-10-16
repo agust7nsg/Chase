@@ -219,7 +219,11 @@ test('unusable persisted values fall back to a fresh free state', () => {
 
 test('catalog has unique variant identities, fixed mock USD prices, and factual printing numbers', () => {
   assert.equal(new Set(catalog.map((card) => card.id)).size, catalog.length);
-  assert.equal(catalog.find((card) => card.name === 'Eevee')?.collectorNumber, '68/130');
+  assert.equal(catalog.find((card) => card.name === 'Eevee')?.collectorNumber, '51/130');
+  // Legacy storage IDs remain valid while the displayed printing metadata is corrected.
+  assert.equal(catalog.find((card) => card.id === 'base2-68')?.name, 'Eevee');
+  assert.equal(catalog.find((card) => card.id === 'swshp-053')?.setName, 'Wizards Black Star Promos');
+  assert.equal(catalog.find((card) => card.id === 'swshp-053')?.collectorNumber, '9');
   const pikachu = catalog.filter((card) => card.name === 'Pikachu');
   assert.equal(pikachu.length, 2);
   assert.equal(pikachu[0].setName, pikachu[1].setName);

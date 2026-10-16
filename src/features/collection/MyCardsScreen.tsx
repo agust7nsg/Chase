@@ -6,6 +6,7 @@ import { getCatalogCard } from '@/data/mocks/catalog';
 import { useChase } from '@/features/app/ChaseProvider';
 import { CardTile } from '@/features/cards/CardTile';
 import { colors } from '@/theme/tokens';
+import { CollectorMasthead } from '@/components/CollectorMasthead';
 
 type Sort = 'date' | 'name' | 'price';
 const sortOptions: { value: Sort; label: string }[] = [{ value: 'date', label: 'Recent' }, { value: 'name', label: 'Name A–Z' }, { value: 'price', label: 'Price ↓' }];
@@ -32,11 +33,10 @@ export function MyCardsScreen() {
   if (!ready) return <Screen safeTop={false}>{loadError ? <EmptyState title="Collection unavailable" message={loadError} action="Try again" onPress={retryLoad} /> : <ActivityIndicator color={colors.primary} accessibilityLabel="Loading your cards" />}</Screen>;
   return <Screen safeTop={false} scroll={false} style={{ gap: 16, paddingBottom: 16 }}>
     <FlatList
+      style={{ marginHorizontal: -24 }}
       ListHeaderComponent={<View style={{ gap: 16, marginBottom: 16 }}>
-        <View style={uiStyles.between}>
-          <View style={{ flex: 1, gap: 4 }}><Label kind="title" accessibilityRole="header">My Cards</Label><Label kind="caption" style={uiStyles.muted}>{summary.uniqueCards} unique cards · {summary.totalCopies} copies</Label></View>
-          <Button title="Add cards" variant="secondary" icon="add-outline" accessibilityLabel="Find cards to add" onPress={() => router.push('/search')} />
-        </View>
+        <CollectorMasthead title="My Cards" eyebrow="YOUR PERSONAL ARCHIVE" caption={`${summary.uniqueCards} unique cards · ${summary.totalCopies} copies`} cardId={state.items[0]?.cardId ?? 'swsh7-215'} />
+        <Button title="Add cards" variant="secondary" icon="add-outline" accessibilityLabel="Find cards to add" onPress={() => router.push('/search')} />
         <SearchField value={query} onChangeText={setQuery} placeholder="Search your cards" placeholderTextColor={colors.muted} accessibilityLabel="Search your cards by name" autoCapitalize="none" autoCorrect={false} />
         <View accessibilityRole="radiogroup" accessibilityLabel="Sort cards" style={styles.sorts}>
           {sortOptions.map((option) => <Pressable key={option.value} accessibilityRole="radio" accessibilityLabel={`Sort by ${option.label}`} accessibilityState={{ checked: sort === option.value }} aria-checked={sort === option.value} onPress={() => setSort(option.value)} style={[styles.sort, sort === option.value && styles.selected]}><Label kind="caption" style={{ color: sort === option.value ? colors.primary : colors.muted, fontWeight: '600' }}>{option.label}</Label></Pressable>)}
@@ -44,9 +44,9 @@ export function MyCardsScreen() {
       </View>}
       key={`cards-${columns}`} data={cards} numColumns={columns} keyExtractor={(item) => item.cardId}
       renderItem={({ item }) => <CardTile card={item.card} quantity={item.quantity} width={(gridWidth - (columns - 1) * 12) / columns} />}
-      onLayout={(event) => setGridWidth(event.nativeEvent.layout.width)}
+      onLayout={(event) => setGridWidth(event.nativeEvent.layout.width - 48)}
       columnWrapperStyle={columns > 1 ? styles.gridRow : undefined} contentContainerStyle={styles.grid} keyboardShouldPersistTaps="handled"
-      ListFooterComponent={cards.length ? <Label kind="caption" style={[uiStyles.muted, { paddingTop: 16 }]}>Sample artwork & prices · USD per copy.</Label> : null}
+      ListFooterComponent={cards.length ? <Label kind="caption" style={[uiStyles.muted, { paddingTop: 16 }]}>Real card images · illustrative USD prices per copy.</Label> : null}
       ListEmptyComponent={<EmptyState title={query.trim() ? 'No matching cards' : 'No cards yet'} message={query.trim() ? 'Try another name to find a card in your collection.' : 'Find your first favorite in the catalog.'} action={query.trim() ? 'Clear search' : 'Browse cards'} onPress={query.trim() ? () => setQuery('') : () => router.push('/search')} icon="search-outline" />}
     />
     <Button title="Browse catalog" variant="ghost" icon="search-outline" onPress={() => router.push('/search')} />
@@ -58,5 +58,5 @@ const styles = StyleSheet.create({
   sort: { flex: 1, minHeight: 48, justifyContent: 'center', alignItems: 'center', borderRadius: 10, paddingHorizontal: 4, paddingVertical: 8 },
   selected: { backgroundColor: colors.primarySoft },
   gridRow: { gap: 12, marginBottom: 12, alignItems: 'stretch' },
-  grid: { paddingBottom: 24 },
+  grid: { paddingBottom: 24, paddingHorizontal: 24 },
 });

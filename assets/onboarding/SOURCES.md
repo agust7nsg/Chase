@@ -1,6 +1,6 @@
-# Onboarding Pokémon TCG card images
+# Archived onboarding Pokémon TCG card images
 
-These are photographs/scans of actual card printings, distinct from the character illustrations used by the mock catalog.
+These are photographs/scans of actual card printings retained from the earlier onboarding. Active screens now share the expanded registry and assets in `assets/chases`; see `assets/chases/SOURCES.md` for current usage.
 
 - **Charizard:** Base Set, 4/102, Rare Holo. The supplied image depicts a first-edition printing.
 - **Ash-Greninja EX:** English XY Black Star Promo, XY133. This English artwork shows Ash-Greninja, not the character Ash. It must not be described as the Japanese promo illustration featuring Ash.

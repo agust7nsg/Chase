@@ -19,7 +19,7 @@ export function CardTile({ card, quantity, width }: { card: Card; quantity?: num
   </Pressable>;
 }
 const styles = StyleSheet.create({
-  tile: { minWidth: 0, borderWidth: 1, borderColor: colors.border, borderRadius: 16, padding: 8, gap: 8, backgroundColor: colors.white },
-  info: { gap: 2, paddingHorizontal: 4, paddingBottom: 5 },
+  tile: { minWidth: 0, gap: 10, paddingBottom: 14 },
+  info: { gap: 2, paddingHorizontal: 2, paddingBottom: 5 },
   quantity: { position: 'absolute', bottom: 8, right: 8, minWidth: 28, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, backgroundColor: colors.white },
 });

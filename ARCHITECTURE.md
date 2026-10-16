@@ -23,7 +23,7 @@ The initial runtime needs no API credentials. Authentication, store purchases, c
 | `src/services` | Service contracts, mocks, and domain rules |
 | `src/data/mocks` | Small local catalog with stable printing/variant IDs |
 | `src/config/links.ts` | Reviewed legal/support URL configuration |
-| `assets/cards` | Bundled sample artwork and source attribution |
+| `assets/chases`, `assets/scenes` | Verified printing images, original vector landscapes, attribution |
 
 Route files delegate to feature screens. Keep application logic and non-route helpers outside `src/app`. The root stack contains onboarding, tabs, scanner, paywall, inventory, catalog/detail, and account screens; the tabs are Home, Collection, and Profile.
 
@@ -74,3 +74,9 @@ Privacy, Terms, and Support start with `null` URLs in `src/config/links.ts`. Con
 Use `npm run typecheck`, `npm run lint`, `npm run test`, and `npm run export:mobile`. Domain/service tests cover the important trial, quantity, limit, identity, and valuation rules; mobile exports validate JavaScript bundling for iOS and Android. These checks do not establish native device behavior, real camera recognition, secure backend enforcement, or signed store readiness.
 
 Validate navigation, safe areas, large text, state restoration, errors, and Free/Pro boundaries on iOS and Android devices before release. Linux cannot run an iOS simulator, and this environment does not supply an Android emulator or `adb`. The future production work should be incremental: real card assets/catalog, camera and recognition adapter, versioned database persistence, authenticated cloud sync, verified subscriptions, and reviewed legal/support destinations.
+
+## Printing presentation and legacy keys
+
+`src/data/cardVisuals.ts` maps stable catalog keys to local full-print images, landscape moods and image limitations. `CardPrint` displays the shared image; `CollectorScene` composes it above an original landscape without introducing provider calls. The expanded catalog has 15 entries and 14 images (Pikachu variants share a disclosed printing reference). All values still use the mock pricing contract.
+
+The original mock incorrectly identified Eevee as Base Set 2 68/130 and Mew as SWSH053. Display metadata now matches the actual supplied prints: Eevee 51/130 and Wizards promo Mew 9. The internal `base2-68` and `swshp-053` keys deliberately remain stable, preserving existing AsyncStorage ownership and quantities. They are legacy application keys, not external provider IDs; any future live adapter must map them explicitly to the verified printing. Domain rules and the persistence schema are unchanged.

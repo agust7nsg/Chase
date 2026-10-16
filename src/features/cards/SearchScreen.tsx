@@ -5,6 +5,8 @@ import { Badge, EmptyState, Icon, Label, Screen, SearchField, uiStyles } from '@
 import { catalog } from '@/data/mocks/catalog';
 import { colors } from '@/theme/tokens';
 import { CardTile } from './CardTile';
+import { CollectorMasthead } from '@/components/CollectorMasthead';
+import { showcaseIds } from '@/data/cardVisuals';
 
 export function SearchScreen() {
   const { width, fontScale } = useWindowDimensions();
@@ -14,16 +16,17 @@ export function SearchScreen() {
   const columns = layout === 'grid' && fontScale <= 1.3 ? (width >= 700 ? 3 : 2) : 1;
   const cards = useMemo(() => {
     const search = query.trim().toLowerCase();
-    return catalog.filter((card) => `${card.name} ${card.setName} ${card.collectorNumber} ${card.variant}`.toLowerCase().includes(search));
+    return catalog.filter((card) => `${card.name} ${card.setName} ${card.collectorNumber} ${card.variant}`.toLowerCase().includes(search)).sort((a, b) => {
+      const order = (id: string) => { const index = showcaseIds.findIndex(featured => featured === id); return index < 0 ? showcaseIds.length : index; };
+      return order(a.id) - order(b.id);
+    });
   }, [query]);
   return <Screen safeTop={false} scroll={false} style={{ gap: 16, paddingBottom: 16 }}>
     <FlatList
+      style={{ marginHorizontal: -24 }}
       ListHeaderComponent={<View style={{ gap: 16, marginBottom: 16 }}>
-        <View style={{ gap: 8 }}>
-          <Label kind="title" accessibilityRole="header">Find your next card</Label>
-          <Label style={uiStyles.muted}>Find a favorite by name, set, or number.</Label>
-          <Badge>SAMPLE CATALOG</Badge>
-        </View>
+        <CollectorMasthead title="Find your next card" eyebrow="THE ART OF THE CHASE" caption="Find a favorite by name, set, or number." cardId="swsh7-218" />
+        <Badge>SAMPLE CATALOG · ILLUSTRATIVE USD</Badge>
         <SearchField value={query} onChangeText={setQuery} placeholder="Name, set, or card number" placeholderTextColor={colors.muted} accessibilityLabel="Search sample catalog by name, set, or card number" autoCapitalize="none" autoCorrect={false} />
         <View style={uiStyles.between}>
           <Label kind="caption" style={uiStyles.muted}>{cards.length} {cards.length === 1 ? 'result' : 'results'}</Label>
@@ -35,9 +38,9 @@ export function SearchScreen() {
       </View>}
       key={`catalog-${columns}`} data={cards} numColumns={columns} keyExtractor={(card) => card.id}
       renderItem={({ item }) => layout === 'grid' ? <CardTile card={item} width={(gridWidth - (columns - 1) * 12) / columns} /> : <CardRow card={item} />}
-      onLayout={(event) => setGridWidth(event.nativeEvent.layout.width)}
-      columnWrapperStyle={columns > 1 ? styles.gridRow : undefined} contentContainerStyle={{ paddingBottom: 24 }} keyboardShouldPersistTaps="handled"
-      ListFooterComponent={cards.length ? <Label kind="caption" style={[uiStyles.muted, { paddingTop: 16 }]}>Sample artwork & prices · USD per copy.</Label> : null}
+      onLayout={(event) => setGridWidth(event.nativeEvent.layout.width - 48)}
+      columnWrapperStyle={columns > 1 ? styles.gridRow : undefined} contentContainerStyle={{ paddingBottom: 24, paddingHorizontal: 24 }} keyboardShouldPersistTaps="handled"
+      ListFooterComponent={cards.length ? <Label kind="caption" style={[uiStyles.muted, { paddingTop: 16 }]}>Real card images · illustrative USD prices per copy.</Label> : null}
       ListEmptyComponent={<EmptyState title="No cards found" message="Try a Pokémon name, set, or collector number." action="Clear search" onPress={() => setQuery('')} icon="search-outline" />}
     />
   </Screen>;
