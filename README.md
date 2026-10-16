@@ -29,7 +29,7 @@ The cloud machine runs Linux. It cannot run an iOS simulator, and an Android emu
 - The scanner simulates recognition and never requests camera access. A successful result consumes the Free trial; opening the scanner or a failed recognition does not. Saving a result requires an explicit action.
 - Collection provides a wallet summary, inventory search/sort, card details, quantity changes, and confirmed removal. Value includes every saved copy.
 - Profile supports guest navigation, account and settings information, subscription information, and clearly labeled unfinished workflows.
-- In development builds, Profile offers **Development only · simulate Pro**. It changes prototype access locally and never makes a purchase.
+- In development builds, Profile offers **Preview onboarding** to revisit the introduction without resetting collection data or trial use, and **Development only · simulate Pro**. It changes prototype access locally and never makes a purchase.
 
 Free access includes manual search, sample prices, one collection, up to **50 total card copies**, and one complimentary successful sample recognition. The centralized mock entitlement model represents unlimited Pro scans and saved copies, plus future multiple collections, graded prices, and CSV export. Those future features are not implemented.
 
@@ -37,7 +37,7 @@ Free access includes manual search, sample prices, one collection, up to **50 to
 
 The catalog, recognition service, market prices, and subscription access are mocks. No camera identification, authentication, purchase, restoration, account deletion, or cloud synchronization is connected. No API key is needed. All sample prices are USD estimates, not guaranteed resale prices.
 
-The illustrations are official Pokémon character artwork distributed through PokeAPI, not real TCG card scans. The interface labels them **Sample artwork**. See [asset sources](assets/cards/SOURCES.md).
+The onboarding showcases actual Charizard Base Set Holo and English Ash-Greninja EX XY133 card images, with clearly illustrative prices; see [onboarding image sources](assets/onboarding/SOURCES.md). The mock catalog and recognition result still use Pokémon character illustrations distributed through PokeAPI, labeled **Sample artwork**; see [catalog illustration sources](assets/cards/SOURCES.md). No live card pricing or recognition service is connected.
 
 Onboarding, trial use, collection copies, and the prototype plan are persisted with AsyncStorage on the current device. Production builds restore the plan as Free; development Pro simulation never grants a production subscription. Existing copies are preserved when returning to Free, including collections over the limit; reducing quantities remains possible. Removing app data clears this local prototype state. AsyncStorage is not secure storage and must not hold private credentials.
 

@@ -59,6 +59,7 @@ export function ProfileScreen() {
         </View>
         <Switch value={state.plan === 'pro'} onValueChange={setDevPro} accessibilityLabel="Development only · simulate Pro" trackColor={{ false: colors.border, true: colors.primary }} />
       </View>
+      <Button title="Preview onboarding" variant="ghost" icon="images-outline" onPress={() => router.push('/onboarding')} />
     </Panel> : null}
   </Screen>;
 }

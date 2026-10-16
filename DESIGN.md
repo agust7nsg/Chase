@@ -86,9 +86,9 @@ Do not use motion as decoration. Any future animation must respect reduced-motio
 
 ## Collector presentation
 
-The visual pass preserves every route, the domain models, local storage, and the Free/Pro boundaries. It uses existing artwork and adds no font, UI library, image download, or animation dependency.
+The visual pass preserves every route, the domain models, local storage, and the Free/Pro boundaries. It uses bundled artwork and adds no font, UI library, runtime image-download, or animation dependency.
 
-- **Onboarding:** layered sample cards, a small progress marker, shorter introduction copy, and a quiet “Skip” action. Static composition gives the cards presence without decorative animation.
+- **Onboarding:** real Charizard Base Set Holo and English Ash-Greninja EX XY133 card scans in a layered showcase, a framed recognition preview, and a compact card-wallet composition. The price belongs to Charizard and is explicitly illustrative USD, never a live first-edition quote. A small progress marker, short introduction copy, and a quiet “Skip” action preserve the original flow. Static composition gives the cards presence without decorative animation.
 - **Home:** a blue scanner hero with an inverse white action. Manual search stays secondary. The membership label is a quiet rectangular badge; there is no floating settings control.
 - **Collection:** white value card, a blue top border, tabular totals, two clear inventory counts, and a compact Free capacity banner. Capacity counts copies and never hides owned copies after a downgrade.
 - **My Cards and catalog:** compact tinted artwork without duplicated card names or variant footers inside the image; names, printing/variant details, and a single price live beneath the art. Quantities appear in a small overlay. Search and sorting share reusable controls.
@@ -101,3 +101,11 @@ Sample disclosure is concise rather than repeated in every module: scanner resul
 Native stack headers keep a back action and omit duplicate titles on inventory, search, and details. Those screens respect bottom safe areas without adding the status inset twice. Inventory and catalog headers scroll within the existing FlatList, leaving cards reachable on short landscape screens and with larger text. Large system text switches grids to one column, and information rows wrap rather than overflow. Sort selection remains available to native accessibility APIs and web ARIA.
 
 System fonts remain intentional: no remote font request, native rendering, and text scaling enabled. Subtle tinted illustration backgrounds provide visual richness; larger panels remain neutral, and blue has a clear action hierarchy.
+
+## Onboarding card showcase
+
+`src/features/onboarding/OnboardingArtwork.tsx` owns the presentation-only featured card metadata and image compositions. Assets are bundled in `assets/onboarding`, retain their 600:825 aspect ratio, and show the entire printing without cropping. Source URLs, hashes, identities, and the distinction between English XY133 and the Japanese promo featuring Ash are documented in `assets/onboarding/SOURCES.md`.
+
+Screen one pairs two authentic card images with a short Charizard price example. Screen two uses a static scan frame with a clearly labeled demo result. Screen three presents the pair above an example wallet row. The complimentary-scan screen uses the Charizard image with the existing simulation disclosure. All image descriptions include the card name and printing. No camera permission, catalog mutation, seeded collection, or trial consumption is introduced by these illustrations.
+
+The existing development-only Profile panel includes **Preview onboarding**, so visual review does not require deleting local collection data. Closing the preview follows the original paywall-to-Home path and never resets the trial.

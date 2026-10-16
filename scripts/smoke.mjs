@@ -331,6 +331,19 @@ try {
     await page.screenshot({ path: '/tmp/chase-profile.png' });
   });
 
+  await scenario('development onboarding preview preserves the saved collection and scanner allowance', async () => {
+    const before = await stateOf(page);
+    await button(page, 'Preview onboarding').click();
+    await visibleText(page, 'Welcome to Chase').waitFor();
+    await page.getByRole('img', { name: /Charizard, Base Set/ }).waitFor();
+    assert.deepEqual(await stateOf(page), before);
+    await button(page, 'Skip').click();
+    await button(page, 'Skip for now').click();
+    await button(page, 'Close Chase Pro and go to Home').click();
+    await home(page);
+    assert.deepEqual(await stateOf(page), before, 'Previewing onboarding must not reset owned cards or grant another free scan.');
+  });
+
   await scenario('unknown card routes offer a recoverable empty state', async () => {
     await page.goto(new URL('/card/not-in-catalog', baseUrl).href, { waitUntil: 'domcontentloaded' });
     await visibleText(page, 'Card not found').waitFor();
