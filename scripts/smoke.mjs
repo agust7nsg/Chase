@@ -158,7 +158,6 @@ try {
     await button(page, 'View collection').click();
     await page.getByRole('heading', { name: 'Collection', exact: true }).filter({ visible: true }).waitFor();
     await visibleText(page, money(cards[recognizedCard].price)).first().waitFor();
-    await visibleText(page, '1 / 50 copies saved').waitFor();
   });
 
   await scenario('My Cards search and sorting work, and quantity changes update collection valuation', async () => {
@@ -182,7 +181,6 @@ try {
     await page.goBack();
     await button(page, 'My Cards').waitFor();
     await visibleText(page, money(cards[recognizedCard].price * 2)).first().waitFor();
-    await visibleText(page, '2 / 50 copies saved').waitFor();
     await button(page, 'My Cards').click();
     await openCard(page, cards[recognizedCard].name);
     await button(page, `Remove one ${cards[recognizedCard].name} copy`).click();
@@ -426,17 +424,18 @@ try {
     activePage = page;
   });
 
-  await scenario('wallet ranges, exact date inspection, allocation and quantity revaluation stay consistent', async () => {
+  await scenario('wallet ranges, top-card showcase, full inventory and quantity revaluation stay consistent', async () => {
     const walletContext = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
     const fixture = { ...initialState, onboardingComplete: true, items: [
       { cardId: 'base1-4', quantity: 2, addedAt: '2026-10-17T00:00:00.000Z' },
       { cardId: 'swsh7-215', quantity: 1, addedAt: '2026-10-17T01:00:00.000Z' },
       { cardId: 'xy12-35-reverse', quantity: 3, addedAt: '2026-10-17T02:00:00.000Z' },
+      { cardId: 'base2-68', quantity: 10, addedAt: '2026-10-17T03:00:00.000Z' },
     ] };
     await walletContext.addInitScript(({ key, value }) => { if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(value)); }, { key: storageKey, value: fixture });
     const wallet = await walletContext.newPage(); watchPage(wallet);
     await wallet.goto(new URL('/collection', baseUrl).href, { waitUntil: 'domcontentloaded' });
-    await visibleText(wallet, '$1,152.60').waitFor();
+    await visibleText(wallet, '$1,176.60').waitFor();
     await wallet.getByRole('radio', { name: '7D history', exact: true }).click();
     assert.equal(await wallet.getByRole('radio', { name: '7D history', exact: true }).getAttribute('aria-checked'), 'true');
     const chart = wallet.getByRole('slider', { name: 'Collection value history', exact: true });
@@ -454,25 +453,30 @@ try {
     assert.equal(await chart.getAttribute('aria-valuenow'), '7');
     await wallet.getByRole('radio', { name: '1Y history', exact: true }).click();
     await visibleText(wallet, 'Oct 1, 2025').waitFor();
-    assert.match(await chart.getAttribute('aria-valuetext'), /Oct 1, 2026.*1,152.60/);
-    await wallet.getByRole('tab', { name: 'Allocation', exact: true }).click();
-    let percentages = [];
-    for (const row of await button(wallet, /^View .*, [1-3] copies$/).all()) {
-      const match = (await row.innerText()).match(/([0-9.]+)% of value/); if (match) percentages.push(Number(match[1]));
-    }
-    assert.equal(percentages.length, 3); assert.ok(Math.abs(percentages.reduce((sum, value) => sum + value, 0) - 100) <= 0.2);
-    await wallet.getByRole('tab', { name: 'Holdings', exact: true }).click();
-    await button(wallet, 'Sort holdings by price movement').click();
-    await button(wallet, 'Sort holdings by value').waitFor();
+    assert.match(await chart.getAttribute('aria-valuetext'), /Oct 1, 2026.*1,176.60/);
+    await visibleText(wallet, 'Top cards').waitFor();
+    const topRows = button(wallet, /^View .*, [0-9]+ copies$/);
+    assert.deepEqual(await topRows.evaluateAll(rows => rows.map(row => row.getAttribute('aria-label'))), [
+      'View Umbreon VMAX, Holo, 1 copies', 'View Charizard, Holo, 2 copies', 'View Pikachu, Reverse holo, 3 copies',
+    ], 'Show only the three highest-priced printings, independent of owned quantity.');
+    assert.match(await button(wallet, 'View Charizard, Holo, 2 copies').innerText(), /\$245\.00/);
+    assert.equal(await wallet.getByRole('tab', { name: 'Allocation', exact: true }).count(), 0);
+    await button(wallet, 'See all').click();
+    await wallet.getByRole('textbox', { name: 'Search your cards by name', exact: true }).waitFor();
+    await visibleText(wallet, '4 unique cards · 16 copies').waitFor();
+    await wallet.getByRole('textbox', { name: 'Search your cards by name', exact: true }).fill('Eevee');
+    await visibleText(wallet, 'Eevee').waitFor();
+    assert.deepEqual(await stateOf(wallet), fixture, 'Opening and searching the full inventory must preserve owned cards.');
+    await wallet.goBack();
     await button(wallet, 'View Charizard, Holo, 2 copies').click();
     await button(wallet, 'Add one Charizard copy').click();
     await waitForState(wallet, value => value.items.find(item => item.cardId === 'base1-4')?.quantity === 3, 'revalued Charizard position');
     await wallet.goBack();
-    await visibleText(wallet, '$1,397.60').waitFor();
-    assert.match(await chart.getAttribute('aria-valuetext'), /1,397.60/);
+    await visibleText(wallet, '$1,421.60').waitFor();
+    assert.match(await chart.getAttribute('aria-valuetext'), /1,421.60/);
     assert.equal((await stateOf(wallet)).trial.successfulRecognitions, 0);
     await wallet.reload({ waitUntil: 'domcontentloaded' });
-    await visibleText(wallet, '$1,397.60').waitFor();
+    await visibleText(wallet, '$1,421.60').waitFor();
     await checkHorizontalLayout(wallet, 'wallet tracking');
     await walletContext.close(); activePage = page;
   });
@@ -488,7 +492,8 @@ try {
     await visibleText(previewPage, '$1,270.00').waitFor();
     assert.deepEqual(await stateOf(previewPage), before);
     await previewPage.getByRole('radio', { name: '3M history', exact: true }).click();
-    await previewPage.getByRole('tab', { name: 'Allocation', exact: true }).click();
+    assert.equal(await button(previewPage, /^View .*, [0-9]+ copies$/).count(), 3);
+    await button(previewPage, 'See all').waitFor();
     await checkHorizontalLayout(previewPage, '320px sample wallet');
     await button(previewPage, 'Return to my collection').click();
     await visibleText(previewPage, '$0.00').first().waitFor();
