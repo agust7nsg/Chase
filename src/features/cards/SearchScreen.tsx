@@ -1,17 +1,22 @@
 import { useMemo, useState } from 'react';
+import { useLocalSearchParams } from 'expo-router';
 import { FlatList, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { CardRow } from '@/components/CardRow';
-import { Badge, EmptyState, Icon, Label, Screen, SearchField, uiStyles } from '@/components/ui';
+import { EmptyState, Icon, Label, Screen, SearchField, uiStyles } from '@/components/ui';
 import { catalog } from '@/data/mocks/catalog';
 import { colors } from '@/theme/tokens';
 import { CardTile } from './CardTile';
-import { CollectorMasthead } from '@/components/CollectorMasthead';
 import { showcaseIds } from '@/data/cardVisuals';
 
 export function SearchScreen() {
+  const { query } = useLocalSearchParams<{ query?: string }>();
+  return <SearchContent key={query ?? ''} initialQuery={query ?? ''} />;
+}
+
+function SearchContent({ initialQuery }: { initialQuery: string }) {
   const { width, fontScale } = useWindowDimensions();
   const [gridWidth, setGridWidth] = useState(Math.min(width, 760) - 48);
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initialQuery);
   const [layout, setLayout] = useState<'grid' | 'list'>('grid');
   const columns = layout === 'grid' && fontScale <= 1.3 ? (width >= 700 ? 3 : 2) : 1;
   const cards = useMemo(() => {
@@ -25,29 +30,33 @@ export function SearchScreen() {
     <FlatList
       style={{ marginHorizontal: -24 }}
       ListHeaderComponent={<View style={{ gap: 16, marginBottom: 16 }}>
-        <CollectorMasthead title="Find your next card" eyebrow="THE ART OF THE CHASE" caption="Find a favorite by name, set, or number." cardId="swsh7-218" />
-        <Badge>SAMPLE CATALOG · ILLUSTRATIVE USD</Badge>
-        <SearchField value={query} onChangeText={setQuery} placeholder="Name, set, or card number" placeholderTextColor={colors.muted} accessibilityLabel="Search sample catalog by name, set, or card number" autoCapitalize="none" autoCorrect={false} />
+        <View style={{ gap: 6 }}><Label kind="title" accessibilityRole="header">Card catalog</Label><Label style={uiStyles.muted}>Find a printing and add it to your collection.</Label></View>
+        <View style={{ gap: 8 }}>
+          <Label kind="caption" style={styles.fieldLabel}>Card name, set or number</Label>
+          <SearchField value={query} onChangeText={setQuery} placeholder="Try Umbreon or 215/203" placeholderTextColor={colors.muted} accessibilityLabel="Search sample catalog by name, set, or card number" autoCapitalize="none" autoCorrect={false} />
+        </View>
         <View style={uiStyles.between}>
-          <Label kind="caption" style={uiStyles.muted}>{cards.length} {cards.length === 1 ? 'result' : 'results'}</Label>
-          <View style={{ flexDirection: 'row', gap: 8 }}>
+          <View style={{ gap: 3 }}><Label style={{ fontWeight: '600' }}>{cards.length} {cards.length === 1 ? 'result' : 'results'}</Label><Label kind="caption" style={uiStyles.muted}>Sample prices · USD / copy</Label></View>
+          <View style={styles.layoutControls}>
             <Pressable accessibilityRole="button" accessibilityLabel="Show grid" accessibilityState={{ selected: layout === 'grid' }} onPress={() => setLayout('grid')} style={[styles.toggle, layout === 'grid' && styles.selected]}><Icon name="grid-outline" color={layout === 'grid' ? colors.primary : colors.muted} size={20} /></Pressable>
             <Pressable accessibilityRole="button" accessibilityLabel="Show list" accessibilityState={{ selected: layout === 'list' }} onPress={() => setLayout('list')} style={[styles.toggle, layout === 'list' && styles.selected]}><Icon name="list-outline" color={layout === 'list' ? colors.primary : colors.muted} size={22} /></Pressable>
           </View>
         </View>
       </View>}
       key={`catalog-${columns}`} data={cards} numColumns={columns} keyExtractor={(card) => card.id}
-      renderItem={({ item }) => layout === 'grid' ? <CardTile card={item} width={(gridWidth - (columns - 1) * 12) / columns} /> : <CardRow card={item} />}
+      renderItem={({ item }) => layout === 'grid' ? <CardTile card={item} width={(gridWidth - (columns - 1) * 16) / columns} /> : <CardRow card={item} />}
       onLayout={(event) => setGridWidth(event.nativeEvent.layout.width - 48)}
       columnWrapperStyle={columns > 1 ? styles.gridRow : undefined} contentContainerStyle={{ paddingBottom: 24, paddingHorizontal: 24 }} keyboardShouldPersistTaps="handled"
-      ListFooterComponent={cards.length ? <Label kind="caption" style={[uiStyles.muted, { paddingTop: 16 }]}>Real card images · illustrative USD prices per copy.</Label> : null}
+      ListFooterComponent={cards.length ? <Label kind="caption" style={[uiStyles.muted, { paddingTop: 16 }]}>Bundled sample catalog. Prices are illustrative estimates, not live quotes.</Label> : null}
       ListEmptyComponent={<EmptyState title="No cards found" message="Try a Pokémon name, set, or collector number." action="Clear search" onPress={() => setQuery('')} icon="search-outline" />}
     />
   </Screen>;
 }
 
 const styles = StyleSheet.create({
-  toggle: { minWidth: 48, minHeight: 48, borderWidth: 1, borderColor: colors.border, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  selected: { borderColor: colors.tintBorder, backgroundColor: colors.primarySoft },
-  gridRow: { gap: 12, marginBottom: 12, alignItems: 'stretch' },
+  fieldLabel: { color: colors.muted, fontWeight: '600' },
+  layoutControls: { flexDirection: 'row', gap: 8 },
+  toggle: { minWidth: 48, minHeight: 48, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  selected: { backgroundColor: colors.primarySoft },
+  gridRow: { gap: 16, marginBottom: 16, alignItems: 'stretch' },
 });

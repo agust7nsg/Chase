@@ -2,7 +2,6 @@ import { StyleSheet, View } from 'react-native';
 import type { Card } from '@/types/domain';
 import { visualFor } from '@/data/cardVisuals';
 import { colors } from '@/theme/tokens';
-import { CollectorBackdrop } from './CollectorScene';
 import { CardPrint } from './CardPrint';
 import { Label } from './ui';
 
@@ -12,14 +11,13 @@ export function CardArtwork({ card, compact = false }: { card: Card; compact?: b
 export function CardStage({ card, compact = false }: { card: Card; compact?: boolean }) {
   const visual = visualFor(card);
   return <View style={styles.stage}>
-    <CollectorBackdrop mood={visual.mood} />
     <View style={[styles.heroPrint, compact && { maxWidth: 208 }]}><CardArtwork card={card} /></View>
-    <Label kind="eyebrow" style={styles.edition}>{visual.edition}</Label>
+    <Label kind="caption" style={styles.edition}>{visual.edition} · {card.collectorNumber}</Label>
   </View>;
 }
 const styles = StyleSheet.create({
-  shadow: { shadowColor: colors.text, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.16, shadowRadius: 12, elevation: 4, borderRadius: 7 },
-  stage: { marginHorizontal: -24, paddingHorizontal: 40, paddingTop: 24, paddingBottom: 16, alignItems: 'center', gap: 20, overflow: 'hidden' },
-  heroPrint: { width: '68%', maxWidth: 248, transform: [{ rotate: '-3deg' }] },
+  shadow: { shadowColor: colors.text, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.12, shadowRadius: 10, elevation: 3, borderRadius: 7 },
+  stage: { marginHorizontal: -24, paddingHorizontal: 24, paddingTop: 24, paddingBottom: 18, backgroundColor: colors.subtle, alignItems: 'center', gap: 18 },
+  heroPrint: { width: '64%', maxWidth: 248 },
   edition: { color: colors.muted, textAlign: 'center' },
 });

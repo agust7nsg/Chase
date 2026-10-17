@@ -96,11 +96,11 @@ try {
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
 
   await scenario('three introduction screens, skip scan, and paywall close preserve the complimentary scan', async () => {
-    await visibleText(page, 'Welcome to Chase').waitFor();
+    await visibleText(page, 'Understand card prices').waitFor();
     await button(page, 'Continue').click();
-    await visibleText(page, 'Scan Your Cards').waitFor();
+    await visibleText(page, 'Scan your cards').waitFor();
     await button(page, 'Continue').click();
-    await visibleText(page, 'Build Your Collection').waitFor();
+    await visibleText(page, 'Track your collection').waitFor();
     await button(page, 'Get started').click();
     await button(page, 'Try Free Scan').waitFor();
     await button(page, 'Skip for now').click();
@@ -117,7 +117,7 @@ try {
   await scenario('onboarding completion survives reload', async () => {
     await page.reload({ waitUntil: 'domcontentloaded' });
     await home(page);
-    assert.equal(await visibleText(page, 'Welcome to Chase').count(), 0);
+    assert.equal(await visibleText(page, 'Understand card prices').count(), 0);
     assert.equal((await stateOf(page)).trial.successfulRecognitions, 0);
   });
 
@@ -158,7 +158,7 @@ try {
     await button(page, 'View collection').click();
     await page.getByRole('heading', { name: 'Collection', exact: true }).filter({ visible: true }).waitFor();
     await visibleText(page, money(cards[recognizedCard].price)).first().waitFor();
-    await visibleText(page, '1 / 50 copies').waitFor();
+    await visibleText(page, '1 / 50 copies saved').waitFor();
   });
 
   await scenario('My Cards search and sorting work, and quantity changes update collection valuation', async () => {
@@ -182,7 +182,7 @@ try {
     await page.goBack();
     await button(page, 'My Cards').waitFor();
     await visibleText(page, money(cards[recognizedCard].price * 2)).first().waitFor();
-    await visibleText(page, '2 / 50 copies').waitFor();
+    await visibleText(page, '2 / 50 copies saved').waitFor();
     await button(page, 'My Cards').click();
     await openCard(page, cards[recognizedCard].name);
     await button(page, `Remove one ${cards[recognizedCard].name} copy`).click();
@@ -291,7 +291,7 @@ try {
     const downgraded = await waitForState(page, (value) => value.plan === 'free', 'simulated downgrade');
     assert.equal(totalCopies(downgraded), 52);
     await page.reload({ waitUntil: 'domcontentloaded' });
-    await visibleText(page, '52 of 50 total card copies saved').waitFor();
+    await visibleText(page, '52 / 50 copies').waitFor();
     assert.equal(totalCopies(await stateOf(page)), 52, 'Reload must never discard owned cards after a downgrade.');
     await tab(page, 'Collection').click();
     await button(page, 'My Cards').click();
@@ -334,7 +334,7 @@ try {
   await scenario('development onboarding preview preserves the saved collection and scanner allowance', async () => {
     const before = await stateOf(page);
     await button(page, 'Preview onboarding').click();
-    await visibleText(page, 'Welcome to Chase').waitFor();
+    await visibleText(page, 'Understand card prices').waitFor();
     await page.getByRole('img', { name: /Charizard, Base Set/ }).waitFor();
     assert.deepEqual(await stateOf(page), before);
     await button(page, 'Skip').click();
@@ -348,7 +348,7 @@ try {
     await page.goto(new URL('/card/not-in-catalog', baseUrl).href, { waitUntil: 'domcontentloaded' });
     await visibleText(page, 'Card not found').waitFor();
     await button(page, 'Browse cards').click();
-    await visibleText(page, 'Find your next card').waitFor();
+    await visibleText(page, 'Card catalog').waitFor();
   });
 
   await scenario('320px screens keep Home, Collection, My Cards, detail, and Profile controls usable', async () => {
@@ -424,6 +424,84 @@ try {
     await checkHorizontalLayout(chasePage, 'expanded chase catalog');
     await chaseContext.close();
     activePage = page;
+  });
+
+  await scenario('wallet ranges, exact date inspection, allocation and quantity revaluation stay consistent', async () => {
+    const walletContext = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+    const fixture = { ...initialState, onboardingComplete: true, items: [
+      { cardId: 'base1-4', quantity: 2, addedAt: '2026-10-17T00:00:00.000Z' },
+      { cardId: 'swsh7-215', quantity: 1, addedAt: '2026-10-17T01:00:00.000Z' },
+      { cardId: 'xy12-35-reverse', quantity: 3, addedAt: '2026-10-17T02:00:00.000Z' },
+    ] };
+    await walletContext.addInitScript(({ key, value }) => { if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(value)); }, { key: storageKey, value: fixture });
+    const wallet = await walletContext.newPage(); watchPage(wallet);
+    await wallet.goto(new URL('/collection', baseUrl).href, { waitUntil: 'domcontentloaded' });
+    await visibleText(wallet, '$1,152.60').waitFor();
+    await button(wallet, 'How collection history is calculated').click();
+    assert.equal(await button(wallet, 'How collection history is calculated').getAttribute('aria-expanded'), 'true');
+    await wallet.getByText(/This is price movement, not profit/).waitFor();
+    await wallet.getByRole('radio', { name: '7D history', exact: true }).click();
+    await visibleText(wallet, '7D sample price change').waitFor();
+    const chart = wallet.getByRole('slider', { name: 'Collection value history', exact: true });
+    await chart.click({ position: { x: 16, y: 60 } });
+    assert.match(await chart.getAttribute('aria-valuetext'), /Sep 24, 2026/);
+    await button(wallet, 'Next history date').click();
+    assert.match(await chart.getAttribute('aria-valuetext'), /Sep 25, 2026/);
+    await chart.focus(); await wallet.keyboard.press('ArrowRight');
+    assert.match(await chart.getAttribute('aria-valuetext'), /Sep 26, 2026/);
+    await wallet.keyboard.press('Home');
+    assert.match(await chart.getAttribute('aria-valuetext'), /Sep 24, 2026/);
+    assert.equal(await button(wallet, 'Previous history date').getAttribute('aria-disabled'), 'true');
+    await wallet.keyboard.press('End');
+    assert.match(await chart.getAttribute('aria-valuetext'), /Oct 1, 2026/);
+    assert.equal(await button(wallet, 'Next history date').getAttribute('aria-disabled'), 'true');
+    await wallet.getByRole('radio', { name: '1Y history', exact: true }).click();
+    await visibleText(wallet, 'Oct 1, 2025').waitFor();
+    assert.match(await chart.getAttribute('aria-valuetext'), /Oct 1, 2026.*1,152.60/);
+    await wallet.getByRole('tab', { name: 'Allocation', exact: true }).click();
+    let percentages = [];
+    for (const row of await button(wallet, /^View .*, [1-3] copies$/).all()) {
+      const match = (await row.innerText()).match(/([0-9.]+)% of value/); if (match) percentages.push(Number(match[1]));
+    }
+    assert.equal(percentages.length, 3); assert.ok(Math.abs(percentages.reduce((sum, value) => sum + value, 0) - 100) <= 0.2);
+    await wallet.getByRole('tab', { name: 'Holdings', exact: true }).click();
+    await button(wallet, 'Sort holdings by price movement').click();
+    await button(wallet, 'Sort holdings by value').waitFor();
+    await button(wallet, 'View Charizard, Holo, 2 copies').click();
+    await button(wallet, 'Add one Charizard copy').click();
+    await waitForState(wallet, value => value.items.find(item => item.cardId === 'base1-4')?.quantity === 3, 'revalued Charizard position');
+    await wallet.goBack();
+    await visibleText(wallet, '$1,397.60').waitFor();
+    assert.match(await chart.getAttribute('aria-valuetext'), /1,397.60/);
+    assert.equal((await stateOf(wallet)).trial.successfulRecognitions, 0);
+    await wallet.reload({ waitUntil: 'domcontentloaded' });
+    await visibleText(wallet, '$1,397.60').waitFor();
+    await checkHorizontalLayout(wallet, 'wallet tracking');
+    await walletContext.close(); activePage = page;
+  });
+
+  await scenario('empty-wallet preview and Home set shortcuts do not mutate owned cards or scan allowance', async () => {
+    const previewContext = await browser.newContext({ viewport: { width: 320, height: 568 }, deviceScaleFactor: 1 });
+    await previewContext.addInitScript(({ key, value }) => { if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(value)); }, { key: storageKey, value: { ...initialState, onboardingComplete: true } });
+    const previewPage = await previewContext.newPage(); watchPage(previewPage);
+    await previewPage.goto(new URL('/collection', baseUrl).href, { waitUntil: 'domcontentloaded' });
+    await button(previewPage, 'Preview sample wallet').waitFor(); assert.equal(await previewPage.getByRole('slider').count(), 0, 'An empty wallet should prioritize adding cards rather than an empty curve.'); const before = await stateOf(previewPage);
+    await button(previewPage, 'Preview sample wallet').click();
+    await visibleText(previewPage, 'Sample wallet preview. Your saved cards are unchanged.').waitFor();
+    await visibleText(previewPage, '$1,270.00').waitFor();
+    assert.deepEqual(await stateOf(previewPage), before);
+    await previewPage.getByRole('radio', { name: '3M history', exact: true }).click();
+    await previewPage.getByRole('tab', { name: 'Allocation', exact: true }).click();
+    await checkHorizontalLayout(previewPage, '320px sample wallet');
+    await button(previewPage, 'Return to my collection').click();
+    await visibleText(previewPage, '$0.00').first().waitFor();
+    assert.deepEqual(await stateOf(previewPage), before);
+    await tab(previewPage, 'Home').click();
+    await button(previewPage, 'Browse Evolving Skies, 3 printings').click();
+    await visibleText(previewPage, '3 results').waitFor();
+    assert.equal(await previewPage.getByRole('textbox', { name: 'Search sample catalog by name, set, or card number' }).inputValue(), 'Evolving Skies');
+    assert.deepEqual(await stateOf(previewPage), before);
+    await previewContext.close(); activePage = page;
   });
 
   console.log(`Chase browser smoke passed: ${passed} scenarios; no JavaScript runtime errors.`);

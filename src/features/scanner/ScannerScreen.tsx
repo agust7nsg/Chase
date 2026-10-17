@@ -3,9 +3,6 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { ActivityIndicator, StyleSheet, Switch, View } from 'react-native';
 import { Badge, Button, Icon, Label, Panel, Screen, uiStyles } from '@/components/ui';
 import { CardStage } from '@/components/CardArtwork';
-import { CollectorBackdrop } from '@/components/CollectorScene';
-import { CardPrint } from '@/components/CardPrint';
-import { getCatalogCard } from '@/data/mocks/catalog';
 import { money } from '@/components/CardRow';
 import { colors } from '@/theme/tokens';
 import { useChase } from '@/features/app/ChaseProvider';
@@ -44,7 +41,7 @@ export default function ScannerScreen() {
     else { addedRef.current = false; setError(result.message); }
   };
   if (card) return <Screen safeTop={false}>
-    <View style={{ gap: 10 }}><Badge>SIMULATED RESULT</Badge><Label kind="title">A familiar favorite.</Label><Label style={uiStyles.muted}>Sample recognition complete. Confirm before saving.</Label></View>
+    <View style={{ gap: 10 }}><Badge>SIMULATED RESULT</Badge><Label kind="title">Review your card</Label><Label style={uiStyles.muted}>Sample recognition complete. Confirm before saving.</Label></View>
     <CardStage card={card} compact />
     <View style={{ gap: 8 }}><Label kind="heading">{card.name}</Label><Label style={uiStyles.muted}>{card.setName} · {card.collectorNumber}</Label><Label style={uiStyles.muted}>{card.variant}</Label><View style={uiStyles.between}><Label>Estimated USD price</Label><Label kind="heading">{money(card.marketPrice.amount)}</Label></View><Label kind="caption" style={uiStyles.muted}>Illustrative price and simulated recognition. Estimates aren’t guaranteed resale values.</Label></View>
     {error ? <Label style={{ color: colors.danger }} accessibilityRole="alert">{error}</Label> : null}
@@ -52,14 +49,18 @@ export default function ScannerScreen() {
     {onboarding === '1' ? <Button title="Continue" variant="secondary" onPress={openPaywall} /> : <Button title="Scan another card" variant="secondary" onPress={() => { if (needsPro) openPaywall(); else { setCard(null); setError(null); } }} />}
   </Screen>;
   return <Screen safeTop={false}>
-    <Badge>SCANNER DEMONSTRATION</Badge><View style={{ gap: 8 }}><Label kind="title">Discover what{`\n`}you’re holding.</Label><Label style={uiStyles.muted}>Demo recognition, with no camera access.</Label></View>
+    <View style={{ gap: 8 }}><Label kind="title" accessibilityRole="header">Identify a card</Label><Label style={uiStyles.muted}>Identify a printing, review its price, then choose whether to save it.</Label></View>
     <View style={styles.frame}>
-      <CollectorBackdrop mood="sky" />
-      <View style={styles.inner}>
-        <View style={styles.reference} accessibilityElementsHidden importantForAccessibility="no-hide-descendants"><CardPrint card={getCatalogCard('xyp-XY133')!} /></View>
-        <View style={styles.scanLabel}>{loading ? <ActivityIndicator size="large" color={colors.primary} /> : <Icon name="scan-outline" size={32} color={colors.primary} />}<Label style={{ fontWeight: '700', textAlign: 'center' }}>{loading ? 'Identifying sample card…' : 'Your card goes here'}</Label><Label kind="caption" style={{ color: colors.muted, textAlign: 'center' }}>{loading ? 'Running the mock recognition service' : 'Example artwork · camera inactive'}</Label></View>
+      <View style={styles.frameHeader}><Icon name="camera-outline" size={18} color={colors.scannerMuted} /><Label kind="caption" style={{ color: colors.scannerMuted }}>Camera inactive · demo</Label></View>
+      <View style={styles.guide}>
+        <View style={[styles.corner, styles.topLeft]} /><View style={[styles.corner, styles.topRight]} /><View style={[styles.corner, styles.bottomLeft]} /><View style={[styles.corner, styles.bottomRight]} />
+        {loading ? <ActivityIndicator size="large" color={colors.white} /> : <Icon name="scan-outline" size={40} color={colors.white} />}
+        <Label style={{ color: colors.white, textAlign: 'center', fontWeight: '600' }}>{loading ? 'Identifying sample card…' : 'Center one card'}</Label>
+        <Label kind="caption" style={{ color: colors.scannerMuted, textAlign: 'center' }}>{loading ? 'Please wait for the result' : 'Keep all four corners inside the guide'}</Label>
       </View>
+      <Label kind="caption" style={{ color: colors.scannerMuted, textAlign: 'center' }}>This preview runs a sample scan without opening your camera.</Label>
     </View>
+    <View style={styles.tips}><Icon name="sunny-outline" color={colors.muted} size={18} /><Label kind="caption" style={uiStyles.muted}>For a real scan: even light, no glare, one card at a time.</Label></View>
     {error ? <Panel><Label style={{ color: colors.danger }} accessibilityRole="alert">{error}</Label><Label kind="caption" style={uiStyles.muted}>An unsuccessful recognition does not use your free trial.</Label></Panel> : null}
     <Button title={needsPro ? 'Explore Chase Pro' : state.plan === 'pro' ? 'Run sample scan' : 'Use my free sample scan'} icon="scan-outline" loading={loading} onPress={() => { void scan(); }} />
     <Label kind="caption" style={{ color: colors.muted, textAlign: 'center' }}>{state.plan === 'pro' ? 'Development Pro access is simulated.' : needsPro ? 'Your complimentary successful identification has been used.' : 'Only a successful result uses your free scan.'}</Label>
@@ -67,8 +68,13 @@ export default function ScannerScreen() {
   </Screen>;
 }
 const styles = StyleSheet.create({
-  frame: { marginHorizontal: -24, padding: 24, minHeight: 310, overflow: 'hidden' },
-  inner: { flex: 1, minHeight: 272, alignItems: 'center', justifyContent: 'flex-end', gap: 18 },
-  reference: { width: 142, position: 'absolute', top: 4, transform: [{ rotate: '-6deg' }] },
-  scanLabel: { padding: 16, alignSelf: 'stretch', gap: 6, alignItems: 'center', backgroundColor: colors.white, borderRadius: 14, borderWidth: 1, borderColor: colors.tintBorder },
+  frame: { padding: 20, backgroundColor: colors.scanner, borderRadius: 20, alignItems: 'center', gap: 20 },
+  frameHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-start' },
+  guide: { width: '100%', maxWidth: 210, aspectRatio: 600 / 825, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20, gap: 12 },
+  corner: { position: 'absolute', width: 30, height: 30, borderColor: colors.white },
+  topLeft: { top: 0, left: 0, borderTopWidth: 3, borderLeftWidth: 3, borderTopLeftRadius: 7 },
+  topRight: { top: 0, right: 0, borderTopWidth: 3, borderRightWidth: 3, borderTopRightRadius: 7 },
+  bottomLeft: { bottom: 0, left: 0, borderBottomWidth: 3, borderLeftWidth: 3, borderBottomLeftRadius: 7 },
+  bottomRight: { bottom: 0, right: 0, borderBottomWidth: 3, borderRightWidth: 3, borderBottomRightRadius: 7 },
+  tips: { flexDirection: 'row', alignItems: 'center', gap: 10 },
 });

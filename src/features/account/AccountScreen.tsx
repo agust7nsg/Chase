@@ -1,10 +1,9 @@
 import { useState } from 'react';
 import { useLocalSearchParams } from 'expo-router';
-import { Linking } from 'react-native';
-import { Badge, Button, Label, Panel, Screen, uiStyles, type IconName } from '@/components/ui';
+import { Linking, StyleSheet, View } from 'react-native';
+import { Badge, Button, Icon, Label, Screen, uiStyles, type IconName } from '@/components/ui';
 import { legalLinks } from '@/config/links';
 import { colors } from '@/theme/tokens';
-import { CollectorMasthead } from '@/components/CollectorMasthead';
 
 type SectionName = 'create' | 'signin' | 'restore' | 'privacy' | 'terms' | 'support' | 'currency' | 'about' | 'delete' | 'logout';
 type Workflow = { title: string; icon: IconName; message: string; detail: string };
@@ -13,47 +12,47 @@ const workflows: Record<SectionName, Workflow> = {
   create: {
     title: 'Create Account', icon: 'person-add-outline',
     message: 'Account creation is not connected yet.',
-    detail: 'Chase v0.1 works as a guest prototype. Your saved cards stay on this device; cloud backup and cross-device access will need a real authentication service.',
+    detail: 'Continue using Chase as a guest. Your saved cards stay on this device; cloud backup and cross-device access are not available yet.',
   },
   signin: {
     title: 'Sign In', icon: 'log-in-outline',
     message: 'Sign in is not connected yet.',
-    detail: 'No credentials are collected in this prototype. You can continue browsing, searching, and managing your local collection as a guest.',
+    detail: 'No credentials are collected here. You can search, scan samples, and manage your local collection as a guest.',
   },
   restore: {
     title: 'Restore Purchases', icon: 'refresh-outline',
     message: 'Purchase restoration is not connected yet.',
-    detail: 'This prototype does not process or restore purchases. A future store integration will verify an existing subscription before granting paid access.',
+    detail: 'Chase does not process payments or restore subscriptions in this prototype. Your current access remains unchanged.',
   },
   privacy: {
     title: 'Privacy Policy', icon: 'shield-checkmark-outline',
     message: 'A published Privacy Policy is not available yet.',
-    detail: 'A reviewed policy and its real HTTPS link must be configured before release. No legal document is fabricated for this prototype.',
+    detail: 'The reviewed policy will be linked here before release. Collection data in this prototype is stored on your device.',
   },
   terms: {
     title: 'Terms of Service', icon: 'document-text-outline',
     message: 'Published Terms of Service are not available yet.',
-    detail: 'Reviewed terms and their real HTTPS link must be configured before release. This prototype does not provide a substitute legal agreement.',
+    detail: 'The reviewed terms will be linked here before release.',
   },
   support: {
     title: 'Contact Support', icon: 'help-circle-outline',
     message: 'A support destination is not configured yet.',
-    detail: 'The team must add a real HTTPS support page before release. This prototype does not send support requests.',
+    detail: 'A support page will be linked here when available. This screen does not send a support request.',
   },
   currency: {
     title: 'Currency', icon: 'cash-outline',
     message: 'US Dollar (USD)',
-    detail: 'Chase v0.1 displays all sample market estimates in USD. Currency conversion is not available. Estimates are illustrative and are not guaranteed resale prices.',
+    detail: 'All card estimates and collection values use USD. Currency conversion is not available. Sample prices are illustrative and are not guaranteed resale prices.',
   },
   about: {
     title: 'About Chase', icon: 'information-circle-outline',
     message: 'Chase · v0.1 frontend prototype',
-    detail: 'A place to discover Pokémon TCG artwork and build a local collection. Card images show real printings; recognition, prices, and membership access are simulated.',
+    detail: 'Identify Pokémon TCG printings and manage a collection on your device. Card images show real printings; recognition, prices, and membership access are simulated.',
   },
   delete: {
     title: 'Delete Account', icon: 'trash-outline',
     message: 'Account deletion will be available after real authentication is connected.',
-    detail: 'You are using Chase as a guest and there is no account to delete. A future deletion flow must explain its consequences and require explicit confirmation before contacting the account service. No data is deleted here.',
+    detail: 'You are using Chase as a guest and there is no account to delete. No collection data is deleted here. Account deletion will require confirmation when accounts become available.',
   },
   logout: {
     title: 'Log Out', icon: 'log-out-outline',
@@ -84,20 +83,29 @@ export function AccountScreen() {
   };
 
   return <Screen safeTop={false}>
-    <CollectorMasthead title={workflow.title} eyebrow="YOUR CHASE" caption="A little more about your collection companion." cardId="swsh7-192" />
-    <Panel>
-      <Badge>{isExternalSection && isHttpsUrl ? 'Configured destination' : activeSection === 'currency' ? 'USD in v0.1' : 'Prototype information'}</Badge>
+    <View style={styles.header}>
+      <View style={styles.icon}><Icon name={workflow.icon} size={27} color={colors.primary} /></View>
+      <Label kind="title" accessibilityRole="header">{workflow.title}</Label>
+    </View>
+    <View style={styles.information}>
+      <Badge tone="neutral">{isExternalSection && isHttpsUrl ? 'External page' : activeSection === 'currency' ? 'Display currency' : activeSection === 'about' ? 'Version 0.1' : 'Prototype information'}</Badge>
       <Label kind="heading">{isExternalSection && isHttpsUrl ? `View ${workflow.title.toLowerCase()}` : workflow.message}</Label>
       <Label style={uiStyles.muted}>{isExternalSection && isHttpsUrl ? 'Open the configured page in your browser.' : workflow.detail}</Label>
       {isExternalSection && isHttpsUrl ? <Button title="Open website" icon="open-outline" onPress={() => { void openConfiguredLink(); }} /> : null}
       {isExternalSection && configuredUrl !== null && !isHttpsUrl ? <Label style={{ color: colors.danger }}>The configured link must be a valid HTTPS URL.</Label> : null}
       {linkError ? <Label accessibilityRole="alert" style={{ color: colors.danger }}>{linkError}</Label> : null}
-    </Panel>
-    {activeSection === 'about' ? <Panel>
-      <Label kind="heading">Artwork & attribution</Label>
-      <Label style={uiStyles.muted}>Pokémon TCG card images are supplied by TCGdex. Pokémon © Nintendo / Creatures Inc. / GAME FREAK inc. Background landscapes are original Chase interface artwork.</Label>
-      <Label kind="caption" style={uiStyles.muted}>Chase is an independent prototype and is not affiliated with or endorsed by those companies. Images are bundled references; prices are illustrative, not live market quotes.</Label>
-    </Panel> : null}
-    <Label kind="caption" style={uiStyles.muted}>You can return to Profile using the back button.</Label>
+    </View>
+    {activeSection === 'about' ? <View style={styles.attribution}>
+      <Label style={{ fontWeight: '600' }}>Artwork & attribution</Label>
+      <Label kind="caption" style={uiStyles.muted}>Pokémon TCG card images supplied by TCGdex. Pokémon © Nintendo / Creatures Inc. / GAME FREAK inc.</Label>
+      <Label kind="caption" style={uiStyles.muted}>Chase is an independent prototype and is not affiliated with or endorsed by those companies. Bundled images are printing references; prices are not live market quotes.</Label>
+    </View> : null}
   </Screen>;
 }
+
+const styles = StyleSheet.create({
+  header: { paddingTop: 16, gap: 24 },
+  icon: { width: 52, height: 52, borderRadius: 16, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
+  information: { gap: 16, paddingTop: 24, paddingBottom: 24, borderTopWidth: 1, borderColor: colors.border },
+  attribution: { gap: 12, paddingTop: 24, borderTopWidth: 1, borderColor: colors.border },
+});

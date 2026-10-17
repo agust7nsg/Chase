@@ -77,6 +77,16 @@ Validate navigation, safe areas, large text, state restoration, errors, and Free
 
 ## Printing presentation and legacy keys
 
-`src/data/cardVisuals.ts` maps stable catalog keys to local full-print images, landscape moods and image limitations. `CardPrint` displays the shared image; `CollectorScene` composes it above an original landscape without introducing provider calls. The expanded catalog has 15 entries and 14 images (Pikachu variants share a disclosed printing reference). All values still use the mock pricing contract.
+`src/data/cardVisuals.ts` maps stable catalog keys to local full-print images, landscape moods and image limitations. `CardPrint` displays the shared printing image. Active screens use purpose-specific compositions; the previous collector landscapes are no longer used. The expanded catalog has 15 entries and 14 images (Pikachu variants share a disclosed printing reference). All values still use the mock pricing contract.
 
 The original mock incorrectly identified Eevee as Base Set 2 68/130 and Mew as SWSH053. Display metadata now matches the actual supplied prints: Eevee 51/130 and Wizards promo Mew 9. The internal `base2-68` and `swshp-053` keys deliberately remain stable, preserving existing AsyncStorage ownership and quantities. They are legacy application keys, not external provider IDs; any future live adapter must map them explicitly to the verified printing. Domain rules and the persistence schema are unchanged.
+
+## Simulated price tracking
+
+`src/services/priceHistory.ts` is a pure deterministic adapter for daily USD sample series. It exposes 7D, 1M, 3M and 1Y windows anchored to the catalog date, October 1, 2026. All windows are trailing slices of the same per-printing curve; exact endpoints equal current mock prices. Portfolio aggregation and holding movement calculations multiply every valid copy in cents. The module has no network calls, state mutation or provider UI dependency.
+
+The curve revalues current holdings at sample historical prices. It deliberately ignores `addedAt` and does not infer transactions, cost basis, profit or past ownership. An empty collection stays zero. The wallet's sample collection is presentation state only and never enters the provider or AsyncStorage.
+
+`PriceChart` renders native line segments and supports pointer selection, native accessibility adjustment, web keyboard controls and exact date/value disclosure. A keyed chart resets inspection when its date window or endpoint changes. `RangeSelector` is a reusable control, while onboarding, wallet and card detail retain distinct layouts. No chart dependency or native package was added.
+
+`/search?query=...` initializes the existing catalog filter for Home's set shortcuts. The persistent state shape, original IDs, quota handling, recognition cancellation, serialized writes and Free downgrade rules are unchanged.

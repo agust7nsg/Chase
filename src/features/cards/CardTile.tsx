@@ -11,10 +11,10 @@ export function CardTile({ card, quantity, width }: { card: Card; quantity?: num
     style={({ pressed }) => [styles.tile, width !== undefined ? { width, flexGrow: 0, flexShrink: 0 } : { flex: 1 }, pressed && { opacity: 0.65 }]}>
     <View><CardArtwork card={card} compact />{quantity ? <View style={styles.quantity}><Label kind="caption" style={{ color: colors.primary, fontWeight: '700' }}>×{quantity}</Label></View> : null}</View>
     <View style={styles.info}>
-      <Label style={{ fontWeight: '700' }}>{card.name}</Label>
+      <Label style={{ fontWeight: '600' }}>{card.name}</Label>
       <Label kind="caption" numberOfLines={1} style={{ color: colors.muted }}>{card.setName}</Label>
       <Label kind="caption" style={{ color: colors.muted }}>{card.variant} · {card.collectorNumber}</Label>
-      <Label style={{ fontWeight: '700', color: colors.primary, paddingTop: 2 }}>{money(card.marketPrice.amount)}</Label>
+      <Label style={{ fontWeight: '700', paddingTop: 3, fontVariant: ['tabular-nums'] }}>{money(card.marketPrice.amount)}</Label>
     </View>
   </Pressable>;
 }

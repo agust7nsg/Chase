@@ -1,13 +1,15 @@
 import { useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { CardStage } from '@/components/CardArtwork';
 import { money } from '@/components/CardRow';
-import { Badge, Button, EmptyState, Label, Panel, Screen, uiStyles } from '@/components/ui';
+import { Badge, Button, EmptyState, Icon, Label, Screen, uiStyles } from '@/components/ui';
+import { PriceChart, RangeSelector } from '@/components/PriceChart';
 import { getCatalogCard } from '@/data/mocks/catalog';
 import { useChase } from '@/features/app/ChaseProvider';
 import { colors } from '@/theme/tokens';
 import { visualFor } from '@/data/cardVisuals';
+import { getCardHistory, getHistoryChange, HISTORY_AS_OF, type HistoryRange } from '@/services/priceHistory';
 
 export function CardDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string | string[] }>();
@@ -21,6 +23,7 @@ function CardDetailContent({ cardId }: { cardId: string }) {
   const item = state.items.find((entry) => entry.cardId === cardId);
   const [feedback, setFeedback] = useState<{ ok: boolean; message: string } | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [range, setRange] = useState<HistoryRange>('1M');
   if (!card) return <Screen safeTop={false}><EmptyState title="Card not found" message="This card is not available in the sample catalog." action="Browse cards" onPress={() => router.replace('/search')} icon="search-outline" /></Screen>;
   if (!ready) return <Screen safeTop={false}>{loadError ? <EmptyState title="Collection unavailable" message={loadError} action="Try again" onPress={retryLoad} /> : <ActivityIndicator color={colors.primary} accessibilityLabel="Loading card" />}</Screen>;
 
@@ -35,6 +38,10 @@ function CardDetailContent({ cardId }: { cardId: string }) {
     setConfirmRemove(false);
   };
   const atLimit = entitlements.maxCards !== null && summary.totalCopies >= entitlements.maxCards;
+  const history = getCardHistory(card.id, range);
+  const change = getHistoryChange(history);
+  const direction = change.amount >= 0 ? '+' : '−';
+  const asOf = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(new Date(HISTORY_AS_OF));
   return <Screen safeTop={false}>
     <View style={{ gap: 8 }}>
       <View style={uiStyles.between}><Label kind="title" accessibilityRole="header" style={{ flex: 1 }}>{card.name}</Label><Badge tone="warm">{card.variant}</Badge></View>
@@ -42,18 +49,25 @@ function CardDetailContent({ cardId }: { cardId: string }) {
     </View>
     <CardStage card={card} compact />
     {visualFor(card).note ? <Label kind="caption" style={uiStyles.muted}>{visualFor(card).note}</Label> : null}
-    <Panel>
-      <View style={uiStyles.between}><Label kind="caption" style={uiStyles.muted}>Estimated price per copy</Label><Badge tone="neutral">Sample USD</Badge></View>
+    <View style={styles.priceSection}>
+      <View style={uiStyles.between}><Label style={{ fontWeight: '600' }}>Estimated price per copy</Label><Label kind="caption" style={uiStyles.muted}>USD · ungraded</Label></View>
       <Label kind="price">{money(card.marketPrice.amount)}</Label>
-      <Label kind="caption" style={uiStyles.muted}>Sample price, not a guaranteed resale value.</Label>
-    </Panel>
+      <View style={[uiStyles.row, { gap: 6, flexWrap: 'wrap' }]}>
+        <Icon name={change.amount >= 0 ? 'trending-up-outline' : 'trending-down-outline'} size={18} color={change.amount >= 0 ? colors.success : colors.danger} />
+        <Label kind="caption" style={{ color: change.amount >= 0 ? colors.success : colors.danger, fontWeight: '600' }}>{direction}{money(Math.abs(change.amount))} ({direction}{Math.abs(change.percent).toFixed(2)}%)</Label><Label kind="caption" style={uiStyles.muted}>over {range}</Label>
+      </View>
+      <Label kind="caption" style={uiStyles.muted}>Simulated history · USD</Label>
+      <PriceChart points={history} height={150} label={`${card.name} simulated price history in USD`} />
+      <RangeSelector value={range} onChange={setRange} label="Card price history period" />
+      <Label kind="caption" style={uiStyles.muted}>Sample data as of {asOf}. Not a guaranteed resale value.</Label>
+    </View>
     <Button title={item ? 'Add one copy' : 'Add to collection'} icon="add-outline" onPress={add} />
     {feedback ? <View style={{ gap: 12 }}>
       <Label accessibilityRole={feedback.ok ? undefined : 'alert'} accessibilityLiveRegion="polite" style={{ color: feedback.ok ? colors.success : colors.danger }}>{feedback.message}</Label>
       {!feedback.ok && atLimit ? <Button title="Upgrade to Chase Pro" onPress={() => router.push('/paywall')} /> : null}
     </View> : null}
     {persistenceError ? <Label accessibilityRole="alert" style={{ color: colors.danger }}>{persistenceError}</Label> : null}
-    {item ? <Panel>
+    {item ? <View style={styles.holdingSection}>
       <Label kind="heading">In your collection</Label>
       <View style={[uiStyles.between, { flexWrap: 'wrap' }]}>
         <Label style={{ flex: 1 }}>Quantity</Label>
@@ -69,7 +83,12 @@ function CardDetailContent({ cardId }: { cardId: string }) {
         <Button title="Keep card" variant="secondary" onPress={() => setConfirmRemove(false)} />
         <Button title="Remove all copies" variant="danger" onPress={() => { removeFromCollection(card.id); setConfirmRemove(false); setFeedback({ ok: true, message: `${card.name} removed from your collection.` }); }} />
       </View> : <Button title="Remove from collection" variant="danger" icon="trash-outline" onPress={() => setConfirmRemove(true)} />}
-    </Panel> : null}
+    </View> : null}
     <Button title="View My Cards" variant="ghost" icon="albums-outline" onPress={() => router.push('/my-cards')} />
   </Screen>;
 }
+
+const styles = StyleSheet.create({
+  priceSection: { gap: 8 },
+  holdingSection: { gap: 16, paddingTop: 24, borderTopWidth: 1, borderTopColor: colors.border },
+});

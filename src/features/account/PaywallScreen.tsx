@@ -1,15 +1,17 @@
 import { useCallback } from 'react';
 import { router, useFocusEffect } from 'expo-router';
-import { BackHandler, Pressable, View } from 'react-native';
-import { Badge, Button, Icon, Label, Panel, Screen, uiStyles } from '@/components/ui';
+import { BackHandler, Pressable, StyleSheet, View } from 'react-native';
+import { Badge, Button, Icon, Label, Screen, uiStyles } from '@/components/ui';
 import { colors } from '@/theme/tokens';
 import { useChase } from '@/features/app/ChaseProvider';
-import { CollectorScene } from '@/components/CollectorScene';
-const benefits = [
-  { title: 'Keep discovering', detail: 'Unlimited scanning with future fair-use limits.', icon: 'scan-outline' as const },
-  { title: 'Room for every favorite', detail: 'Unlimited saved copies and collections.', icon: 'albums-outline' as const },
-  { title: 'More ways to collect', detail: 'Graded prices and CSV export, planned for later.', icon: 'sparkles-outline' as const },
+
+const comparison = [
+  { feature: 'Sample scans', free: '1 successful scan', pro: 'Unlimited' },
+  { feature: 'Saved copies', free: '50 total', pro: 'Unlimited' },
+  { feature: 'Manual search', free: 'Included', pro: 'Included' },
+  { feature: 'Sample prices', free: 'Included', pro: 'Included' },
 ];
+
 export default function PaywallScreen() {
   const { completeOnboarding } = useChase();
   const close = useCallback(() => { completeOnboarding(); router.replace('/(tabs)'); }, [completeOnboarding]);
@@ -17,14 +19,52 @@ export default function PaywallScreen() {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => { close(); return true; });
     return () => subscription.remove();
   }, [close]));
+
   return <Screen>
-    <View style={uiStyles.between}><Badge tone="warm">CHASE PRO</Badge><Pressable onPress={close} accessibilityRole="button" accessibilityLabel="Close Chase Pro and go to Home" style={{ minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center' }}><Icon name="close" size={28} /></Pressable></View>
-    <CollectorScene ids={['swsh8-271', 'swsh7-215', 'swsh11-186']} mood="cosmic" height={240} style={{ marginHorizontal: -24 }} />
-    <View style={{ gap: 12 }}><Label kind="title">More room for{`\n`}what you love.</Label><Label style={uiStyles.muted}>Keep your next great find. And the one after.</Label></View>
-    <View style={{ gap: 28 }}>{benefits.map(item => <View key={item.title} style={[uiStyles.row, { alignItems: 'flex-start' }]}><View style={{ paddingTop: 4 }}><Icon name={item.icon} color={colors.primary} /></View><View style={{ flex: 1, gap: 5 }}><Label kind="heading">{item.title}</Label><Label style={uiStyles.muted}>{item.detail}</Label></View></View>)}</View>
-    <Panel><Label style={{ fontWeight: '600' }}>Free is a great place to start</Label><Label kind="caption" style={uiStyles.muted}>Free search, 50 saved copies, and one successful sample scan.</Label></Panel>
-    <Panel style={{ backgroundColor: colors.primarySoft, borderColor: colors.tintBorder }}><Label style={{ color: colors.primary, fontWeight: '600' }}>Purchases are not connected</Label><Label kind="caption" style={uiStyles.muted}>Preview only. Subscriptions are unavailable; no payment is taken.</Label></Panel>
+    <View style={uiStyles.between}>
+      <Badge tone="neutral">Membership preview</Badge>
+      <Pressable onPress={close} accessibilityRole="button" accessibilityLabel="Close Chase Pro and go to Home" style={({ pressed }) => [styles.close, pressed && { opacity: 0.6 }]}><Icon name="close" size={27} /></Pressable>
+    </View>
+    <View style={{ gap: 12 }}>
+      <View style={styles.proMark}><Icon name="layers-outline" color={colors.primary} size={28} /></View>
+      <Label kind="title" accessibilityRole="header">Chase Pro</Label>
+      <Label style={uiStyles.muted}>More capacity for your collection and sample scans.</Label>
+    </View>
+
+    <View>
+      <View style={styles.tableHeader}>
+        <View style={styles.featureColumn}><Label kind="caption" style={uiStyles.muted}>COMPARE ACCESS</Label></View>
+        <View style={styles.planColumn}><Label style={{ fontWeight: '600' }}>Free</Label></View>
+        <View style={[styles.planColumn, styles.proColumn]}><Label style={{ color: colors.primary, fontWeight: '700' }}>Pro</Label></View>
+      </View>
+      {comparison.map(row => <View key={row.feature} style={styles.tableRow} accessible accessibilityLabel={`${row.feature}. Free: ${row.free}. Pro: ${row.pro}.`}>
+        <View style={styles.featureColumn}><Label kind="caption" style={{ fontWeight: '600' }}>{row.feature}</Label></View>
+        <View style={styles.planColumn}><Label kind="caption" style={uiStyles.muted}>{row.free}</Label></View>
+        <View style={[styles.planColumn, styles.proColumn]}><Label kind="caption" style={{ color: colors.primary, fontWeight: '600' }}>{row.pro}</Label></View>
+      </View>)}
+    </View>
+
+    <View style={{ gap: 12 }}>
+      <Label style={{ fontWeight: '600' }}>Planned for Pro</Label>
+      <View style={[uiStyles.row, { alignItems: 'flex-start' }]}><Icon name="time-outline" size={19} color={colors.muted} /><Label kind="caption" style={[uiStyles.muted, { flex: 1 }]}>Multiple collections, graded-card prices and CSV export are not available yet.</Label></View>
+    </View>
+
+    <View style={styles.purchaseStatus}>
+      <Icon name="information-circle-outline" color={colors.muted} size={21} />
+      <View style={{ flex: 1, gap: 4 }}><Label style={{ fontWeight: '600' }}>Purchases are not connected</Label><Label kind="caption" style={uiStyles.muted}>No payment is taken. Pro access is a local development simulation.</Label></View>
+    </View>
     <Button title="Continue with Free" onPress={close} />
-    {__DEV__ ? <Label kind="caption" style={{ color: colors.muted, textAlign: 'center' }}>Developers can simulate Pro from Profile.</Label> : null}
+    {__DEV__ ? <Label kind="caption" style={{ color: colors.muted, textAlign: 'center' }}>Preview Pro using the development switch in Profile.</Label> : null}
   </Screen>;
 }
+
+const styles = StyleSheet.create({
+  close: { minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center' },
+  proMark: { width: 56, height: 56, backgroundColor: colors.primarySoft, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
+  tableHeader: { flexDirection: 'row', borderBottomWidth: 1, borderColor: colors.border, minHeight: 56 },
+  tableRow: { flexDirection: 'row', borderBottomWidth: 1, borderColor: colors.border, minHeight: 72 },
+  featureColumn: { width: '40%', justifyContent: 'center', paddingVertical: 15, paddingRight: 10 },
+  planColumn: { width: '30%', justifyContent: 'center', alignItems: 'center', paddingVertical: 15, paddingHorizontal: 7 },
+  proColumn: { backgroundColor: colors.primarySoft },
+  purchaseStatus: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingVertical: 20, borderTopWidth: 1, borderColor: colors.border },
+});

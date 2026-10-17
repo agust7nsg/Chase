@@ -2,9 +2,9 @@
 
 ## Philosophy
 
-Chase is a practical mobile card collection application. Give artwork and the next useful action the strongest emphasis. Use a light theme, a blue accent, native navigation, restrained surfaces, and clear typography. Home is a compact entry point to scanning and search; Collection is an inventory wallet rather than a trading dashboard.
+Chase is a practical mobile card collection application. Give artwork and the next useful action the strongest emphasis. Use a light theme, a blue accent, native navigation, restrained surfaces, and clear typography. Home is a compact entry point to scanning and search; Collection combines an inventory wallet with the value-tracking display explicitly requested for the product.
 
-The UI UX Pro Max mobile guidance informs touch targets, contrast, system text scaling, safe areas, feedback, and predictable escape routes. The product requirements take precedence over decorative defaults. Avoid gradients, glass effects, neon, oversized decorative panels, analytics charts, and unnecessary animation.
+The UI UX Pro Max mobile guidance informs touch targets, contrast, system text scaling, safe areas, feedback, and predictable escape routes. The product requirements take precedence over decorative defaults. Avoid gradients, glass effects, neon, oversized decorative panels, unrelated analytics, and unnecessary animation. One focused historical value curve is useful to the collection workflow.
 
 ## Color tokens
 
@@ -12,7 +12,7 @@ The source of truth is `src/theme/tokens.ts`.
 
 | Token | Value | Use |
 | --- | --- | --- |
-| `background` | `#F7F9FC` | Soft neutral canvas |
+| `background` | `#F6F7F9` | Soft neutral canvas |
 | `surface` / `white` | `#FFFFFF` | Panels, search fields, and text on blue actions |
 | `primary` | `#245DE8` | Primary action and active navigation |
 | `primarySoft` | `#EAF1FF` | Quiet blue emphasis |
@@ -21,9 +21,9 @@ The source of truth is `src/theme/tokens.ts`.
 | `tintBorder` | `#D4E2FF` | Borders and capacity tracks on tinted surfaces |
 | `warm` / `warmText` | `#FFF5DF` / `#805B16` | Restrained variant and Pro badges |
 | `subtle` | `#F0F4FA` | Neutral status badges |
-| `text` | `#142440` | Main content |
-| `muted` | `#586982` | Supporting slate text with readable contrast |
-| `border` | `#E3E9F2` | Subtle separators |
+| `text` | `#172139` | Main content |
+| `muted` | `#596579` | Supporting slate text with readable contrast |
+| `border` | `#E1E5EC` | Subtle separators |
 | `success` | `#166534` | Success messages paired with text |
 | `danger` | `#B91C1C` | Error and destructive action text |
 | `scanner` | `#14213A` | Dedicated scanner frame, within the light application |
@@ -84,20 +84,31 @@ Use accessible roles, labels, selected/disabled/busy state, and meaningful image
 
 Do not use motion as decoration. Any future animation must respect reduced-motion settings and communicate a real state change.
 
-## Collector presentation
+## Product composition
 
-The interface uses authentic TCG printing images as its main visual material. Fourteen local WebP prints serve fifteen catalog variants. Original vector landscapes extend across the screen: lunar towers for Umbreon, open sky/water contours for Lugia and Rayquaza, warm terrain for vintage Charizard, botanical contours for the Base Set starters, and cosmic contours for Giratina, Gengar and Mew. These art palettes belong to one light interface, not selectable themes. Shapes use solid fills and fine strokes, with no gradients or decorative motion.
+The Mobbin references provided by the user establish a standard of purposeful composition: Fitbit isolates the product, Mindtrip organizes discovery around content, Ro uses restraint, and Shopify prioritizes information and tasks. They are reference principles, not copied screens. Function determines the layout. Reusable controls do not imply a repeated page template.
 
-- **Onboarding:** full-width three-card compositions introduce vintage and modern chases; Lugia previews recognition, Giratina/Gengar/Magikarp show the range of collecting, and Dragonite illustrates the complimentary-scan introduction. Every printing stays entire. No example adds an owned card or consumes a scan.
-- **Home:** a lunar fan of Umbreon, Lugia and Rayquaza flows into the primary scanner action. An open wallet row and two fixed editorial card-art features replace generic boxed modules. Editorial links open the real local card details; they are not personalized recommendations or live-market listings.
-- **Collection:** a botanical cover displays up to three owned printings. Empty collections display illustrative classics with zero counts and no seeded ownership. A border-separated wallet summary, copy capacity and recent rows retain their original meaning.
-- **My Cards and catalog:** full printing images with concise metadata beneath, no redundant artificial card frame. Images retain 600:825 proportions. The catalog opens with a fixed chase-art selection while the recognition mock preserves its original order. Search, layout toggles, sorting and quantity overlays remain functional. Full-width illustrated mastheads scroll within the FlatList; the list owns the gutters so edge artwork is not clipped. Large text switches the grid to one column.
-- **Details:** the printing sits in its matching landscape with a small edition/art label. Price, quantity controls and removal confirmation remain separate and readable. Charizard explicitly discloses the first-edition reference versus a generic mock estimate; Reverse holo Pikachu discloses its representative standard-print image.
-- **Profile, account information and Pro:** matching illustrated mastheads and a cosmic card fan carry the collector identity into secondary routes. Guest access, informational account states, a closeable paywall and development-only controls remain unchanged.
-- **Scanner:** Ash-Greninja illustrates the inactive camera area with an explicit example label. Results show the actual bundled print within its landscape, while recognition remains a confirmed local simulation.
+- **Brand:** the lowercase `chase` wordmark and scanning-frame symbol are shared by introduction and Home. The stable identity comes from type, proportions, control treatment, contrast and terminology.
+- **Prices introduction:** one actual printing against a cool neutral-blue surface, with a local Charizard/Umbreon selector and a clear estimate. No unrelated card fan or warm background competes with the artwork. On short screens the card and quote become a compact horizontal composition.
+- **Scan introduction:** an upright print inside a dark viewfinder, followed by a result and identify/review/save sequence. The visual communicates the operation instead of a motivational slogan.
+- **Collection introduction:** an example value, price movement, timeline and actual holding rows. The sample comes from the same history module as the wallet; no ownership is seeded.
+- **Home:** explicit scan and search actions, a digest of the actual collection, recent cards and working set-filter shortcuts. No decorative masthead or recurring scene.
+- **Wallet:** open typography-led valuation and native line chart, range controls, exact-value inspection, holding positions and allocation. It represents card copies and printings, not cash or trading orders. Empty wallets prioritize Browse/Preview instead of a blank graph. The sample preview is visually identified and reversible without changing saved data.
+- **Catalog and inventory:** visible search labels, compact titles and useful controls above actual full-print images. No large promotional header. Inventory footer actions scroll with the list on short screens. Grids adapt to system text scaling.
+- **Card detail:** a straight, isolated card on a cool surface; printing metadata, estimate, functional historical range controls and copy management. Edition/reference limitations remain visible.
+- **Scanner:** a real crop guide and direct instructions within a dark inactive-camera area. Simulation, failures, quota use and confirmation remain explicit.
+- **Profile and Pro:** identity/storage, membership capacity and grouped settings. The Pro screen compares actual Free/simulated Pro access and distinguishes planned capabilities. Disconnected account actions remain secondary.
 
-`src/data/cardVisuals.ts` owns presentation metadata and bundled image references. `CardPrint`, `CollectorScene`, `CollectorBackdrop` and `CollectorMasthead` share the image and landscape system. Assets, exact identities, edition limitations, source URLs and checksums are documented in `assets/chases/SOURCES.md`. Art for a printing never substitutes for proof of an owned edition, condition or market valuation.
+The native line chart supports touch/click inspection, previous/next date buttons, screen-reader adjustment, and keyboard arrow/Home/End navigation on web. Every selected point exposes date and USD value. Year-long axes include years. History uses one blue curve, with signed movement text/icons; color alone never carries the change. No candles, order book, forecasts or irrelevant analytics were added.
 
-All prices remain **illustrative USD**. Compact cards no longer say “Sample artwork” because they show actual TCG scans; simulated recognition and sample pricing remain explicitly labeled. No runtime image download, font dependency, new UI library, animation or camera permission was introduced. Native headers, safe areas, system text scaling, minimum touch targets and the existing three tabs remain intact.
+## Value-tracking honesty
 
-The development-only Profile action **Preview onboarding** allows reviewing the introduction without deleting saved copies or resetting the scanner trial.
+Every estimate/history is explicitly simulated USD. The fixed sample date is October 1, 2026. Historical portfolio values apply current quantities to earlier sample prices; they are not realized gains, cost basis or actual past ownership. The calculation note explains that changing quantities recalculates the curve. Price/quantity changes preserve the same underlying domain rules and storage key. A sample preview must never change inventory or trial use.
+
+## Contrast and responsive behavior
+
+Artwork uses neutral/cool separation instead of matching every background to a Pokémon’s dominant color. Actual printing colors remain intact. Text/action contrast is evaluated against the composed background. Dark viewfinders use white and pale text; the rest of the interface remains light. No decorative gradients, glass, neon, remote fonts or animation are required.
+
+Tall onboarding screens reserve safe space for actions while allowing explanatory content to scroll. Below 740px height, or with large system text, the whole page scrolls so fixed controls cannot reduce the body to a sliver. Each new step starts at the top. Native bottom insets protect the action area. Existing top/bottom native navigation and the three tabs remain intact.
+
+Full-print images remain 600:825 references, with sources and limitations in `assets/chases/SOURCES.md`. The old `CollectorScene`, `CollectorMasthead` and landscape assets are retained historical components and are not used in active screens. Development Profile still provides **Preview onboarding** without resetting collection or scanner state.

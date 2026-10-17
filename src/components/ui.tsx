@@ -3,7 +3,6 @@ import { ActivityIndicator, type ColorValue, Pressable, ScrollView, StyleSheet, 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors } from '@/theme/tokens';
-import { CollectorBackdrop } from './CollectorScene';
 
 export type IconName = ComponentProps<typeof Ionicons>['name'];
 export function Icon({ name, size = 22, color = colors.text }: { name: IconName; size?: number; color?: ColorValue }) {
@@ -14,7 +13,6 @@ export function Label({ children, kind = 'body', style, ...props }: TextProps & 
 }
 export function Screen({ children, scroll = true, style, safeTop = true }: { children: ReactNode; scroll?: boolean; style?: ViewStyle; safeTop?: boolean }) {
   return <SafeAreaView style={styles.safe} edges={safeTop ? ['top', 'left', 'right'] : ['bottom', 'left', 'right']}>
-    <CollectorBackdrop mood="sky" opacity={0.09} />
     {scroll ? <ScrollView contentContainerStyle={[styles.content, style]} keyboardShouldPersistTaps="handled">{children}</ScrollView> : <View style={[styles.content, { flex: 1 }, style]}>{children}</View>}
   </SafeAreaView>;
 }
@@ -64,9 +62,9 @@ const styles = StyleSheet.create({
   price: { fontSize: 40, lineHeight: 48, fontWeight: '700', letterSpacing: -1.2, fontVariant: ['tabular-nums'] },
   button: { minHeight: 54, borderRadius: 14, paddingHorizontal: 18, paddingVertical: 14, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 10 },
   inverse: { backgroundColor: colors.white }, primary: { backgroundColor: colors.primary }, secondary: { backgroundColor: colors.white, borderColor: colors.border, borderWidth: 1 }, ghost: { backgroundColor: 'transparent' }, danger: { backgroundColor: '#FEF2F2' },
-  panel: { borderRadius: 20, backgroundColor: colors.white, borderColor: colors.border, borderWidth: 1, padding: 20, gap: 16 },
+  panel: { borderRadius: 16, backgroundColor: colors.white, borderColor: colors.border, borderWidth: 1, padding: 20, gap: 16 },
   badge: { alignSelf: 'flex-start', backgroundColor: colors.primarySoft, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
   section: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }, textAction: { minHeight: 48, paddingHorizontal: 4, justifyContent: 'center' },
-  empty: { paddingVertical: 24, paddingHorizontal: 20, gap: 12, alignItems: 'center', backgroundColor: colors.white, borderWidth: 1, borderColor: colors.border, borderRadius: 20 }, emptyIcon: { width: 56, height: 56, borderRadius: 16, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
+  empty: { paddingVertical: 28, paddingHorizontal: 12, gap: 12, alignItems: 'center' }, emptyIcon: { width: 56, height: 56, borderRadius: 16, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
   setting: { minHeight: 64, paddingVertical: 16, flexDirection: 'row', alignItems: 'center', gap: 16, borderBottomColor: colors.border, borderBottomWidth: 1 },
 });
