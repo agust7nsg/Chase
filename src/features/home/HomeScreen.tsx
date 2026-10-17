@@ -2,7 +2,7 @@ import { router } from 'expo-router';
 import { Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { Badge, Button, Icon, Label, Screen, Section, uiStyles } from '@/components/ui';
 import { CardPrint } from '@/components/CardPrint';
-import { CardRow, money } from '@/components/CardRow';
+import { CardRow } from '@/components/CardRow';
 import { colors } from '@/theme/tokens';
 import { useChase } from '@/features/app/ChaseProvider';
 import { catalog, getCatalogCard } from '@/data/mocks/catalog';
@@ -15,7 +15,7 @@ const sets = [
 ];
 
 export default function HomeScreen() {
-  const { state, summary } = useChase();
+  const { state } = useChase();
   const { fontScale } = useWindowDimensions();
   const startScan = () => router.push(canScan(state) ? '/scanner' : '/paywall');
   const recent = [...state.items].sort((a, b) => b.addedAt.localeCompare(a.addedAt)).slice(0, 3);
@@ -47,18 +47,6 @@ export default function HomeScreen() {
       <Button title="Search Cards" variant="secondary" icon="search-outline" onPress={() => router.push('/search')} />
     </View>
 
-    <View style={styles.walletSection}>
-      <Section title="Your collection" action="View all" onPress={() => router.push('/(tabs)/collection')} />
-      <Pressable accessibilityRole="button" accessibilityLabel="Open your collection" onPress={() => router.push('/(tabs)/collection')} style={({ pressed }) => [styles.wallet, pressed && styles.pressed]}>
-        <View style={{ flex: 1, gap: 6 }}>
-          <Label kind="caption" style={uiStyles.muted}>Sample value · USD</Label>
-          <Label kind="price">{money(summary.totalValue)}</Label>
-          <Label kind="caption" style={uiStyles.muted}>{summary.totalCopies ? `${summary.uniqueCards} printings · ${summary.totalCopies} copies` : 'No cards yet'}</Label>
-        </View>
-        <View style={styles.walletArrow}><Icon name="arrow-forward" color={colors.primary} /></View>
-      </Pressable>
-    </View>
-
     {recent.length > 0 ? <View style={{ gap: 8 }}><Section title="Recently added" />{recent.map(item => { const card = getCatalogCard(item.cardId); return card ? <CardRow key={card.id} card={card} quantity={item.quantity} /> : null; })}</View> : null}
 
     <View style={{ gap: 8 }}>
@@ -88,9 +76,6 @@ const styles = StyleSheet.create({
   printOffset: { position: 'absolute', top: -10, bottom: 10, left: -10, right: 10, borderWidth: 1, borderColor: colors.onPrimaryMuted, borderRadius: 8, opacity: 0.45 },
   heroOrbit: { position: 'absolute', top: -45, right: -76, width: 300, height: 300, borderRadius: 150, backgroundColor: colors.primaryDeep },
   scanStatus: { color: colors.heroQuiet, textAlign: 'center' },
-  walletSection: { gap: 6, paddingTop: 4 },
-  wallet: { flexDirection: 'row', alignItems: 'center', gap: 16, paddingVertical: 12 },
-  walletArrow: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
   setRow: { flexDirection: 'row', alignItems: 'center', gap: 18, paddingVertical: 16, borderBottomWidth: 1, borderColor: colors.border },
   setPrint: { width: 56 },
   pressed: { opacity: 0.65 },

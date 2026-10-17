@@ -30,7 +30,6 @@ export function CollectionScreen() {
   const [view, setView] = useState<'holdings' | 'allocation'>('holdings');
   const [order, setOrder] = useState<'value' | 'change'>('value');
   const [preview, setPreview] = useState(false);
-  const [explain, setExplain] = useState(false);
   const items = preview ? exampleItems : state.items;
   const displayedSummary = preview ? summarizeCollection(exampleItems) : summary;
   const history = useMemo(() => getPortfolioHistory(items, range), [items, range]);
@@ -51,19 +50,14 @@ export function CollectionScreen() {
     <View style={uiStyles.between}><View style={uiStyles.row}><View style={styles.walletIcon}><Icon name="wallet-outline" color={colors.primary} size={22} /></View><Label kind="title" accessibilityRole="header">Collection</Label></View><Badge tone="neutral">USD</Badge></View>
     {preview ? <View style={styles.preview}><Icon name="information-circle-outline" color={colors.primary} /><Label kind="caption" style={{ flex: 1 }}>Sample collection · preview only</Label><Pressable accessibilityRole="button" accessibilityLabel="Return to my collection" onPress={() => setPreview(false)} style={styles.closePreview}><Icon name="close" size={22} color={colors.primary} /></Pressable></View> : null}
     <View style={{ gap: 10 }}>
-      <View style={uiStyles.between}><Label kind="caption" style={uiStyles.muted}>Collection value</Label><Label kind="caption" style={uiStyles.muted}>Sample USD</Label></View>
+      <View style={uiStyles.between}><Label kind="caption" style={uiStyles.muted}>Collection value</Label></View>
       <Label kind="price" style={styles.balance}>{money(displayedSummary.totalValue)}</Label>
       {displayedSummary.totalCopies > 0 ? <><View style={[uiStyles.row, { gap: 6, flexWrap: 'wrap' }]}><Icon name={change.amount < 0 ? 'trending-down-outline' : change.amount > 0 ? 'trending-up-outline' : 'remove-outline'} color={change.amount < 0 ? colors.danger : change.amount > 0 ? colors.success : colors.muted} size={18} /><Label style={{ color: change.amount < 0 ? colors.danger : change.amount > 0 ? colors.success : colors.muted, fontWeight: '600', fontVariant: ['tabular-nums'] }}>{signedMoney(change.amount)} ({sign(change.percent)}{Math.abs(change.percent).toFixed(2)}%)</Label><Label kind="caption" style={uiStyles.muted}>{range}</Label></View>
-      <PriceChart points={history} height={172} label="Collection value history" color={displayedSummary.totalCopies ? colors.primary : colors.border} />
+      <PriceChart points={history} height={172} compact label="Collection value history" color={displayedSummary.totalCopies ? colors.primary : colors.border} />
       <RangeSelector value={range} onChange={setRange} label="Collection history range" />
-      <View style={styles.historyNote}><Label kind="caption" style={[uiStyles.muted, { flex: 1 }]}>Sample history</Label><Pressable accessibilityRole="button" accessibilityLabel="How collection history is calculated" accessibilityState={{ expanded: explain }} aria-expanded={explain} onPress={() => setExplain(!explain)} style={styles.method}><Icon name="information-circle-outline" size={19} color={colors.muted} /></Pressable></View>
-      {explain ? <View style={styles.explanation}><Label kind="caption" style={uiStyles.muted}>Each point values your current copies at simulated earlier prices. Adding copies recalculates the whole curve. This is price movement, not profit, purchases or your actual past balance. Samples end {historyDate(HISTORY_AS_OF, true)}; no live market feed is connected.</Label></View> : null}</> : null}
+      </> : null}
     </View>
-    {displayedSummary.totalCopies > 0 ? <><View style={styles.summary}>
-      <View style={{ flex: 1, gap: 3 }}><Label kind="heading" style={styles.stat}>{displayedSummary.uniqueCards}</Label><Label kind="caption" style={uiStyles.muted}>Printings</Label></View>
-      <View style={{ flex: 1, gap: 3 }}><Label kind="heading" style={styles.stat}>{displayedSummary.totalCopies}</Label><Label kind="caption" style={uiStyles.muted}>Copies</Label></View>
-      <View style={{ flex: 1, gap: 3 }}><Label kind="heading" style={styles.stat}>{setAllocation.length}</Label><Label kind="caption" style={uiStyles.muted}>Sets</Label></View>
-    </View>
+    {displayedSummary.totalCopies > 0 ? <><View style={styles.summaryDivider} />
     <Button title="My Cards" icon="albums-outline" onPress={() => router.push('/my-cards')} /></> : null}
     {summary.totalCopies === 0 && !preview ? <View style={{ gap: 16, paddingTop: 20, borderTopWidth: 1, borderTopColor: colors.border }}><Label kind="heading">Your collection starts here</Label><Button title="Browse cards" icon="search-outline" onPress={() => router.push('/search')} /><Button title="Preview sample wallet" variant="secondary" icon="pulse-outline" onPress={() => setPreview(true)} /><Button title="My Cards" variant="ghost" icon="albums-outline" onPress={() => router.push('/my-cards')} /></View> : <View style={{ gap: 12 }}>
       <View style={styles.viewTabs}>
@@ -81,10 +75,7 @@ export function CollectionScreen() {
 const styles = StyleSheet.create({
   walletIcon: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primarySoft },
   balance: { fontSize: 44, lineHeight: 54, letterSpacing: -1.6 },
-  summary: { flexDirection: 'row', borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.border, paddingVertical: 18, gap: 12 },
-  stat: { fontSize: 24, fontVariant: ['tabular-nums'] },
-  historyNote: { flexDirection: 'row', alignItems: 'center', gap: 8 }, method: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
-  explanation: { borderLeftWidth: 2, borderLeftColor: colors.primary, paddingLeft: 14, paddingVertical: 4 },
+  summaryDivider: { borderBottomWidth: 1, borderBottomColor: colors.border },
   preview: { backgroundColor: colors.primarySoft, paddingLeft: 14, flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 10 },
   closePreview: { minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center' },
   viewTabs: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: colors.border, gap: 24 }, viewTab: { minHeight: 48, justifyContent: 'center', paddingHorizontal: 2, borderBottomWidth: 2, borderBottomColor: 'transparent' }, activeTab: { borderBottomColor: colors.primary },
