@@ -38,7 +38,7 @@ export function MyCardsScreen() {
           <View style={{ gap: 4, flex: 1 }}><Label kind="title" accessibilityRole="header">My Cards</Label><Label kind="caption" style={uiStyles.muted}>{summary.uniqueCards} unique cards · {summary.totalCopies} copies</Label></View>
           <Pressable accessibilityRole="button" accessibilityLabel="Find cards to add" onPress={() => router.push('/search')} style={styles.add}><Icon name="add-outline" color={colors.primary} /><Label style={{ color: colors.primary, fontWeight: '600' }}>Add</Label></Pressable>
         </View>
-        <View style={{ gap: 8 }}><Label kind="caption" style={{ color: colors.muted, fontWeight: '600' }}>Search your collection</Label><SearchField value={query} onChangeText={setQuery} placeholder="Name, set or card number" placeholderTextColor={colors.muted} accessibilityLabel="Search your cards by name" autoCapitalize="none" autoCorrect={false} /></View>
+        <View style={{ gap: 8 }}><SearchField value={query} onChangeText={setQuery} placeholder="Name, set or card number" placeholderTextColor={colors.muted} accessibilityLabel="Search your cards by name" autoCapitalize="none" autoCorrect={false} /></View>
         <View accessibilityRole="radiogroup" accessibilityLabel="Sort cards" style={styles.sorts}>
           {sortOptions.map((option) => <Pressable key={option.value} accessibilityRole="radio" accessibilityLabel={`Sort by ${option.label}`} accessibilityState={{ checked: sort === option.value }} aria-checked={sort === option.value} onPress={() => setSort(option.value)} style={[styles.sort, sort === option.value && styles.selected]}><Label kind="caption" style={{ color: sort === option.value ? colors.primary : colors.muted, fontWeight: '600' }}>{option.label}</Label></Pressable>)}
         </View>
@@ -47,7 +47,7 @@ export function MyCardsScreen() {
       renderItem={({ item }) => <CardTile card={item.card} quantity={item.quantity} width={(gridWidth - (columns - 1) * 16) / columns} />}
       onLayout={(event) => setGridWidth(event.nativeEvent.layout.width - 48)}
       columnWrapperStyle={columns > 1 ? styles.gridRow : undefined} contentContainerStyle={styles.grid} keyboardShouldPersistTaps="handled"
-      ListFooterComponent={<View style={{ gap: 16, paddingTop: 16 }}>{cards.length ? <Label kind="caption" style={uiStyles.muted}>Sample USD prices per copy. Open a card to manage its quantity.</Label> : null}<Button title="Browse catalog" variant="ghost" icon="search-outline" onPress={() => router.push('/search')} /></View>}
+      ListFooterComponent={<View style={{ gap: 16, paddingTop: 16 }}>{cards.length ? <Label kind="caption" style={uiStyles.muted}>Sample USD / copy</Label> : null}<Button title="Browse catalog" variant="ghost" icon="search-outline" onPress={() => router.push('/search')} /></View>}
       ListEmptyComponent={<EmptyState title={query.trim() ? 'No matching cards' : 'No cards yet'} message={query.trim() ? 'Try another name to find a card in your collection.' : 'Find your first favorite in the catalog.'} action={query.trim() ? 'Clear search' : 'Browse cards'} onPress={query.trim() ? () => setQuery('') : () => router.push('/search')} icon="search-outline" />}
     />
   </Screen>;

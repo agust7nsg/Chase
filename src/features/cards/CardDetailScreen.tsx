@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { CardStage } from '@/components/CardArtwork';
 import { money } from '@/components/CardRow';
@@ -23,6 +23,7 @@ function CardDetailContent({ cardId }: { cardId: string }) {
   const item = state.items.find((entry) => entry.cardId === cardId);
   const [feedback, setFeedback] = useState<{ ok: boolean; message: string } | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [showImageInfo, setShowImageInfo] = useState(false);
   const [range, setRange] = useState<HistoryRange>('1M');
   if (!card) return <Screen safeTop={false}><EmptyState title="Card not found" message="This card is not available in the sample catalog." action="Browse cards" onPress={() => router.replace('/search')} icon="search-outline" /></Screen>;
   if (!ready) return <Screen safeTop={false}>{loadError ? <EmptyState title="Collection unavailable" message={loadError} action="Try again" onPress={retryLoad} /> : <ActivityIndicator color={colors.primary} accessibilityLabel="Loading card" />}</Screen>;
@@ -44,22 +45,22 @@ function CardDetailContent({ cardId }: { cardId: string }) {
   const asOf = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(new Date(HISTORY_AS_OF));
   return <Screen safeTop={false}>
     <View style={{ gap: 8 }}>
-      <View style={uiStyles.between}><Label kind="title" accessibilityRole="header" style={{ flex: 1 }}>{card.name}</Label><Badge tone="warm">{card.variant}</Badge></View>
+      <View style={uiStyles.between}><Label kind="title" accessibilityRole="header" style={{ flex: 1 }}>{card.name}</Label><Badge tone="warm">{card.variant}</Badge>{visualFor(card).note ? <Pressable accessibilityRole="button" accessibilityLabel="About this printing image" accessibilityState={{ expanded: showImageInfo }} aria-expanded={showImageInfo} onPress={() => setShowImageInfo(!showImageInfo)} style={styles.imageInfo}><Icon name="information-circle-outline" color={colors.muted} size={21} /></Pressable> : null}</View>
       <Label style={uiStyles.muted}>{card.setName} · {card.collectorNumber}</Label>
     </View>
     <CardStage card={card} compact />
-    {visualFor(card).note ? <Label kind="caption" style={uiStyles.muted}>{visualFor(card).note}</Label> : null}
+    {showImageInfo && visualFor(card).note ? <Label kind="caption" style={uiStyles.muted}>{visualFor(card).note}</Label> : null}
     <View style={styles.priceSection}>
-      <View style={uiStyles.between}><Label style={{ fontWeight: '600' }}>Estimated price per copy</Label><Label kind="caption" style={uiStyles.muted}>USD · ungraded</Label></View>
+      <View style={uiStyles.between}><Label style={{ fontWeight: '600' }}>Price per copy</Label><Label kind="caption" style={uiStyles.muted}>USD · ungraded</Label></View>
       <Label kind="price">{money(card.marketPrice.amount)}</Label>
       <View style={[uiStyles.row, { gap: 6, flexWrap: 'wrap' }]}>
         <Icon name={change.amount >= 0 ? 'trending-up-outline' : 'trending-down-outline'} size={18} color={change.amount >= 0 ? colors.success : colors.danger} />
         <Label kind="caption" style={{ color: change.amount >= 0 ? colors.success : colors.danger, fontWeight: '600' }}>{direction}{money(Math.abs(change.amount))} ({direction}{Math.abs(change.percent).toFixed(2)}%)</Label><Label kind="caption" style={uiStyles.muted}>over {range}</Label>
       </View>
-      <Label kind="caption" style={uiStyles.muted}>Simulated history · USD</Label>
+      <Label kind="caption" style={uiStyles.muted}>Sample history · USD</Label>
       <PriceChart points={history} height={150} label={`${card.name} simulated price history in USD`} />
       <RangeSelector value={range} onChange={setRange} label="Card price history period" />
-      <Label kind="caption" style={uiStyles.muted}>Sample data as of {asOf}. Not a guaranteed resale value.</Label>
+      <Label kind="caption" style={uiStyles.muted}>Sample prices · {asOf}</Label>
     </View>
     <Button title={item ? 'Add one copy' : 'Add to collection'} icon="add-outline" onPress={add} />
     {feedback ? <View style={{ gap: 12 }}>
@@ -89,6 +90,7 @@ function CardDetailContent({ cardId }: { cardId: string }) {
 }
 
 const styles = StyleSheet.create({
+  imageInfo: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
   priceSection: { gap: 8 },
   holdingSection: { gap: 16, paddingTop: 24, borderTopWidth: 1, borderTopColor: colors.border },
 });

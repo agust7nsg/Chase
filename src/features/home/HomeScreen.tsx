@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { Badge, Button, Icon, Label, Screen, Section, uiStyles } from '@/components/ui';
 import { CardPrint } from '@/components/CardPrint';
 import { CardRow, money } from '@/components/CardRow';
@@ -16,13 +16,11 @@ const sets = [
 
 export default function HomeScreen() {
   const { state, summary } = useChase();
+  const { fontScale } = useWindowDimensions();
   const startScan = () => router.push(canScan(state) ? '/scanner' : '/paywall');
   const recent = [...state.items].sort((a, b) => b.addedAt.localeCompare(a.addedAt)).slice(0, 3);
-  const scanStatus = state.plan === 'pro'
-    ? 'Unlimited sample scans · Pro simulation'
-    : state.trial.successfulRecognitions === 0
-      ? '1 complimentary sample scan available'
-      : 'Complimentary sample scan used · Pro preview available';
+  const dragonite = getCatalogCard('swsh7-192')!;
+  const scanStatus = state.plan === 'pro' ? 'Demo scan · unlimited' : `Demo scan · ${state.trial.successfulRecognitions === 0 ? '1 free' : '0 free'}`;
 
   return <Screen>
     <View style={uiStyles.between}>
@@ -31,35 +29,40 @@ export default function HomeScreen() {
     </View>
 
     <View style={styles.findSection}>
-      <Label kind="title" accessibilityRole="header">Find a card</Label>
-      <Label style={uiStyles.muted}>Identify a printing and check its estimated price.</Label>
-      <Pressable accessibilityRole="button" accessibilityLabel="Scan a Card" onPress={startScan} style={({ pressed }) => [styles.scanAction, pressed && styles.pressed]}>
-        <View style={styles.scanIcon}><Icon name="scan-outline" color={colors.white} size={33} /></View>
-        <View style={{ flex: 1, gap: 4 }}><Label kind="heading" style={{ color: colors.white }}>Scan a Card</Label><Label kind="caption" style={{ color: colors.onPrimaryMuted }}>Sample recognition · no camera</Label></View>
-        <Icon name="arrow-forward" color={colors.white} size={23} />
-      </Pressable>
+      <View style={styles.scanHero}>
+        <View pointerEvents="none" style={styles.heroOrbit} accessible={false} />
+        <View style={[styles.heroStory, fontScale > 1.3 && styles.heroStoryLarge]}>
+          <View style={[styles.heroCopy, fontScale > 1.3 && { width: '100%' }]}>
+            <Label kind="eyebrow" style={styles.heroEyebrow}>POKÉMON TCG</Label>
+            <Label accessibilityRole="header" style={styles.heroTitle}>Scan a{ '\n' }card.</Label>
+          </View>
+          <View style={styles.heroPrint}>
+            <View pointerEvents="none" style={styles.printOffset} accessible={false} />
+            <CardPrint card={dragonite} />
+          </View>
+        </View>
+        <Button title="Scan a Card" variant="inverse" icon="scan-outline" onPress={startScan} />
+        <Label kind="caption" style={styles.scanStatus}>{scanStatus}</Label>
+      </View>
       <Button title="Search Cards" variant="secondary" icon="search-outline" onPress={() => router.push('/search')} />
-      <Label kind="caption" style={uiStyles.muted}>{scanStatus}</Label>
     </View>
 
     <View style={styles.walletSection}>
       <Section title="Your collection" action="View all" onPress={() => router.push('/(tabs)/collection')} />
       <Pressable accessibilityRole="button" accessibilityLabel="Open your collection" onPress={() => router.push('/(tabs)/collection')} style={({ pressed }) => [styles.wallet, pressed && styles.pressed]}>
         <View style={{ flex: 1, gap: 6 }}>
-          <Label kind="caption" style={uiStyles.muted}>Estimated value · USD</Label>
+          <Label kind="caption" style={uiStyles.muted}>Sample value · USD</Label>
           <Label kind="price">{money(summary.totalValue)}</Label>
-          <Label kind="caption" style={uiStyles.muted}>{summary.totalCopies ? `${summary.uniqueCards} printings · ${summary.totalCopies} saved copies` : 'No saved cards yet'}</Label>
+          <Label kind="caption" style={uiStyles.muted}>{summary.totalCopies ? `${summary.uniqueCards} printings · ${summary.totalCopies} copies` : 'No cards yet'}</Label>
         </View>
         <View style={styles.walletArrow}><Icon name="arrow-forward" color={colors.primary} /></View>
       </Pressable>
-      <Label kind="caption" style={uiStyles.muted}>{summary.totalCopies ? 'Sample prices, including every saved copy.' : 'Add cards from search or confirm a sample scan.'}</Label>
     </View>
 
     {recent.length > 0 ? <View style={{ gap: 8 }}><Section title="Recently added" />{recent.map(item => { const card = getCatalogCard(item.cardId); return card ? <CardRow key={card.id} card={card} quantity={item.quantity} /> : null; })}</View> : null}
 
     <View style={{ gap: 8 }}>
       <Section title="Browse by set" action="All cards" onPress={() => router.push('/search')} />
-      <Label kind="caption" style={uiStyles.muted}>Explore the bundled card catalog. Prices are illustrative.</Label>
       {sets.map(set => {
         const card = getCatalogCard(set.cardId)!;
         const printings = catalog.filter(item => item.setName === set.name).length;
@@ -74,9 +77,17 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  findSection: { gap: 12, paddingTop: 8 },
-  scanAction: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 20, minHeight: 104, borderRadius: 18, backgroundColor: colors.primary, marginTop: 8 },
-  scanIcon: { width: 42, alignItems: 'center', justifyContent: 'center' },
+  findSection: { gap: 16 },
+  scanHero: { marginHorizontal: -24, paddingHorizontal: 24, paddingTop: 20, paddingBottom: 16, gap: 12, backgroundColor: colors.heroBlue, overflow: 'hidden' },
+  heroStory: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, minHeight: 206, paddingBottom: 12 },
+  heroStoryLarge: { flexDirection: 'column', gap: 20, alignItems: 'flex-start' },
+  heroCopy: { width: '49%', gap: 12 },
+  heroEyebrow: { color: colors.heroQuiet, fontSize: 10, lineHeight: 16, letterSpacing: 1.3 },
+  heroTitle: { fontSize: 40, lineHeight: 43, fontWeight: '700', letterSpacing: -1.3, color: colors.white },
+  heroPrint: { width: '43%', maxWidth: 164, alignSelf: 'center', transform: [{ rotate: '8deg' }], shadowColor: colors.scanner, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.28, shadowRadius: 12, elevation: 5 },
+  printOffset: { position: 'absolute', top: -10, bottom: 10, left: -10, right: 10, borderWidth: 1, borderColor: colors.onPrimaryMuted, borderRadius: 8, opacity: 0.45 },
+  heroOrbit: { position: 'absolute', top: -45, right: -76, width: 300, height: 300, borderRadius: 150, backgroundColor: colors.primaryDeep },
+  scanStatus: { color: colors.heroQuiet, textAlign: 'center' },
   walletSection: { gap: 6, paddingTop: 4 },
   wallet: { flexDirection: 'row', alignItems: 'center', gap: 16, paddingVertical: 12 },
   walletArrow: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },

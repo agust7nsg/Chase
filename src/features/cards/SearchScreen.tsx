@@ -30,13 +30,12 @@ function SearchContent({ initialQuery }: { initialQuery: string }) {
     <FlatList
       style={{ marginHorizontal: -24 }}
       ListHeaderComponent={<View style={{ gap: 16, marginBottom: 16 }}>
-        <View style={{ gap: 6 }}><Label kind="title" accessibilityRole="header">Card catalog</Label><Label style={uiStyles.muted}>Find a printing and add it to your collection.</Label></View>
+        <View style={{ gap: 6 }}><Label kind="title" accessibilityRole="header">Card catalog</Label></View>
         <View style={{ gap: 8 }}>
-          <Label kind="caption" style={styles.fieldLabel}>Card name, set or number</Label>
           <SearchField value={query} onChangeText={setQuery} placeholder="Try Umbreon or 215/203" placeholderTextColor={colors.muted} accessibilityLabel="Search sample catalog by name, set, or card number" autoCapitalize="none" autoCorrect={false} />
         </View>
         <View style={uiStyles.between}>
-          <View style={{ gap: 3 }}><Label style={{ fontWeight: '600' }}>{cards.length} {cards.length === 1 ? 'result' : 'results'}</Label><Label kind="caption" style={uiStyles.muted}>Sample prices · USD / copy</Label></View>
+          <View style={{ gap: 3 }}><Label style={{ fontWeight: '600' }}>{cards.length} {cards.length === 1 ? 'result' : 'results'}</Label><Label kind="caption" style={uiStyles.muted}>Sample USD / copy</Label></View>
           <View style={styles.layoutControls}>
             <Pressable accessibilityRole="button" accessibilityLabel="Show grid" accessibilityState={{ selected: layout === 'grid' }} onPress={() => setLayout('grid')} style={[styles.toggle, layout === 'grid' && styles.selected]}><Icon name="grid-outline" color={layout === 'grid' ? colors.primary : colors.muted} size={20} /></Pressable>
             <Pressable accessibilityRole="button" accessibilityLabel="Show list" accessibilityState={{ selected: layout === 'list' }} onPress={() => setLayout('list')} style={[styles.toggle, layout === 'list' && styles.selected]}><Icon name="list-outline" color={layout === 'list' ? colors.primary : colors.muted} size={22} /></Pressable>
@@ -47,14 +46,12 @@ function SearchContent({ initialQuery }: { initialQuery: string }) {
       renderItem={({ item }) => layout === 'grid' ? <CardTile card={item} width={(gridWidth - (columns - 1) * 16) / columns} /> : <CardRow card={item} />}
       onLayout={(event) => setGridWidth(event.nativeEvent.layout.width - 48)}
       columnWrapperStyle={columns > 1 ? styles.gridRow : undefined} contentContainerStyle={{ paddingBottom: 24, paddingHorizontal: 24 }} keyboardShouldPersistTaps="handled"
-      ListFooterComponent={cards.length ? <Label kind="caption" style={[uiStyles.muted, { paddingTop: 16 }]}>Bundled sample catalog. Prices are illustrative estimates, not live quotes.</Label> : null}
       ListEmptyComponent={<EmptyState title="No cards found" message="Try a Pokémon name, set, or collector number." action="Clear search" onPress={() => setQuery('')} icon="search-outline" />}
     />
   </Screen>;
 }
 
 const styles = StyleSheet.create({
-  fieldLabel: { color: colors.muted, fontWeight: '600' },
   layoutControls: { flexDirection: 'row', gap: 8 },
   toggle: { minWidth: 48, minHeight: 48, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   selected: { backgroundColor: colors.primarySoft },

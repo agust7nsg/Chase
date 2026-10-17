@@ -96,11 +96,11 @@ try {
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
 
   await scenario('three introduction screens, skip scan, and paywall close preserve the complimentary scan', async () => {
-    await visibleText(page, 'Understand card prices').waitFor();
+    await visibleText(page, 'Card prices').waitFor();
     await button(page, 'Continue').click();
-    await visibleText(page, 'Scan your cards').waitFor();
+    await visibleText(page, 'Scan a card').waitFor();
     await button(page, 'Continue').click();
-    await visibleText(page, 'Track your collection').waitFor();
+    await visibleText(page, 'Your collection').waitFor();
     await button(page, 'Get started').click();
     await button(page, 'Try Free Scan').waitFor();
     await button(page, 'Skip for now').click();
@@ -117,7 +117,7 @@ try {
   await scenario('onboarding completion survives reload', async () => {
     await page.reload({ waitUntil: 'domcontentloaded' });
     await home(page);
-    assert.equal(await visibleText(page, 'Understand card prices').count(), 0);
+    assert.equal(await visibleText(page, 'Card prices').count(), 0);
     assert.equal((await stateOf(page)).trial.successfulRecognitions, 0);
   });
 
@@ -145,7 +145,7 @@ try {
   let recognizedCard;
   await scenario('successful recognition spends the trial and requires one explicit save', async () => {
     await button(page, 'Use my free sample scan').click();
-    await visibleText(page, 'Sample recognition complete. Confirm before saving.').waitFor();
+    await visibleText(page, 'Demo result').waitFor();
     const beforeSave = await waitForState(page, (value) => value.trial.successfulRecognitions === 1, 'one successful recognition');
     assert.deepEqual(beforeSave.items, [], 'Recognition must not automatically save a card.');
     await button(page, 'Add to Collection').click();
@@ -334,7 +334,7 @@ try {
   await scenario('development onboarding preview preserves the saved collection and scanner allowance', async () => {
     const before = await stateOf(page);
     await button(page, 'Preview onboarding').click();
-    await visibleText(page, 'Understand card prices').waitFor();
+    await visibleText(page, 'Card prices').waitFor();
     await page.getByRole('img', { name: /Charizard, Base Set/ }).waitFor();
     assert.deepEqual(await stateOf(page), before);
     await button(page, 'Skip').click();
@@ -441,7 +441,7 @@ try {
     assert.equal(await button(wallet, 'How collection history is calculated').getAttribute('aria-expanded'), 'true');
     await wallet.getByText(/This is price movement, not profit/).waitFor();
     await wallet.getByRole('radio', { name: '7D history', exact: true }).click();
-    await visibleText(wallet, '7D sample price change').waitFor();
+    assert.equal(await wallet.getByRole('radio', { name: '7D history', exact: true }).getAttribute('aria-checked'), 'true');
     const chart = wallet.getByRole('slider', { name: 'Collection value history', exact: true });
     await chart.click({ position: { x: 16, y: 60 } });
     assert.match(await chart.getAttribute('aria-valuetext'), /Sep 24, 2026/);
@@ -487,7 +487,7 @@ try {
     await previewPage.goto(new URL('/collection', baseUrl).href, { waitUntil: 'domcontentloaded' });
     await button(previewPage, 'Preview sample wallet').waitFor(); assert.equal(await previewPage.getByRole('slider').count(), 0, 'An empty wallet should prioritize adding cards rather than an empty curve.'); const before = await stateOf(previewPage);
     await button(previewPage, 'Preview sample wallet').click();
-    await visibleText(previewPage, 'Sample wallet preview. Your saved cards are unchanged.').waitFor();
+    await visibleText(previewPage, 'Sample collection · preview only').waitFor();
     await visibleText(previewPage, '$1,270.00').waitFor();
     assert.deepEqual(await stateOf(previewPage), before);
     await previewPage.getByRole('radio', { name: '3M history', exact: true }).click();

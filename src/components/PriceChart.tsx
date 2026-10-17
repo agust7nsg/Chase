@@ -76,7 +76,7 @@ function PriceChartPlot({ points, height = 168, compact = false, label, color = 
     <View style={uiStyles.between}><Label kind="caption" style={uiStyles.muted}>{historyDate(points[0].date, points[0].date.slice(0, 4) !== points.at(-1)!.date.slice(0, 4))}</Label><Label kind="caption" style={uiStyles.muted}>{historyDate(points.at(-1)!.date, points[0].date.slice(0, 4) !== points.at(-1)!.date.slice(0, 4))}</Label></View>
     {!compact ? <View style={styles.inspector}>
       <Pressable accessibilityRole="button" accessibilityLabel="Previous history date" disabled={cursorIndex === 0} accessibilityState={{ disabled: cursorIndex === 0 }} onPress={() => select(cursorIndex - 1)} style={[styles.inspectButton, cursorIndex === 0 && { opacity: 0.3 }]}><Icon name="chevron-back" size={18} color={colors.muted} /></Pressable>
-      <Label kind="caption" style={[uiStyles.muted, { textAlign: 'center', flex: 1 }]}>{selectedPoint ? 'Inspecting sample price' : 'Tap chart to inspect prices'}</Label>
+      <Label kind="caption" style={[uiStyles.muted, { textAlign: 'center', flex: 1 }]}>{historyDate((selectedPoint ?? points.at(-1)!).date, true)}</Label>
       <Pressable accessibilityRole="button" accessibilityLabel="Next history date" disabled={cursorIndex === points.length - 1} accessibilityState={{ disabled: cursorIndex === points.length - 1 }} onPress={() => select(cursorIndex + 1)} style={[styles.inspectButton, cursorIndex === points.length - 1 && { opacity: 0.3 }]}><Icon name="chevron-forward" size={18} color={colors.muted} /></Pressable>
     </View> : null}
   </View>;

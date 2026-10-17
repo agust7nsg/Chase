@@ -1,6 +1,6 @@
-# Archived sample artwork sources
+# Pokémon character artwork sources
 
-These retained historical assets are no longer referenced by application screens; the active print images and attribution live in `assets/chases/SOURCES.md`.
+`mew.png` is used as the transparent character illustration in Profile. The other retained character illustrations are historical assets. Actual TCG printing references and their attribution live in `assets/chases/SOURCES.md`.
 
 The bundled PNG files are official Pokémon character illustrations distributed by the [PokeAPI sprites project](https://github.com/PokeAPI/sprites), pinned to commit `0dc105d5b12416932f29b594078282ab4be045f5`.
 
