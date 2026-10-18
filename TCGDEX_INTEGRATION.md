@@ -13,7 +13,7 @@ The replaceable adapter is under `src/services/tcgdex`, with application wiring 
 | `GET /cards` | Card browsing, name search and collector-number filtering |
 | `GET /cards/{id}` | Full printing metadata, finishes, artwork and available pricing |
 
-Search supports a name or collector number and an optional expansion. Results load incrementally; the UI cancels obsolete searches and keeps request results from replacing a newer query. Loading, empty results, request failure/retry and cached results are distinct states. Failed requests do not substitute legacy sample cards. Available cached references support offline use; a first uncached search or image cannot work without internet access.
+The catalog starts with all expansions sorted A–Z, with API logos and a separate Cards search tab. Search supports a name or collector number and an optional expansion. Opening a set uses its complete printing index, sorted naturally by collector number, and hydrates only a page of details. Set counts distinguish loaded cards from the actual matching index total. Global search starts only with an input, and partial results never label a loaded page as the entire catalog. Results load incrementally; the UI cancels obsolete searches and keeps request results from replacing a newer query. Loading, empty results, request failure/retry and cached results are distinct states. Failed requests do not substitute legacy sample cards. Available cached references support offline use; a first uncached search or image cannot work without internet access.
 
 Responses use an in-memory and AsyncStorage cache, defaulting to 24 hours. Entries are versioned under `chase.tcgdex.v1:<language>:<request-path>` with `{ version: 1, savedAt, value }`. Matching requests share one pending fetch; card-detail hydration and query streams run in batches of at most six. The memory cache and indexed disk cache retain up to 250 resources per language. Provider pagination uses fixed-size pages and reuses cached earlier pages while merging name/set matches. A 12-second timeout covers both fetching and reading the response body. There are no automatic retry loops; retry is a user action. Cache write failures do not hide successful network results.
 
@@ -99,7 +99,7 @@ Open a compatible Expo Go version on Android and scan Metro's QR code, with phon
 
 Verify these flows with internet access:
 
-1. Open **Search Cards** from Home. Search a Pokémon name, choose an expansion and search a collector number. Load another page, open a printing and check its image, set/number and finish choices. Confirm that a finish with no quote shows **Price unavailable**.
+1. Open **Browse by set → See all** on Home to view all expansion logos and open a numbered card list. Check its loaded/total counter while loading another page. Open **Search Cards** from Home. Search a Pokémon name, choose an expansion and search a collector number. Load another page, open a printing and check its image, set/number and finish choices. Confirm that a finish with no quote shows **Price unavailable**.
 2. Check the source/update date of an available quote. Switch USD/EUR from Collection and from Profile; both must share the selection. Prices must convert without changing printing or finish.
 3. Add a real card from Details, change its quantity, then fully restart the app. The same collectible identity and quantity must persist. Confirm that real holdings do not receive sample historical movement.
 4. After loading a query/card, temporarily disable connectivity and revisit it. Available cached/saved references should remain readable; uncached requests should show a recoverable unavailable state. Re-enable connectivity and retry. Uncached images may remain unavailable offline.
@@ -114,6 +114,7 @@ Also check native camera permission denial/approval, camera cleanup on backgroun
 | --- | --- |
 | Adapter and runtime | `src/services/tcgdex/{index,normalize,types}.ts`, `src/services/catalog.ts`, `src/services/index.ts`, `src/services/mocks.ts` |
 | Identity and ownership | `src/data/catalogRegistry.ts`, `src/data/mocks/catalog.ts`, `src/types/{domain,scanner}.ts`, `src/services/{domain,scanSession}.ts`, `src/features/app/ChaseProvider.tsx` |
+| Set organization | `src/features/cards/{CatalogTabs,SetLogo,SetsDirectory}.tsx`, `src/features/cards/useCatalogSets.ts`, `src/features/home/HomeSetsShelf.tsx`, `src/services/tcgdex/organization.ts` |
 | Artwork and catalog screens | `src/data/cardVisuals.ts`, `src/components/{CardPrint,CardRow}.tsx`, `src/features/cards/{SearchScreen,CardDetailScreen,CardTile}.tsx` |
 | Existing integrations | `src/features/collection/{CollectionScreen,MyCardsScreen}.tsx`, `src/services/{currency,priceHistory}.ts`, `src/features/currency/CurrencyProvider.tsx`, `src/features/home/HomeScreen.tsx`, `src/features/onboarding/{OnboardingArtwork,PriceCarousel}.tsx`, `src/features/scanner/{ScanSessionProvider,OrganizeScreen,ScannerScreen}.tsx` |
 | Validation | `tests/{tcgdex,catalogCompatibility,liveHistory,currency,scanner}.test.ts`, `scripts/{catalog-smoke,scanner-smoke,smoke}.mjs`, `scripts/fixtures/tcgdex.mjs`, `package.json` test command |
@@ -131,10 +132,12 @@ These upstream sources were accessible through raw GitHub URLs when the public A
 
 - `npm run typecheck`: passed.
 - `npm run lint`: passed.
-- `npm test`: 83 tests passed, including catalog parsing, real query parameters, exact variants/pricing, offline failures, persistence and Phase A compatibility.
+- `npm test`: 85 tests passed, including catalog parsing, real query parameters, exact variants/pricing, offline failures, persistence and Phase A compatibility.
 - `npm run test:smoke`: 22 browser scenarios passed.
 - `npm run test:scanner`: 14 browser scenarios passed.
-- `npm run test:catalog`: 8 browser scenarios passed after the final integration changes.
+- `npm run test:catalog`: 11 browser scenarios passed after the final integration changes.
 - `npm run export:mobile`: iOS and Android JavaScript/Hermes exports passed; these are not native device tests or signed builds.
 - Browser suites used intercepted provider HTTP responses and images, with no JavaScript runtime errors. Phone-size and landscape UI checks retained the existing design.
 - Actual public API connectivity remains blocked by the cloud proxy as described above. Physical Android/iOS camera and network validation were not performed.
+
+The set-organization update also passed the 22 general browser scenarios and 11 catalog scenarios, including directory logo URLs, exact loaded/total counters, natural collector-number pagination, missing artwork/logo fallback, back-navigation state and cold offline references. Set/card visual review used actual official logos and matching bundled printing art at phone widths (320/390) and landscape. These are browser checks; physical-device testing is still needed.

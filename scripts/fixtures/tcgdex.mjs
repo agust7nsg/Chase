@@ -7,13 +7,14 @@ export const catalogKey = (id, variant = 'holo') => `tcgdex:en:${id}:${variant}`
 export const quoteUpdatedAt = '2026-10-01T00:00:00.000Z';
 
 const setDefinitions = [
-  ['base1', 'Base Set', 102, 'base'], ['base2', 'Base Set 2', 130, 'base'],
+  ['base1', 'Base Set', 102, 'base'], ['base4', 'Base Set 2', 130, 'base'],
   ['xy12', 'Evolutions', 108, 'xy'], ['swsh7', 'Evolving Skies', 203, 'swsh'],
   ['swsh8', 'Fusion Strike', 264, 'swsh'], ['swsh11', 'Lost Origin', 196, 'swsh'],
   ['swsh12', 'Silver Tempest', 195, 'swsh'], ['sv2', 'Paldea Evolved', 193, 'sv'],
   ['xyp', 'XY Black Star Promos', 211, 'xy'], ['sv6', 'Twilight Masquerade', 167, 'sv'],
+  ['mcd11', "McDonald's Collection 2011", 25, 'mcd'],
 ];
-export const fixtureSets = setDefinitions.map(([id, name, official]) => ({ id, name, cardCount: { official, total: official } }));
+export const fixtureSets = setDefinitions.map(([id, name, official, prefix]) => ({ id, name, logo: `https://assets.tcgdex.net/en/${prefix}/${id}/logo`, cardCount: { official, total: official } }));
 const sets = new Map(fixtureSets.map(set => [set.id, set]));
 const series = new Map(setDefinitions.map(([id, , , prefix]) => [id, prefix]));
 
@@ -33,6 +34,7 @@ function printing(id, name, setId, localId, amount, variants = { normal: false, 
 }
 
 const fixturePrintings = [
+  printing('mcd11-1', 'Bulbasaur', 'mcd11', '1', null, { normal: true, holo: false, reverse: false, firstEdition: false, wPromo: false }, { image: undefined }),
   printing('base1-4', 'Charizard', 'base1', '4', 245),
   printing('xy12-35', 'Pikachu', 'xy12', '35', 1.25,
     { normal: true, holo: false, reverse: true, firstEdition: false, wPromo: false },
@@ -65,8 +67,8 @@ const decodeFilter = value => (value ?? '').replace(/^(?:like|eq):/i, '').replac
 
 /** Every API/image request is intercepted so browser checks never need TCGdex access. */
 export async function installTCGdexFixtures(context) {
-  const state = { offline: false, requests: [], failures: [], failNext: null };
-  await context.route('https://assets.tcgdex.net/**', route => route.fulfill({
+  const state = { offline: false, requests: [], failures: [], failNext: null, brokenLogos: false };
+  await context.route('https://assets.tcgdex.net/**', route => state.brokenLogos && route.request().url().includes('/logo.') ? route.abort('failed') : route.fulfill({
     contentType: 'image/png',
     headers: { 'access-control-allow-origin': '*' },
     body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5xkAAAAASUVORK5CYII=', 'base64'),

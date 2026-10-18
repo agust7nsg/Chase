@@ -1,5 +1,6 @@
 import type { Card } from '../../types/domain';
 import type { CardCatalogService } from '../contracts';
+import { orderedSetCards } from './organization';
 import { normalizeBrief, normalizeCards, normalizeSet, normalizeSetDetails, parseCollectibleId, record } from './normalize';
 import { CatalogError, type CatalogPage, type CatalogQuery, type CatalogSet, type CatalogSetDetails, type TcgDexOptions } from './types';
 
@@ -188,11 +189,34 @@ export class TcgDexCatalogService implements CardCatalogService {
   async listCards(): Promise<Card[]> { return (await this.queryCards()).cards; }
   async searchCards(query: string): Promise<Card[]> { return (await this.queryCards({ query })).cards; }
 
+  private async querySetCards(query: CatalogQuery, page: number, pageSize: number): Promise<CatalogPage> {
+    const result = await this.resource(`sets/${encodeURIComponent(query.setId!)}`, query.signal);
+    if (result.value === null) throw new CatalogError('HTTP', 'This expansion is not available. Try another set.', 404);
+    const set = normalizeSetDetails(result.value);
+    const matching = orderedSetCards(set, query);
+    const selected = matching.slice((page - 1) * pageSize, page * pageSize);
+    const resources = [result];
+    const cards: Card[] = [];
+    for (let start = 0; start < selected.length; start += 6) {
+      const group = await Promise.all(selected.slice(start, start + 6).map(brief => this.resource(`cards/${encodeURIComponent(brief.id)}`, query.signal)));
+      resources.push(...group);
+      for (const detail of group) {
+        if (detail.value === null) throw new CatalogError('INVALID_RESPONSE', 'A printing in this set could not be loaded. Please retry.');
+        const card = normalizeCards(detail.value, this.language)[0];
+        if (card.setId !== set.id) throw new CatalogError('INVALID_RESPONSE', 'This printing belongs to a different set.');
+        cards.push(card);
+      }
+    }
+    return { cards: this.publish(cards), page, total: matching.length, hasMore: page * pageSize < matching.length,
+      set: normalizeSet(result.value), fromCache: resources.some(resource => resource.fromCache), stale: resources.some(resource => resource.stale) };
+  }
+
   async queryCards(query: CatalogQuery = {}): Promise<CatalogPage> {
     if (query.signal?.aborted) throw abortError();
     const page = Math.max(1, Math.floor(query.page ?? 1));
     const pageSize = Math.max(1, Math.min(100, Math.floor(query.pageSize ?? 24)));
     if (!Number.isFinite(page) || !Number.isFinite(pageSize)) throw new Error('Invalid catalog page.');
+    if (query.setId) return this.querySetCards(query, page, pageSize);
     const text = (query.collectorNumber ?? query.query ?? '').trim();
     const fraction = text.match(/^(.*?)\s*([a-z]*\d+[a-z]*)\s*\/\s*(\d+)$/i);
     const numberOnly = text.match(/^(?:\d+[a-z]*|(?:TG|GG|SV|RC|SH|SM|SWSH|XY|BW|DP|HGSS)\d+[a-z]*)$/i);

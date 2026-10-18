@@ -188,6 +188,48 @@ test('cache survives a new service, stale search stays explicit, and stale detai
   });
 });
 
+test('set browsing uses the complete expansion index and paginates by actual collector number', async () => {
+  const cards = ['10', '2', '1', '100', '3', 'TG05'].map(number => raw(`xy12-${number}`, `Pikachu ${number}`, number));
+  const source = fixture(cards);
+  const service = new TcgDexCatalogService({ fetch: source.fetch });
+  const one = await service.queryCards({ setId: 'xy12', pageSize: 2 });
+  assert.equal(one.total, 6);
+  assert.equal(one.hasMore, true);
+  assert.deepEqual(one.cards.map(card => card.localId), ['1', '2']);
+  assert.equal(one.set?.name, 'Evolutions');
+  const two = await service.queryCards({ setId: 'xy12', pageSize: 2, page: 2 });
+  const three = await service.queryCards({ setId: 'xy12', pageSize: 2, page: 3 });
+  assert.deepEqual([...one.cards, ...two.cards, ...three.cards].map(card => card.localId), ['1', '2', '3', '10', '100', 'TG05']);
+  assert.equal(three.hasMore, false);
+  assert.equal(new Set([...one.cards, ...two.cards, ...three.cards].map(card => card.id)).size, 6);
+  assert.ok(source.requests.every(url => !url.pathname.endsWith('/cards')), 'Unfiltered global pages must not leak into a set.');
+  assert.equal(source.requests.filter(url => url.pathname.endsWith('/sets/xy12')).length, 1);
+  assert.deepEqual((await service.queryCards({ setId: 'xy12', collectorNumber: 'tg05' })).cards.map(card => card.localId), ['TG05']);
+  assert.deepEqual((await service.queryCards({ setId: 'xy12', query: '002/108' })).cards.map(card => card.localId), ['2']);
+  assert.equal((await service.queryCards({ setId: 'xy12', query: '2/999' })).total, 0);
+  assert.equal((await service.queryCards({ setId: 'xy12', query: 'no card' })).total, 0);
+});
+
+test('expansion browsing retains cards without art, recovers offline and never relabels failed lookups as an empty set', async () => {
+  const card = raw();
+  (card as { image?: string }).image = undefined;
+  const source = fixture([card]);
+  const backing = memoryStorage();
+  let now = 1000;
+  const service = new TcgDexCatalogService({ fetch: source.fetch, storage: backing.storage, now: () => now, cacheTtlMs: 10 });
+  const first = await service.queryCards({ setId: 'xy12' });
+  assert.equal(first.total, 1);
+  assert.equal(first.cards[0].imageUrl, undefined);
+  now += 20;
+  source.offline();
+  const offline = await service.queryCards({ setId: 'xy12' });
+  assert.equal(offline.stale, true);
+  assert.equal(offline.total, 1);
+  assert.equal(offline.cards[0].id, first.cards[0].id);
+  const fresh = new TcgDexCatalogService({ fetch: fixture().fetch });
+  await assert.rejects(fresh.queryCards({ setId: 'missing' }), error => error instanceof CatalogError && error.status === 404);
+});
+
 test('concurrent detail requests deduplicate and caller cancellation does not cancel other consumers', async () => {
   const source = fixture();
   const service = new TcgDexCatalogService({ fetch: source.fetch });

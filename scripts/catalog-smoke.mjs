@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright-core';
-import { catalogKey, catalogSearchLabel, installTCGdexFixtures, quoteUpdatedAt } from './fixtures/tcgdex.mjs';
+import { catalogKey, catalogSearchLabel, installTCGdexFixtures, quoteUpdatedAt, fixtureSets } from './fixtures/tcgdex.mjs';
 
 const baseUrl = process.env.CHASE_SMOKE_URL ?? 'http://localhost:8081';
 const storageKey = 'chase.prototype.v1';
@@ -82,9 +82,40 @@ try {
   const { page, network, context } = main;
   await go(page, '/search');
 
+  await check('all expansions open in an alphabetical logo directory without a random card feed', async () => {
+    await page.getByRole('tab', { name: 'Browse sets', exact: true }).waitFor();
+    assert.equal(await page.getByRole('tab', { name: 'Browse sets', exact: true }).getAttribute('aria-selected'), 'true');
+    await text(page, `${fixtureSets.length} sets`).waitFor();
+    assert.equal(await tiles(page).count(), 0);
+    assert.equal(await text(page, '24 results').count(), 0);
+    const field = page.getByRole('textbox', { name: 'Search Pokémon card sets', exact: true });
+    await field.fill('Fusion');
+    const logo = page.getByRole('img', { name: 'Fusion Strike set logo', exact: true });
+    await logo.waitFor();
+    const source = await logo.evaluate(element => (element instanceof HTMLImageElement ? element : element.querySelector('img'))?.src);
+    assert.equal(source, 'https://assets.tcgdex.net/en/swsh/swsh8/logo.webp');
+    await button(page, 'Browse Fusion Strike').click();
+    await text(page, '2 cards').waitFor();
+    await page.getByRole('heading', { name: 'Fusion Strike', exact: true }).waitFor();
+    const rows = await tiles(page).allTextContents();
+    assert.ok(rows[0].includes('Mew VMAX')); assert.ok(rows[1].includes('Gengar VMAX'));
+    await page.goBack();
+    await field.waitFor(); assert.equal(await field.inputValue(), 'Fusion');
+    await field.fill("McDonald's");
+    await button(page, "Browse McDonald's Collection 2011").click();
+    await text(page, '1 card').waitFor();
+    await button(page, /^View Bulbasaur,/).waitFor();
+    await page.getByRole('img', { name: 'Bulbasaur: artwork unavailable', exact: true }).waitFor();
+    assert.deepEqual((await stored(page)).items, legacyItems);
+    await page.screenshot({ path: '/tmp/chase-set-cards-missing-art.png' });
+    await go(page, '/search?query=Base');
+  });
+
   await check('catalog browsing requests provider pages and Load more appends unique printings', async () => {
     await button(page, 'Load more cards').waitFor();
     const before = await tiles(page).count();
+    await text(page, '24 of 26 results').waitFor();
+    assert.equal(await text(page, '24 results').count(), 0);
     assert.ok(before > 0 && before <= 24);
     await button(page, 'Load more cards').click();
     await page.waitForFunction(before => [...document.querySelectorAll('[role="button"][aria-label^="View "]')].filter(row => row.getAttribute('aria-label').includes(',')).length > before, before);
@@ -92,6 +123,20 @@ try {
     assert.equal(new Set(labels).size, labels.length, 'More pages must not duplicate cards.');
     assert.ok(network.requests.some(value => new URL(value).searchParams.get('pagination:page') === '2'));
     assert.deepEqual((await stored(page)).items, legacyItems);
+  });
+
+  await check('set pages show exact loaded totals and all cards in collector-number order', async () => {
+    await go(page, '/search?setId=base1&setName=Base%20Set');
+    await text(page, '24 of 26 cards').waitFor();
+    const labels = await tiles(page).evaluateAll(rows => rows.map(row => row.getAttribute('aria-label')));
+    assert.match(labels[0], /^View Alakazam,/); assert.match(labels[1], /^View Blastoise,/);
+    assert.match(labels[2], /^View Chansey,/); assert.match(labels[3], /^View Charizard,/);
+    await button(page, 'Load more cards').click(); await text(page, '26 cards').waitFor();
+    assert.equal(await tiles(page).count(), 26);
+    assert.equal(await button(page, 'Load more cards').count(), 0);
+    await go(page, '/search?view=cards');
+    await text(page, 'Search across all sets').waitFor();
+    assert.equal(await tiles(page).count(), 0);
   });
 
   await check('remote name, set-name, collector-number and explicit set filters resolve matching printings', async () => {
@@ -129,7 +174,7 @@ try {
   });
 
   await check('missing provider pricing stays unavailable while saving a durable unpriced copy', async () => {
-    await go(page, '/search'); await query(page, 'Squirtle', 1); await openCard(page, 'Squirtle');
+    await go(page, '/search?view=cards'); await query(page, 'Squirtle', 1); await openCard(page, 'Squirtle');
     await text(page, 'Price unavailable').waitFor();
     await text(page, 'No ungraded quote is available for this variant.').waitFor();
     assert.equal(await text(page, '$0.00').count(), 0);
@@ -221,6 +266,19 @@ try {
     assert.deepEqual((await stored(failed.page)).items, []);
   });
   await failed.context.close();
+  const directory = await fixture({ offline: true }); activePage = directory.page;
+  await check('the expansion directory retries network errors and missing logos keep their set accessible', async () => {
+    await go(directory.page, '/search'); await text(directory.page, 'Sets unavailable').waitFor();
+    directory.network.offline = false; directory.network.brokenLogos = true;
+    await button(directory.page, 'Try again').click();
+    await text(directory.page, `${fixtureSets.length} sets`).waitFor();
+    await button(directory.page, 'Browse Base Set').waitFor();
+    await directory.page.getByRole('img', { name: 'Base Set logo unavailable', exact: true }).waitFor();
+    await directory.page.screenshot({ path: '/tmp/chase-sets-directory.png' });
+    await button(directory.page, 'Browse Base Set').click(); await text(directory.page, '24 of 26 cards').waitFor();
+    assert.deepEqual((await stored(directory.page)).items, []);
+  });
+  await directory.context.close();
   console.log(`Catalog workflow passed: ${passed} scenarios; intercepted provider REST requests, no runtime errors.`);
 } catch (error) {
   if (activePage && !activePage.isClosed()) {

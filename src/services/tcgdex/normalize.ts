@@ -97,6 +97,7 @@ export function normalizeSet(value: unknown): CatalogSet {
   if (!record(value) || !text(value.id) || !text(value.name)) throw new CatalogError('INVALID_RESPONSE', 'TCGdex returned an invalid set.');
   const count = value.cardCount;
   return { id: value.id, name: value.name,
+    ...(date(value.releaseDate) ? { releaseDate: value.releaseDate } : {}),
     ...(record(count) && number(count.official) && number(count.total) ? { cardCount: { official: count.official, total: count.total } } : {}),
     ...(https(value.logo) ? { logo: https(value.logo) } : {}), ...(https(value.symbol) ? { symbol: https(value.symbol) } : {}),
   };

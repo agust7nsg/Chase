@@ -91,6 +91,7 @@ async function checkHorizontalLayout(page, label) {
     const bounds = await locator.boundingBox();
     if (!bounds) continue;
     assert.ok(bounds.width >= 47 && bounds.height >= 47, `${label} has a button smaller than 48px: ${await locator.getAttribute('aria-label') ?? await locator.innerText()}`);
+    if (await locator.evaluate(element => Boolean(element.closest('[aria-label="Pokémon TCG expansions"]')))) continue;
     assert.ok(bounds.x >= -1 && bounds.x + bounds.width <= dimensions.viewport + 1, `${label} has a button outside the screen: ${await locator.getAttribute('aria-label') ?? await locator.innerText()}`);
   }
 }
@@ -222,6 +223,7 @@ try {
 
   await scenario('manual catalog search remains free after the complimentary scan is used', async () => {
     await button(page, 'Browse cards').click();
+    await page.getByRole('tab', { name: 'Search cards', exact: true }).click();
     const search = page.getByRole('textbox', { name: catalogSearchLabel, exact: true });
     await search.fill('Charizard');
     await visibleText(page, '1 result').waitFor();
@@ -415,7 +417,7 @@ try {
     }, { key: storageKey, value: { ...initialState, onboardingComplete: true } });
     const chasePage = await chaseContext.newPage();
     watchPage(chasePage);
-    await chasePage.goto(new URL('/search', baseUrl).href, { waitUntil: 'domcontentloaded' });
+    await chasePage.goto(new URL('/search?view=cards', baseUrl).href, { waitUntil: 'domcontentloaded' });
     const chases = [
       ['swsh7-215', 'Umbreon VMAX', 'Evolving Skies', '215/203'],
       ['swsh7-218', 'Rayquaza VMAX', 'Evolving Skies', '218/203'],
@@ -526,7 +528,7 @@ try {
     assert.deepEqual(await stateOf(previewPage), before);
     await tab(previewPage, 'Home').click();
     await button(previewPage, 'Browse Evolving Skies').click();
-    await visibleText(previewPage, '3 results').waitFor();
+    await visibleText(previewPage, '3 cards').waitFor();
     assert.equal(await previewPage.getByRole('textbox', { name: catalogSearchLabel }).inputValue(), '');
     await button(previewPage, 'Filter by set, Evolving Skies').waitFor();
     assert.deepEqual(await stateOf(previewPage), before);

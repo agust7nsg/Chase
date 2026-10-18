@@ -1,17 +1,13 @@
 import { router } from 'expo-router';
-import { Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
-import { Badge, Button, Icon, Label, Screen, Section, uiStyles } from '@/components/ui';
+import { StyleSheet, useWindowDimensions, View } from 'react-native';
+import { Badge, Button, Label, Screen, Section, uiStyles } from '@/components/ui';
 import { CardPrint } from '@/components/CardPrint';
 import { CardRow } from '@/components/CardRow';
 import { colors } from '@/theme/tokens';
 import { useChase } from '@/features/app/ChaseProvider';
 import { getCatalogCard } from '@/data/mocks/catalog';
 import { ChaseBrand } from '@/components/ChaseBrand';
-
-const sets = [
-  { name: 'Evolving Skies', setId: 'swsh7', cardId: 'swsh7-215' },
-  { name: 'Lost Origin', setId: 'swsh11', cardId: 'swsh11-186' },
-];
+import { HomeSetsShelf } from './HomeSetsShelf';
 
 export default function HomeScreen() {
   const { state, featuredCardId } = useChase();
@@ -42,22 +38,12 @@ export default function HomeScreen() {
         <Button title="Scan a Card" variant="inverse" icon="scan-outline" onPress={startScan} />
         <View pointerEvents="none" accessible={false} style={{ height: 19 * fontScale }} />
       </View>
-      <Button title="Search Cards" variant="secondary" icon="search-outline" onPress={() => router.push('/search')} />
+      <Button title="Search Cards" variant="secondary" icon="search-outline" onPress={() => router.push({ pathname: '/search', params: { view: 'cards' } })} />
     </View>
 
     {recent.length > 0 ? <View style={{ gap: 8 }}><Section title="Recently added" />{recent.map(item => { const card = getCatalogCard(item.cardId); return card ? <CardRow key={card.id} card={card} quantity={item.quantity} /> : null; })}</View> : null}
 
-    <View style={{ gap: 8 }}>
-      <Section title="Browse by set" action="All cards" onPress={() => router.push('/search')} />
-      {sets.map(set => {
-        const card = getCatalogCard(set.cardId)!;
-        return <Pressable key={set.name} accessibilityRole="button" accessibilityLabel={`Browse ${set.name}`} onPress={() => router.push({ pathname: '/search', params: { setId: set.setId, setName: set.name } })} style={({ pressed }) => [styles.setRow, pressed && styles.pressed]}>
-          <View style={styles.setPrint}><CardPrint card={card} /></View>
-          <View style={{ flex: 1, gap: 5 }}><Label style={{ fontWeight: '600' }}>{set.name}</Label><Label kind="caption" style={uiStyles.muted}>Explore expansion</Label></View>
-          <Icon name="chevron-forward" color={colors.muted} size={19} />
-        </Pressable>;
-      })}
-    </View>
+    <HomeSetsShelf />
   </Screen>;
 }
 
@@ -72,7 +58,4 @@ const styles = StyleSheet.create({
   heroPrint: { width: '43%', maxWidth: 164, alignSelf: 'center', transform: [{ rotate: '8deg' }], shadowColor: colors.scanner, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.28, shadowRadius: 12, elevation: 5 },
   printOffset: { position: 'absolute', top: -10, bottom: 10, left: -10, right: 10, borderWidth: 1, borderColor: colors.onPrimaryMuted, borderRadius: 8, opacity: 0.45 },
   heroOrbit: { position: 'absolute', top: -45, right: -76, width: 300, height: 300, borderRadius: 150, backgroundColor: colors.primaryDeep },
-  setRow: { flexDirection: 'row', alignItems: 'center', gap: 18, paddingVertical: 16, borderBottomWidth: 1, borderColor: colors.border },
-  setPrint: { width: 56 },
-  pressed: { opacity: 0.65 },
 });

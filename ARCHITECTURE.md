@@ -95,7 +95,7 @@ The curve revalues current legacy sample holdings at sample historical prices. I
 
 `PriceChart` renders native line segments and supports pointer selection, native accessibility adjustment, web keyboard controls and exact date/value disclosure. A keyed chart resets inspection when its date window or endpoint changes. `RangeSelector` is a reusable control, while onboarding, wallet and card detail retain distinct layouts. No chart dependency or native package was added.
 
-Search accepts an initial query or expansion filter for Home shortcuts; provider requests remain behind the catalog service. Original catalog IDs, copy validation and Free downgrade rules are preserved. The continuous-scanner implementation adds optional save receipts to collection persistence and a separate pending-session key; see [SCANNER_WORKFLOW.md](SCANNER_WORKFLOW.md).
+Search defaults to the full A–Z set directory; `view=cards` opens global card search, and `setId` opens an expansion. Home lists the same API-provided sets using logos. Set browsing slices the complete `/sets/{id}` printing index in natural collector-number order, then hydrates only the current page; its count is the actual filtered index length, not a fetched global page size. Global card search starts on input and clearly distinguishes loaded results from a known total. Search accepts an initial query or expansion filter; provider requests remain behind the catalog service. Original catalog IDs, copy validation and Free downgrade rules are preserved. The continuous-scanner implementation adds optional save receipts to collection persistence and a separate pending-session key; see [SCANNER_WORKFLOW.md](SCANNER_WORKFLOW.md).
 
 ## Home artwork rotation
 

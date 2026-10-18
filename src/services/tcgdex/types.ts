@@ -6,11 +6,13 @@ export interface CatalogSet {
   cardCount?: { official: number; total: number };
   logo?: string;
   symbol?: string;
+  releaseDate?: string;
 }
 
+export interface CatalogCardBrief { id: string; name: string; localId: string; image?: string }
+
 export interface CatalogSetDetails extends CatalogSet {
-  releaseDate?: string;
-  cards: { id: string; name: string; localId: string; image?: string }[];
+  cards: CatalogCardBrief[];
 }
 
 export interface CatalogQuery {
@@ -29,6 +31,7 @@ export interface CatalogPage {
   total?: number;
   fromCache: boolean;
   stale: boolean;
+  set?: CatalogSet;
 }
 
 export interface CatalogStorage {
