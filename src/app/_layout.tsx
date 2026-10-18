@@ -5,6 +5,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ChaseProvider, useChase } from '@/features/app/ChaseProvider';
 import { Button, Label, Screen } from '@/components/ui';
 import { colors } from '@/theme/tokens';
+import { CurrencyProvider } from '@/features/currency/CurrencyProvider';
 
 function Navigator() {
   const { ready, loadError, retryLoad, persistenceError } = useChase();
@@ -26,5 +27,5 @@ function Navigator() {
   </View>;
 }
 export default function RootLayout() {
-  return <SafeAreaProvider><ChaseProvider><StatusBar style="dark" /><Navigator /></ChaseProvider></SafeAreaProvider>;
+  return <SafeAreaProvider><CurrencyProvider><ChaseProvider><StatusBar style="dark" /><Navigator /></ChaseProvider></CurrencyProvider></SafeAreaProvider>;
 }

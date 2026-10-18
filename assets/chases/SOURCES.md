@@ -22,6 +22,8 @@ Pokémon card artwork © Nintendo / Creatures Inc. / GAME FREAK inc. TCGdex dist
 
 - Greninja ex: **Twilight Masquerade 214/167**, Special Illustration Rare. Added 2026-10-17 from https://assets.tcgdex.net/en/sv/sv06/214/high.webp, verified against `sv6-214` in the Pokémon TCG Developers dataset. The new file is also 600 × 825 WebP. This is distinct from Ash-Greninja EX; its $300 estimate is a fixed prototype value. There are now 15 images across 16 catalog entries.
 
+- Mew VMAX: **Fusion Strike 269/264**, alternate artwork. Added from https://assets.tcgdex.net/en/swsh/swsh8/269/high.webp; identity checked against `swsh8-269` in the Pokémon TCG Developers dataset. Image is 600 × 825 WebP. Its $120 price is a fixed sample estimate. Total: 16 images across 17 catalog entries.
+
 Every price in the app is a fixed **mock USD estimate**, including the new entries. Prices are not researched market quotes, edition-specific estimates or guaranteed resale values. Catalog expansion does not seed ownership or consume a scan.
 
 ## Files and checksums
@@ -43,3 +45,4 @@ Every price in the app is a fixed **mock USD estimate**, including the new entri
 | `xy12-35.webp` | https://assets.tcgdex.net/en/xy/xy12/35/high.webp | `df23ff52f772fb0571eb39d5c4b3235a50c1f33f715b4805b8e2de866f811bca` |
 | `xyp-XY133.webp` | https://assets.tcgdex.net/en/xy/xyp/XY133/high.webp | `b2e545ce6479472df39c52e59dc10066693419b2dfcf517abf3097bfd87cd1ba` |
 | `sv6-214.webp` | https://assets.tcgdex.net/en/sv/sv06/214/high.webp | `39dc7b2717079667b34d5b250a9e7bc93a1e0dc96fb03dbb78fc131e0c913934` |
+| `swsh8-269.webp` | https://assets.tcgdex.net/en/swsh/swsh8/269/high.webp | `6610ed49e64f2bb1f9cd81ec41ba8a19e4beb76f81fb2fbb4e3d4f6a31665d82` |

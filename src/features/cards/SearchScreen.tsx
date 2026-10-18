@@ -1,3 +1,4 @@
+import { useCurrency } from '@/features/currency/CurrencyProvider';
 import { useMemo, useState } from 'react';
 import { useLocalSearchParams } from 'expo-router';
 import { FlatList, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
@@ -14,6 +15,7 @@ export function SearchScreen() {
 }
 
 function SearchContent({ initialQuery }: { initialQuery: string }) {
+  const { currency } = useCurrency();
   const { width, fontScale } = useWindowDimensions();
   const [gridWidth, setGridWidth] = useState(Math.min(width, 760) - 48);
   const [query, setQuery] = useState(initialQuery);
@@ -35,7 +37,7 @@ function SearchContent({ initialQuery }: { initialQuery: string }) {
           <SearchField value={query} onChangeText={setQuery} placeholder="Try Umbreon or 215/203" placeholderTextColor={colors.muted} accessibilityLabel="Search sample catalog by name, set, or card number" autoCapitalize="none" autoCorrect={false} />
         </View>
         <View style={uiStyles.between}>
-          <View style={{ gap: 3 }}><Label style={{ fontWeight: '600' }}>{cards.length} {cards.length === 1 ? 'result' : 'results'}</Label><Label kind="caption" style={uiStyles.muted}>Sample USD / copy</Label></View>
+          <View style={{ gap: 3 }}><Label style={{ fontWeight: '600' }}>{cards.length} {cards.length === 1 ? 'result' : 'results'}</Label><Label kind="caption" style={uiStyles.muted}>Sample {currency} / copy</Label></View>
           <View style={styles.layoutControls}>
             <Pressable accessibilityRole="button" accessibilityLabel="Show grid" accessibilityState={{ selected: layout === 'grid' }} onPress={() => setLayout('grid')} style={[styles.toggle, layout === 'grid' && styles.selected]}><Icon name="grid-outline" color={layout === 'grid' ? colors.primary : colors.muted} size={20} /></Pressable>
             <Pressable accessibilityRole="button" accessibilityLabel="Show list" accessibilityState={{ selected: layout === 'list' }} onPress={() => setLayout('list')} style={[styles.toggle, layout === 'list' && styles.selected]}><Icon name="list-outline" color={layout === 'list' ? colors.primary : colors.muted} size={22} /></Pressable>

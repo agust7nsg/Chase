@@ -77,7 +77,7 @@ Validate navigation, safe areas, large text, state restoration, errors, and Free
 
 ## Printing presentation and legacy keys
 
-`src/data/cardVisuals.ts` maps stable catalog keys to local full-print images, landscape moods and image limitations. `CardPrint` displays the shared printing image. Active screens use purpose-specific compositions; the previous collector landscapes are no longer used. The expanded catalog has 16 entries and 15 images (Pikachu variants share a disclosed printing reference). All values still use the mock pricing contract.
+`src/data/cardVisuals.ts` maps stable catalog keys to local full-print images, landscape moods and image limitations. `CardPrint` displays the shared printing image. Active screens use purpose-specific compositions; the previous collector landscapes are no longer used. The expanded catalog has 17 entries and 16 images (Pikachu variants share a disclosed printing reference). All values still use the mock pricing contract.
 
 The original mock incorrectly identified Eevee as Base Set 2 68/130 and Mew as SWSH053. Display metadata now matches the actual supplied prints: Eevee 51/130 and Wizards promo Mew 9. The internal `base2-68` and `swshp-053` keys deliberately remain stable, preserving existing AsyncStorage ownership and quantities. They are legacy application keys, not external provider IDs; any future live adapter must map them explicitly to the verified printing. Domain rules and the persistence schema are unchanged.
 
@@ -100,3 +100,13 @@ The curve revalues current holdings at sample historical prices. It deliberately
 ## Onboarding price carousel
 
 `src/features/onboarding/PriceCarousel.tsx` uses an explicit five-card editorial selection, separate from Home's three-card launch pool. A native horizontal `Animated.ScrollView` snaps to a fixed card interval, with scroll-driven transforms and the nearest centered index controlling the quote. Card prices come from the existing catalog. The first screen's body permits edge previews; later onboarding screens retain their existing layouts. Chevrons, native accessibility increment/decrement and web keyboard arrows/Home/End provide non-swipe controls. There is no autoplay, provider mutation, scan use or saved selection.
+
+Profile uses the catalog entry `swsh8-269` (Mew VMAX, Fusion Strike 269/264) in the shared CardPrint component. Its removed membership summary affects presentation only. Explore Chase Pro and Restore Purchases are grouped below settings; existing routes, entitlement enforcement, guest behavior and development simulation remain unchanged. This card is not added to Home’s explicitly restricted artwork pool.
+
+## Display currency
+
+`CurrencyProvider` persists the independent display preference under `chase.currency.v1` and owns one shared modal opened by Collection and Profile. Only USD and EUR are accepted; missing or invalid settings default to USD. A selection is applied after storage succeeds; failures keep the previous currency and the dialog open for retry. Collection ownership, onboarding, plan and scanner state are stored separately and are not rewritten by currency selection.
+
+Catalog prices, valuation and historical series stay in original sample USD. `src/services/currency.ts` performs conversion and rounding at display time; `useCurrency().formatMoney` formats every price surface, chart inspection and accessible monetary label. This preserves percentage changes and avoids compounding conversion after repeated switches. EUR currently uses the fixed **sample** rate 1 USD = 0.92 EUR, shown in the selector. It is not a live FX feed. A future rate provider can replace this service without changing the inventory schema.
+
+The Collection shortcut retains the original badge's dimensions and placement. Its blue appearance signals interaction; the overlay extends the touch area without moving surrounding content. Profile opens the same modal and displays the current choice. The legacy account currency route also provides access to that modal.

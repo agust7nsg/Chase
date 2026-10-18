@@ -1,11 +1,13 @@
+import { useCurrency } from '@/features/currency/CurrencyProvider';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import { CardArtwork } from '@/components/CardArtwork';
-import { money } from '@/components/CardRow';
+
 import { Label } from '@/components/ui';
 import { colors } from '@/theme/tokens';
 import type { Card } from '@/types/domain';
 export function CardTile({ card, quantity, width }: { card: Card; quantity?: number; width?: number }) {
+  const { formatMoney: money } = useCurrency();
   return <Pressable accessibilityRole="button" accessibilityLabel={`View ${card.name}, ${card.setName}, ${card.variant}${quantity ? `, ${quantity} copies` : ''}`}
     onPress={() => router.push({ pathname: '/card/[id]', params: { id: card.id } })}
     style={({ pressed }) => [styles.tile, width !== undefined ? { width, flexGrow: 0, flexShrink: 0 } : { flex: 1 }, pressed && { opacity: 0.65 }]}>

@@ -1,15 +1,20 @@
+import { useCurrency } from '@/features/currency/CurrencyProvider';
+import { CURRENCY_NAMES } from '@/services/currency';
 import { router } from 'expo-router';
-import { Image } from 'expo-image';
 import { StyleSheet, Switch, useWindowDimensions, View } from 'react-native';
-import { Badge, Button, Icon, Label, Panel, Screen, Section, SettingRow, uiStyles } from '@/components/ui';
+import { Badge, Button, Label, Panel, Screen, Section, SettingRow, uiStyles } from '@/components/ui';
 import { useChase } from '@/features/app/ChaseProvider';
 import { colors } from '@/theme/tokens';
+import { CardPrint } from '@/components/CardPrint';
+import { getCatalogCard } from '@/data/mocks/catalog';
+
+const profileCard = getCatalogCard('swsh8-269')!;
 
 export function ProfileScreen() {
-  const { state, entitlements, summary, setDevPro } = useChase();
+  const { currency, openCurrencySelector } = useCurrency();
+  const { state, setDevPro } = useChase();
   const { fontScale } = useWindowDimensions();
   const openAccount = (section: string) => router.push({ pathname: '/account', params: { section } });
-  const capacity = entitlements.maxCards === null ? null : Math.min(summary.totalCopies / entitlements.maxCards, 1);
 
   return <Screen>
     <View style={[styles.identity, fontScale > 1.3 && styles.identityLarge]}>
@@ -18,18 +23,7 @@ export function ProfileScreen() {
         <Label kind="title" accessibilityRole="header">Profile</Label>
         <View style={{ gap: 8 }}><Label style={styles.guestName}>Guest collector</Label><Badge tone="blue">{state.plan === 'pro' ? 'Pro · demo' : 'Chase Free'}</Badge></View>
       </View>
-      <Image source={require('../../../assets/cards/mew.png')} contentFit="contain" style={styles.mew} accessibilityLabel="Mew, Pokémon illustration" />
-    </View>
-
-    <View style={{ gap: 12 }}>
-      <Section title="Membership" />
-      <View style={{ gap: 9 }}>
-        <View style={uiStyles.between}><Label kind="caption" style={uiStyles.muted}>Cards</Label><Label kind="caption" style={{ fontWeight: '600' }}>{entitlements.maxCards === null ? `${summary.totalCopies} copies · unlimited` : `${summary.totalCopies} / ${entitlements.maxCards} copies`}</Label></View>
-        {capacity !== null ? <View style={styles.capacityTrack} accessible accessibilityLabel={`${summary.totalCopies} of ${entitlements.maxCards} saved copies`}><View style={[styles.capacityFill, { width: `${capacity * 100}%` }]} /></View> : null}
-      </View>
-      <View style={[uiStyles.row, { alignItems: 'flex-start' }]}><Icon name="scan-outline" color={colors.muted} size={19} /><Label kind="caption" style={[uiStyles.muted, { flex: 1 }]}>{entitlements.unlimitedScans ? 'Unlimited demo scans' : state.trial.successfulRecognitions === 0 ? '1 free demo scan' : 'Free scan used'}</Label></View>
-      <Button title="Explore Chase Pro" variant="secondary" onPress={() => router.push('/paywall')} />
-      <SettingRow title="Restore Purchases" icon="refresh-outline" onPress={() => openAccount('restore')} />
+      <View style={styles.mew}><CardPrint card={profileCard} /></View>
     </View>
 
     <View style={{ gap: 8 }}>
@@ -40,11 +34,17 @@ export function ProfileScreen() {
 
     <View>
       <Section title="Settings & support" />
-      <SettingRow title="Currency" subtitle="US Dollar · USD" icon="cash-outline" onPress={() => openAccount('currency')} />
+      <SettingRow title="Currency" subtitle={`${CURRENCY_NAMES[currency]} · ${currency}`} icon="cash-outline" onPress={openCurrencySelector} />
       <SettingRow title="Privacy Policy" icon="shield-checkmark-outline" onPress={() => openAccount('privacy')} />
       <SettingRow title="Terms of Service" icon="document-text-outline" onPress={() => openAccount('terms')} />
       <SettingRow title="Contact Support" icon="help-circle-outline" onPress={() => openAccount('support')} />
       <SettingRow title="About Chase" subtitle="Version 0.1" icon="information-circle-outline" onPress={() => openAccount('about')} />
+    </View>
+
+    <View>
+      <Section title="Chase Pro" />
+      <SettingRow title="Explore Chase Pro" icon="sparkles-outline" onPress={() => router.push('/paywall')} />
+      <SettingRow title="Restore Purchases" icon="refresh-outline" onPress={() => openAccount('restore')} />
     </View>
 
     {__DEV__ ? <Panel style={styles.developer}>
@@ -62,10 +62,8 @@ const styles = StyleSheet.create({
   identityLarge: { flexDirection: 'column', alignItems: 'flex-start' },
   identityCopy: { width: '48%', gap: 24, zIndex: 1 },
   guestName: { fontWeight: '600', color: colors.mewAccent },
-  mew: { width: '52%', aspectRatio: 1, maxWidth: 196, alignSelf: 'center', transform: [{ rotate: '-9deg' }] },
+  mew: { width: '43%', maxWidth: 144, alignSelf: 'center', transform: [{ rotate: '8deg' }], shadowColor: colors.text, shadowOpacity: 0.12, shadowOffset: { width: 0, height: 6 }, shadowRadius: 10, elevation: 3 },
   mewOrbit: { position: 'absolute', width: 230, height: 230, borderRadius: 115, borderWidth: 1, borderColor: colors.white, right: -16, top: 0 },
-  capacityTrack: { height: 5, backgroundColor: colors.border, borderRadius: 3, overflow: 'hidden' },
-  capacityFill: { height: '100%', backgroundColor: colors.primary, borderRadius: 3 },
   accountActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, borderBottomWidth: 1, borderColor: colors.border, paddingBottom: 8 },
   developer: { backgroundColor: colors.subtle, borderWidth: 0, borderRadius: 14 },
 });

@@ -1,3 +1,4 @@
+import { useCurrency } from '@/features/currency/CurrencyProvider';
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { router } from 'expo-router';
@@ -11,6 +12,7 @@ type Sort = 'date' | 'name' | 'price';
 const sortOptions: { value: Sort; label: string }[] = [{ value: 'date', label: 'Recent' }, { value: 'name', label: 'Name A–Z' }, { value: 'price', label: 'Price ↓' }];
 
 export function MyCardsScreen() {
+  const { currency } = useCurrency();
   const { state, summary, ready, loadError, retryLoad } = useChase();
   const { width, fontScale } = useWindowDimensions();
   const columns = fontScale > 1.3 ? 1 : width >= 700 ? 3 : 2;
@@ -47,7 +49,7 @@ export function MyCardsScreen() {
       renderItem={({ item }) => <CardTile card={item.card} quantity={item.quantity} width={(gridWidth - (columns - 1) * 16) / columns} />}
       onLayout={(event) => setGridWidth(event.nativeEvent.layout.width - 48)}
       columnWrapperStyle={columns > 1 ? styles.gridRow : undefined} contentContainerStyle={styles.grid} keyboardShouldPersistTaps="handled"
-      ListFooterComponent={<View style={{ gap: 16, paddingTop: 16 }}>{cards.length ? <Label kind="caption" style={uiStyles.muted}>Sample USD / copy</Label> : null}<Button title="Browse catalog" variant="ghost" icon="search-outline" onPress={() => router.push('/search')} /></View>}
+      ListFooterComponent={<View style={{ gap: 16, paddingTop: 16 }}>{cards.length ? <Label kind="caption" style={uiStyles.muted}>Sample {currency} / copy</Label> : null}<Button title="Browse catalog" variant="ghost" icon="search-outline" onPress={() => router.push('/search')} /></View>}
       ListEmptyComponent={<EmptyState title={query.trim() ? 'No matching cards' : 'No cards yet'} message={query.trim() ? 'Try another name to find a card in your collection.' : 'Find your first favorite in the catalog.'} action={query.trim() ? 'Clear search' : 'Browse cards'} onPress={query.trim() ? () => setQuery('') : () => router.push('/search')} icon="search-outline" />}
     />
   </Screen>;

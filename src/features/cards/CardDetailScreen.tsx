@@ -1,8 +1,9 @@
+import { useCurrency } from '@/features/currency/CurrencyProvider';
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { CardStage } from '@/components/CardArtwork';
-import { money } from '@/components/CardRow';
+
 import { Badge, Button, EmptyState, Icon, Label, Screen, uiStyles } from '@/components/ui';
 import { PriceChart, RangeSelector } from '@/components/PriceChart';
 import { getCatalogCard } from '@/data/mocks/catalog';
@@ -18,6 +19,7 @@ export function CardDetailScreen() {
 }
 
 function CardDetailContent({ cardId }: { cardId: string }) {
+  const { currency, formatMoney: money } = useCurrency();
   const card = getCatalogCard(cardId);
   const { state, ready, loadError, retryLoad, persistenceError, entitlements, summary, addToCollection, updateQuantity, removeFromCollection } = useChase();
   const item = state.items.find((entry) => entry.cardId === cardId);
@@ -51,14 +53,14 @@ function CardDetailContent({ cardId }: { cardId: string }) {
     <CardStage card={card} compact />
     {showImageInfo && visualFor(card).note ? <Label kind="caption" style={uiStyles.muted}>{visualFor(card).note}</Label> : null}
     <View style={styles.priceSection}>
-      <View style={uiStyles.between}><Label style={{ fontWeight: '600' }}>Price per copy</Label><Label kind="caption" style={uiStyles.muted}>USD · ungraded</Label></View>
+      <View style={uiStyles.between}><Label style={{ fontWeight: '600' }}>Price per copy</Label><Label kind="caption" style={uiStyles.muted}>{currency} · ungraded</Label></View>
       <Label kind="price">{money(card.marketPrice.amount)}</Label>
       <View style={[uiStyles.row, { gap: 6, flexWrap: 'wrap' }]}>
         <Icon name={change.amount >= 0 ? 'trending-up-outline' : 'trending-down-outline'} size={18} color={change.amount >= 0 ? colors.success : colors.danger} />
         <Label kind="caption" style={{ color: change.amount >= 0 ? colors.success : colors.danger, fontWeight: '600' }}>{direction}{money(Math.abs(change.amount))} ({direction}{Math.abs(change.percent).toFixed(2)}%)</Label><Label kind="caption" style={uiStyles.muted}>over {range}</Label>
       </View>
-      <Label kind="caption" style={uiStyles.muted}>Sample history · USD</Label>
-      <PriceChart points={history} height={150} label={`${card.name} simulated price history in USD`} />
+      <Label kind="caption" style={uiStyles.muted}>Sample history · {currency}</Label>
+      <PriceChart points={history} height={150} label={`${card.name} simulated price history in ${currency}`} />
       <RangeSelector value={range} onChange={setRange} label="Card price history period" />
       <Label kind="caption" style={uiStyles.muted}>Sample prices · {asOf}</Label>
     </View>
@@ -78,7 +80,7 @@ function CardDetailContent({ cardId }: { cardId: string }) {
           <View style={{ minWidth: 52 }}><Button title="+" variant="secondary" accessibilityLabel={`Add one ${card.name} copy`} onPress={() => changeQuantity(item.quantity + 1)} /></View>
         </View>
       </View>
-      <Label kind="caption" style={uiStyles.muted}>Estimated total: {money(card.marketPrice.amount * item.quantity)} · demo USD</Label>
+      <Label kind="caption" style={uiStyles.muted}>Estimated total: {money(card.marketPrice.amount * item.quantity)} · demo {currency}</Label>
       {confirmRemove ? <View style={{ gap: 12 }}>
         <Label accessibilityRole="alert">Remove all {item.quantity} {item.quantity === 1 ? 'copy' : 'copies'} of this card from your collection?</Label>
         <Button title="Keep card" variant="secondary" onPress={() => setConfirmRemove(false)} />

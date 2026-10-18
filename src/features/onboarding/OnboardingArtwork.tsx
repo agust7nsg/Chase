@@ -1,3 +1,4 @@
+import { useCurrency } from '@/features/currency/CurrencyProvider';
 import { useState } from 'react';
 import { Image } from 'expo-image';
 import { StyleSheet, useWindowDimensions, View } from 'react-native';
@@ -12,7 +13,6 @@ const collectionCards = [getCatalogCard('swsh7-192')!, getCatalogCard('swshp-053
 const exampleItems = collectionCards.map((card) => ({ cardId: card.id, quantity: 1, addedAt: '2026-10-01T00:00:00.000Z' }));
 const exampleHistory = getPortfolioHistory(exampleItems, '1M');
 const exampleChange = getHistoryChange(exampleHistory);
-const usd = (value: number) => value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
 /** These visual examples never change ownership or consume a recognition. */
 export function OnboardingArtwork({ step }: { step: 0 | 1 | 2 | 3 }) {
@@ -23,6 +23,7 @@ export function OnboardingArtwork({ step }: { step: 0 | 1 | 2 | 3 }) {
 }
 
 function ScanExample() {
+  const { formatMoney: usd } = useCurrency();
   const card = getCatalogCard('swsh7-192')!;
   const { width } = useWindowDimensions();
   const printWidth = Math.min(182, (width - 104) * 0.76);
@@ -44,6 +45,7 @@ function ScanExample() {
 }
 
 function CollectionExample() {
+  const { currency, formatMoney: usd } = useCurrency();
   const value = exampleHistory[exampleHistory.length - 1].value;
   const sign = exampleChange.amount >= 0 ? '+' : '−';
   const { height, width, fontScale } = useWindowDimensions();
@@ -57,7 +59,7 @@ function CollectionExample() {
       <Image source={require('../../../assets/cards/mew.png')} contentFit="contain" cachePolicy="memory-disk"
         style={[styles.mew, { width: mewSize, height: mewSize }]} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
       <View style={styles.collectionNumbers}>
-        <Label kind="caption" style={uiStyles.muted}>Sample USD value</Label>
+        <Label kind="caption" style={uiStyles.muted}>Sample {currency} value</Label>
         <Label kind="price" style={styles.collectionValue}>{usd(value)}</Label>
         <View style={[uiStyles.row, { gap: 4 }]}>
           <Icon name={exampleChange.amount >= 0 ? 'trending-up-outline' : 'trending-down-outline'} size={17} color={exampleChange.amount < 0 ? colors.danger : colors.success} />
@@ -76,13 +78,14 @@ function CollectionExample() {
 }
 
 function IllustrativeTrend({ points }: { points: HistoryPoint[] }) {
+  const { currency, formatMoney: usd } = useCurrency();
   const [width, setWidth] = useState(0);
   const height = 84;
   const min = Math.min(...points.map((point) => point.value));
   const max = Math.max(...points.map((point) => point.value));
   const span = max - min || 1;
   const coordinates = points.map((point, index) => ({ x: index / (points.length - 1) * width, y: 8 + (1 - (point.value - min) / span) * (height - 16) }));
-  return <View style={{ gap: 10 }} accessible accessibilityRole="image" accessibilityLabel={`Sample monthly USD history of two example copies: ${usd(points[0].value)} at the start, ${usd(points[points.length - 1].value)} at the end. No cards have been added.`}>
+  return <View style={{ gap: 10 }} accessible accessibilityRole="image" accessibilityLabel={`Sample monthly ${currency} history of two example copies: ${usd(points[0].value)} at the start, ${usd(points[points.length - 1].value)} at the end. No cards have been added.`}>
     <View onLayout={({ nativeEvent }) => setWidth(nativeEvent.layout.width)} style={{ height }}>
       {[0, 0.5, 1].map((position) => <View key={position} style={[styles.chartGuide, { top: position * height }]} />)}
       {width > 0 ? coordinates.slice(1).map((point, index) => {

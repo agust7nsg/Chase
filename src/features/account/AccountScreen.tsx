@@ -1,3 +1,5 @@
+import { useCurrency } from '@/features/currency/CurrencyProvider';
+import { CURRENCY_NAMES } from '@/services/currency';
 import { useState } from 'react';
 import { useLocalSearchParams } from 'expo-router';
 import { Linking, StyleSheet, View } from 'react-native';
@@ -41,8 +43,8 @@ const workflows: Record<SectionName, Workflow> = {
   },
   currency: {
     title: 'Currency', icon: 'cash-outline',
-    message: 'US Dollar (USD)',
-    detail: 'All card estimates and collection values use USD. Currency conversion is not available. Sample prices are illustrative and are not guaranteed resale prices.',
+    message: 'Display currency',
+    detail: 'Choose USD or EUR for card prices and collection values.',
   },
   about: {
     title: 'About Chase', icon: 'information-circle-outline',
@@ -66,10 +68,11 @@ function isSection(value: string | undefined): value is SectionName {
 }
 
 export function AccountScreen() {
+  const { currency, openCurrencySelector } = useCurrency();
   const { section } = useLocalSearchParams<{ section?: string | string[] }>();
   const requestedSection = Array.isArray(section) ? section[0] : section;
   const activeSection = isSection(requestedSection) ? requestedSection : 'about';
-  const workflow = workflows[activeSection];
+  const workflow = activeSection === 'currency' ? { ...workflows.currency, message: `${CURRENCY_NAMES[currency]} (${currency})` } : workflows[activeSection];
   const isExternalSection = activeSection === 'privacy' || activeSection === 'terms' || activeSection === 'support';
   const configuredUrl = isExternalSection ? legalLinks[activeSection] : null;
   const isHttpsUrl = configuredUrl !== null && /^https:\/\/[^\s/]+(?:\/[^\s]*)?$/i.test(configuredUrl);
@@ -91,6 +94,7 @@ export function AccountScreen() {
       <Badge tone="neutral">{isExternalSection && isHttpsUrl ? 'External page' : activeSection === 'currency' ? 'Display currency' : activeSection === 'about' ? 'Version 0.1' : 'Prototype information'}</Badge>
       <Label kind="heading">{isExternalSection && isHttpsUrl ? `View ${workflow.title.toLowerCase()}` : workflow.message}</Label>
       <Label style={uiStyles.muted}>{isExternalSection && isHttpsUrl ? 'Open the configured page in your browser.' : workflow.detail}</Label>
+      {activeSection === 'currency' ? <Button title="Change currency" onPress={openCurrencySelector} /> : null}
       {isExternalSection && isHttpsUrl ? <Button title="Open website" icon="open-outline" onPress={() => { void openConfiguredLink(); }} /> : null}
       {isExternalSection && configuredUrl !== null && !isHttpsUrl ? <Label style={{ color: colors.danger }}>The configured link must be a valid HTTPS URL.</Label> : null}
       {linkError ? <Label accessibilityRole="alert" style={{ color: colors.danger }}>{linkError}</Label> : null}

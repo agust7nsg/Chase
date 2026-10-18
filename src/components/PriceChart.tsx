@@ -1,9 +1,10 @@
+import { useCurrency } from '@/features/currency/CurrencyProvider';
 import { useMemo, useState } from 'react';
 import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import type { HistoryPoint, HistoryRange } from '@/services/priceHistory';
 import { colors } from '@/theme/tokens';
 import { Icon, Label, uiStyles } from './ui';
-import { money } from './CardRow';
+
 
 export function historyDate(date: string, full = false) {
   return new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', ...(full ? { year: 'numeric' } : {}), timeZone: 'UTC' });
@@ -23,6 +24,7 @@ export function PriceChart(props: PriceChartProps) {
   return <PriceChartPlot key={signature} {...props} />;
 }
 function PriceChartPlot({ points, height = 168, compact = false, label, color = colors.primary, onSelect }: PriceChartProps) {
+  const { currency, formatMoney: money } = useCurrency();
   const [width, setWidth] = useState(300);
   const [selected, setSelected] = useState<number | null>(null);
   const padding = 10;
@@ -45,7 +47,7 @@ function PriceChartPlot({ points, height = 168, compact = false, label, color = 
   const coordinate = selected === null ? null : layout.coordinates[selected];
   if (!points.length) return <Label kind="caption" style={uiStyles.muted}>Price history is unavailable.</Label>;
   const cursorIndex = selected ?? points.length - 1;
-  const valueText = `${historyDate((selectedPoint ?? points.at(-1)!).date, true)}, ${money((selectedPoint ?? points.at(-1)!).value)} USD`;
+  const valueText = `${historyDate((selectedPoint ?? points.at(-1)!).date, true)}, ${money((selectedPoint ?? points.at(-1)!).value)} ${currency}`;
   const keyboardProps = Platform.OS === 'web' ? { onKeyDown: (event: { key: string; preventDefault: () => void }) => {
     if (['ArrowLeft', 'ArrowDown', 'ArrowRight', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
       event.preventDefault();

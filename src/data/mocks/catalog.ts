@@ -82,6 +82,7 @@ export const catalog: Card[] = [
   { id: 'sv2-203', name: 'Magikarp', setName: 'Paldea Evolved', collectorNumber: '203/193', variant: 'Holo', imageKey: 'magikarp', marketPrice: price(85) },
   { id: 'xyp-XY133', name: 'Ash-Greninja EX', setName: 'XY Black Star Promos', collectorNumber: 'XY133', variant: 'Holo', imageKey: 'greninja', marketPrice: price(28) },
   { id: 'sv6-214', name: 'Greninja ex', setName: 'Twilight Masquerade', collectorNumber: '214/167', variant: 'Holo', imageKey: 'greninja-ex', marketPrice: price(300) },
+  { id: 'swsh8-269', name: 'Mew VMAX', setName: 'Fusion Strike', collectorNumber: '269/264', variant: 'Holo', imageKey: 'mew-vmax', marketPrice: price(120) },
 ];
 
 export function getCatalogCard(cardId: string): Card | undefined {

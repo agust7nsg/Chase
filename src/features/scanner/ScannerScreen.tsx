@@ -1,14 +1,16 @@
+import { useCurrency } from '@/features/currency/CurrencyProvider';
 import { useEffect, useRef, useState } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
 import { ActivityIndicator, StyleSheet, Switch, View } from 'react-native';
 import { Badge, Button, Icon, Label, Panel, Screen, uiStyles } from '@/components/ui';
 import { CardStage } from '@/components/CardArtwork';
-import { money } from '@/components/CardRow';
+
 import { colors } from '@/theme/tokens';
 import { useChase } from '@/features/app/ChaseProvider';
 import type { Card } from '@/types/domain';
 import { canScan } from '@/services';
 export default function ScannerScreen() {
+  const { currency, formatMoney: money } = useCurrency();
   const { onboarding } = useLocalSearchParams<{ onboarding?: string }>();
   const { state, recognize, addToCollection } = useChase();
   const [card, setCard] = useState<Card | null>(null);
@@ -43,7 +45,7 @@ export default function ScannerScreen() {
   if (card) return <Screen safeTop={false}>
     <Badge>Demo result</Badge>
     <CardStage card={card} compact />
-    <View style={{ gap: 8 }}><Label kind="heading">{card.name}</Label><Label style={uiStyles.muted}>{card.setName} · {card.collectorNumber}</Label><Label style={uiStyles.muted}>{card.variant}</Label><View style={uiStyles.between}><Label>Sample USD price</Label><Label kind="heading">{money(card.marketPrice.amount)}</Label></View></View>
+    <View style={{ gap: 8 }}><Label kind="heading">{card.name}</Label><Label style={uiStyles.muted}>{card.setName} · {card.collectorNumber}</Label><Label style={uiStyles.muted}>{card.variant}</Label><View style={uiStyles.between}><Label>Sample {currency} price</Label><Label kind="heading">{money(card.marketPrice.amount)}</Label></View></View>
     {error ? <Label style={{ color: colors.danger }} accessibilityRole="alert">{error}</Label> : null}
     {added ? <Panel><View style={uiStyles.row}><Icon name="checkmark-circle-outline" color={colors.success} /><Label style={{ color: colors.success }} accessibilityLiveRegion="polite">One copy saved to your collection.</Label></View>{onboarding !== '1' ? <Button title="View collection" variant="ghost" onPress={() => router.replace('/(tabs)/collection')} /> : null}</Panel> : <Button title="Add to Collection" icon="add-outline" onPress={add} />}
     {onboarding === '1' ? <Button title="Continue" variant="secondary" onPress={openPaywall} /> : <Button title="Scan another card" variant="secondary" onPress={() => { if (needsPro) openPaywall(); else { setCard(null); setError(null); } }} />}

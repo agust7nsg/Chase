@@ -1,7 +1,8 @@
+import { useCurrency } from '@/features/currency/CurrencyProvider';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { Animated, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { CardPrint } from '@/components/CardPrint';
-import { money } from '@/components/CardRow';
+
 import { Icon, Label } from '@/components/ui';
 import { getCatalogCard } from '@/data/mocks/catalog';
 import { colors } from '@/theme/tokens';
@@ -11,6 +12,7 @@ const initialIndex = 1;
 
 /** A local price demonstration; swiping never saves ownership or spends a scan. */
 export function PriceCarousel() {
+  const { currency, formatMoney: money } = useCurrency();
   const { width, height } = useWindowDimensions();
   const stageWidth = Math.min(width, 760);
   const printWidth = Math.min(stageWidth * 0.55, height < 740 ? 170 : 218);
@@ -53,9 +55,9 @@ export function PriceCarousel() {
   return <View style={styles.example}>
     <View {...keyboardProps} style={[styles.stage, { height: stageHeight }]} accessible accessibilityRole="adjustable"
       accessibilityLabel="Card price carousel" accessibilityHint="Swipe left or right to explore prices."
-      accessibilityValue={{ min: 0, max: cards.length - 1, now: selected, text: `${card.name}, ${money(card.marketPrice.amount)} sample USD. Card ${selected + 1} of ${cards.length}.` }}
+      accessibilityValue={{ min: 0, max: cards.length - 1, now: selected, text: `${card.name}, ${money(card.marketPrice.amount)} sample ${currency}. Card ${selected + 1} of ${cards.length}.` }}
       aria-valuemin={0} aria-valuemax={cards.length - 1} aria-valuenow={selected}
-      aria-valuetext={`${card.name}, ${money(card.marketPrice.amount)} sample USD. Card ${selected + 1} of ${cards.length}.`}
+      aria-valuetext={`${card.name}, ${money(card.marketPrice.amount)} sample ${currency}. Card ${selected + 1} of ${cards.length}.`}
       accessibilityActions={[{ name: 'increment', label: 'Next card' }, { name: 'decrement', label: 'Previous card' }]}
       onAccessibilityAction={event => goTo(selectedRef.current + (event.nativeEvent.actionName === 'increment' ? 1 : -1))}>
       <View pointerEvents="none" style={[styles.disc, { width: printWidth * 1.28, height: printWidth * 1.28, borderRadius: printWidth }]} />
@@ -85,9 +87,9 @@ export function PriceCarousel() {
       </View>
       <View style={styles.priceRow}>
         <Pressable accessibilityRole="button" accessibilityLabel="Previous price card" disabled={selected === 0} accessibilityState={{ disabled: selected === 0 }} onPress={() => goTo(selected - 1)} style={({ pressed }) => [styles.arrow, (pressed || selected === 0) && { opacity: 0.3 }]}><Icon name="chevron-back" color={colors.primary} /></Pressable>
-        <View style={styles.amount} accessible accessibilityLiveRegion="polite" accessibilityLabel={`${card.name}, ${money(card.marketPrice.amount)}. Sample USD price.${card.id === 'base1-4' ? ' First-edition reference image; sample price does not distinguish editions.' : ''}`}>
+        <View style={styles.amount} accessible accessibilityLiveRegion="polite" accessibilityLabel={`${card.name}, ${money(card.marketPrice.amount)}. Sample ${currency} price.${card.id === 'base1-4' ? ' First-edition reference image; sample price does not distinguish editions.' : ''}`}>
           <Label kind="price" style={styles.price}>{money(card.marketPrice.amount)}</Label>
-          <Label kind="caption" style={styles.metadata}>Sample USD</Label>
+          <Label kind="caption" style={styles.metadata}>Sample {currency}</Label>
         </View>
         <Pressable accessibilityRole="button" accessibilityLabel="Next price card" disabled={selected === cards.length - 1} accessibilityState={{ disabled: selected === cards.length - 1 }} onPress={() => goTo(selected + 1)} style={({ pressed }) => [styles.arrow, (pressed || selected === cards.length - 1) && { opacity: 0.3 }]}><Icon name="chevron-forward" color={colors.primary} /></Pressable>
       </View>

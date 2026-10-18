@@ -289,7 +289,7 @@ try {
     const downgraded = await waitForState(page, (value) => value.plan === 'free', 'simulated downgrade');
     assert.equal(totalCopies(downgraded), 52);
     await page.reload({ waitUntil: 'domcontentloaded' });
-    await visibleText(page, '52 / 50 copies').waitFor();
+    await page.getByRole('heading', { name: 'Profile', exact: true }).waitFor();
     assert.equal(totalCopies(await stateOf(page)), 52, 'Reload must never discard owned cards after a downgrade.');
     await tab(page, 'Collection').click();
     await button(page, 'My Cards').click();
@@ -314,7 +314,6 @@ try {
       [/Privacy Policy/, 'A published Privacy Policy is not available yet.'],
       [/Terms of Service/, 'Published Terms of Service are not available yet.'],
       [/Contact Support/, 'A support destination is not configured yet.'],
-      [/Currency/, 'US Dollar (USD)'],
       [/About Chase/, 'Chase · v0.1 frontend prototype'],
     ];
     for (const [destination, message] of destinations) {
@@ -326,6 +325,20 @@ try {
       await button(page, 'Create Account').waitFor();
     }
     assert.deepEqual(await stateOf(page), before, 'Informational account flows must not grant Pro or alter collection data.');
+    assert.equal(await visibleText(page, 'Membership').count(), 0);
+    assert.equal(await visibleText(page, 'Free scan used').count(), 0);
+    assert.equal(await visibleText(page, '52 / 50 copies').count(), 0);
+    await page.getByRole('img', { name: 'Mew VMAX, Fusion Strike, 269/264, Pokémon TCG card', exact: true }).waitFor();
+    assert.equal(await page.getByRole('img', { name: 'Mew, Pokémon illustration', exact: true }).count(), 0);
+    const proSection = button(page, /Explore Chase Pro/).locator('..');
+    assert.equal(await proSection.getByRole('button', { name: /Restore Purchases/ }).count(), 1, 'Pro and restore controls must share a section.');
+    const order = await page.getByRole('button').evaluateAll(elements => elements.map(element => element.textContent));
+    assert.ok(order.findIndex(text => text.includes('About Chase')) < order.findIndex(text => text.includes('Explore Chase Pro')), 'Subscription controls belong below Settings & support.');
+    await button(page, /Explore Chase Pro/).click();
+    await visibleText(page, 'Purchases are not connected').waitFor();
+    await button(page, 'Close Chase Pro and go to Home').click();
+    await tab(page, 'Profile').click();
+    assert.deepEqual(await stateOf(page), before);
     await page.screenshot({ path: '/tmp/chase-profile.png' });
   });
 
@@ -398,6 +411,7 @@ try {
       ['sv2-203', 'Magikarp', 'Paldea Evolved', '203/193'],
       ['xyp-XY133', 'Ash-Greninja EX', 'XY Black Star Promos', 'XY133'],
       ['sv6-214', 'Greninja ex', 'Twilight Masquerade', '214/167'],
+      ['swsh8-269', 'Mew VMAX', 'Fusion Strike', '269/264'],
     ];
     for (const [id, name, set, number] of chases) {
       await chasePage.getByRole('textbox', { name: 'Search sample catalog by name, set, or card number' }).fill(id === 'sv6-214' ? number : name);
@@ -593,6 +607,111 @@ try {
     await visibleText(carouselPage, 'Scan a card').waitFor();
     assert.deepEqual(await stateOf(carouselPage), fixture, 'The carousel must not save cards, change the plan or grant scans.');
     await carouselContext.close(); activePage = page;
+  });
+
+  await scenario('wallet and Profile share persisted USD/EUR pricing across every card surface', async () => {
+    const currencyContext = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+    const fixture = { ...initialState, onboardingComplete: true, items: [
+      { cardId: 'base1-4', quantity: 1, addedAt: '2026-10-01T00:00:00.000Z' },
+      { cardId: 'swsh7-215', quantity: 1, addedAt: '2026-10-02T00:00:00.000Z' },
+    ] };
+    await currencyContext.addInitScript(({ key, value }) => { if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(value)); }, { key: storageKey, value: fixture });
+    const currencyPage = await currencyContext.newPage(); watchPage(currencyPage);
+    await currencyPage.goto(baseUrl, { waitUntil: 'domcontentloaded' });
+    await home(currencyPage); await tab(currencyPage, 'Collection').click();
+    await visibleText(currencyPage, '$895.00').waitFor();
+    await button(currencyPage, 'Change currency, USD').click();
+    const dialog = currencyPage.getByRole('dialog', { name: 'Currency', exact: true });
+    await dialog.waitFor();
+    assert.equal(await dialog.getByRole('radio').count(), 2);
+    assert.equal(await dialog.getByRole('radio', { name: 'US Dollar (USD)', exact: true }).getAttribute('aria-checked'), 'true');
+    await dialog.getByRole('radio', { name: 'Euro (EUR)', exact: true }).click();
+    await dialog.waitFor({ state: 'hidden' });
+    await visibleText(currencyPage, '€823.40').waitFor();
+    assert.match(await currencyPage.getByRole('slider', { name: 'Collection value history' }).getAttribute('aria-valuetext'), /€823.40 EUR/);
+    await currencyPage.reload({ waitUntil: 'domcontentloaded' });
+    await button(currencyPage, 'Change currency, EUR').waitFor();
+    await visibleText(currencyPage, '€823.40').waitFor();
+    await visibleText(currencyPage, '€598.00').waitFor();
+    await button(currencyPage, 'See all').click();
+    await currencyPage.getByRole('textbox', { name: 'Search your cards by name' }).waitFor();
+    await visibleText(currencyPage, '€225.40').first().waitFor();
+    await openCard(currencyPage, 'Charizard');
+    await visibleText(currencyPage, 'EUR · ungraded').waitFor();
+    await visibleText(currencyPage, 'Estimated total: €225.40 · demo EUR').waitFor();
+    const chart = currencyPage.getByRole('slider', { name: 'Charizard simulated price history in EUR' });
+    await chart.focus(); await currencyPage.keyboard.press('End');
+    assert.match(await chart.getAttribute('aria-valuetext'), /€225.40 EUR/);
+    await currencyPage.goBack();
+    await currencyPage.getByRole('textbox', { name: 'Search your cards by name' }).waitFor();
+    await currencyPage.goBack(); await button(currencyPage, 'Change currency, EUR').waitFor();
+    await tab(currencyPage, 'Home').click();
+    await home(currencyPage);
+    await button(currencyPage, 'View Charizard, Holo, 1 copies').getByText('€225.40', { exact: true }).waitFor();
+    await button(currencyPage, 'Search Cards').click();
+    await currencyPage.getByRole('textbox', { name: 'Search sample catalog by name, set, or card number' }).fill('Charizard');
+    await visibleText(currencyPage, '€225.40').first().waitFor();
+    await button(currencyPage, 'Show list').click(); await visibleText(currencyPage, '€225.40').first().waitFor();
+    await currencyPage.goBack(); await home(currencyPage); await tab(currencyPage, 'Profile').click();
+    await button(currencyPage, /Currency.*Euro.*EUR/).click();
+    await dialog.waitFor();
+    assert.equal(await dialog.getByRole('radio', { name: 'Euro (EUR)', exact: true }).getAttribute('aria-checked'), 'true');
+    await currencyPage.keyboard.press('Escape'); await dialog.waitFor({ state: 'hidden' });
+    assert.deepEqual(await stateOf(currencyPage), fixture);
+    await button(currencyPage, 'Preview onboarding').click();
+    await visibleText(currencyPage, '€225.40').first().waitFor();
+    await button(currencyPage, 'Next price card').click(); await visibleText(currencyPage, '€276.00').waitFor();
+    await button(currencyPage, 'Continue').click(); await visibleText(currencyPage, '€87.40').waitFor();
+    await button(currencyPage, 'Continue').click(); await visibleText(currencyPage, '€94.44').waitFor();
+    await button(currencyPage, 'Skip').click(); await button(currencyPage, 'Skip for now').click();
+    await button(currencyPage, 'Close Chase Pro and go to Home').click();
+    await button(currencyPage, 'Scan a Card').click(); await button(currencyPage, 'Use my free sample scan').click();
+    await visibleText(currencyPage, 'Sample EUR price').waitFor(); await visibleText(currencyPage, '€225.40').first().waitFor();
+    assert.deepEqual((await stateOf(currencyPage)).items, fixture.items);
+    assert.equal((await stateOf(currencyPage)).trial.successfulRecognitions, 1);
+    await currencyPage.goBack(); await home(currencyPage); await tab(currencyPage, 'Profile').click();
+    const afterScan = await stateOf(currencyPage);
+    await button(currencyPage, /Currency.*Euro.*EUR/).click();
+    await dialog.getByRole('radio', { name: 'US Dollar (USD)', exact: true }).click();
+    await dialog.waitFor({ state: 'hidden' });
+    await button(currencyPage, /Currency.*US Dollar.*USD/).waitFor();
+    await tab(currencyPage, 'Collection').click();
+    await button(currencyPage, 'Change currency, USD').waitFor(); await visibleText(currencyPage, '$895.00').waitFor();
+    assert.deepEqual(await stateOf(currencyPage), afterScan, 'Currency changes must not alter owned cards, plan, trial or onboarding.');
+    await checkHorizontalLayout(currencyPage, 'currency wallet shortcut');
+    await currencyContext.close(); activePage = page;
+  });
+
+  await scenario('currency selection can be dismissed and storage failure keeps the previous choice recoverable', async () => {
+    const retryContext = await browser.newContext({ viewport: { width: 320, height: 568 }, deviceScaleFactor: 1 });
+    const fixture = { ...initialState, onboardingComplete: true, items: [{ cardId: 'base1-4', quantity: 1, addedAt: '2026-10-01T00:00:00.000Z' }] };
+    await retryContext.addInitScript(({ key, value }) => { if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(value)); }, { key: storageKey, value: fixture });
+    const retryPage = await retryContext.newPage(); watchPage(retryPage);
+    await retryPage.goto(new URL('/collection', baseUrl).href, { waitUntil: 'domcontentloaded' });
+    await button(retryPage, 'Change currency, USD').click();
+    const dialog = retryPage.getByRole('dialog', { name: 'Currency', exact: true }); await dialog.waitFor();
+    await checkHorizontalLayout(retryPage, '320px currency dialog');
+    await button(retryPage, 'Close currency selector').click(); await dialog.waitFor({ state: 'hidden' });
+    await button(retryPage, 'Change currency, USD').click();
+    await retryPage.mouse.click(4, 4); await dialog.waitFor({ state: 'hidden' });
+    await button(retryPage, 'Change currency, USD').click();
+    await retryPage.evaluate(() => {
+      const original = Storage.prototype.setItem;
+      Storage.prototype.setItem = function (key, value) {
+        if (key === 'chase.currency.v1') { Storage.prototype.setItem = original; throw new Error('Simulated currency storage failure'); }
+        return original.call(this, key, value);
+      };
+    });
+    await dialog.getByRole('radio', { name: 'Euro (EUR)', exact: true }).click();
+    await retryPage.getByRole('alert').filter({ hasText: 'Could not save currency. Try again.' }).waitFor();
+    assert.equal(await dialog.getByRole('radio', { name: 'US Dollar (USD)', exact: true }).getAttribute('aria-checked'), 'true');
+    assert.deepEqual(await stateOf(retryPage), fixture);
+    await dialog.getByRole('radio', { name: 'Euro (EUR)', exact: true }).click();
+    await dialog.waitFor({ state: 'hidden' });
+    await visibleText(retryPage, '€225.40').first().waitFor();
+    await retryPage.reload({ waitUntil: 'domcontentloaded' }); await button(retryPage, 'Change currency, EUR').waitFor();
+    assert.deepEqual(await stateOf(retryPage), fixture);
+    await retryContext.close(); activePage = page;
   });
 
   console.log(`Chase browser smoke passed: ${passed} scenarios; no JavaScript runtime errors.`);

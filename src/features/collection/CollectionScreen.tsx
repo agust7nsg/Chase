@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 import { CardPrint } from '@/components/CardPrint';
-import { money } from '@/components/CardRow';
+import { useCurrency } from '@/features/currency/CurrencyProvider';
+import { CurrencyShortcut } from '@/components/CurrencyShortcut';
 import { PriceChart, RangeSelector } from '@/components/PriceChart';
 import { Badge, Button, EmptyState, Icon, Label, Screen, Section, uiStyles } from '@/components/ui';
 import { useChase } from '@/features/app/ChaseProvider';
@@ -13,9 +14,9 @@ import type { CollectionItem } from '@/types/domain';
 
 const exampleItems: CollectionItem[] = ['base1-4', 'swsh7-215', 'swsh11-186', 'sv2-203'].map(cardId => ({ cardId, quantity: 1, addedAt: HISTORY_AS_OF }));
 const sign = (value: number) => value > 0 ? '+' : value < 0 ? '−' : '';
-const signedMoney = (value: number) => `${sign(value)}${money(Math.abs(value))}`;
 
 function TopCardRow({ item }: { item: HoldingMover }) {
+  const { formatMoney: money } = useCurrency();
   return <Pressable accessibilityRole="button" accessibilityLabel={`View ${item.card.name}, ${item.card.variant}, ${item.quantity} copies`} onPress={() => router.push({ pathname: '/card/[id]', params: { id: item.card.id } })} style={({ pressed }) => [styles.position, pressed && { opacity: 0.6 }]}>
     <View style={{ width: 40 }}><CardPrint card={item.card} /></View>
     <View style={{ flex: 1, gap: 4, minWidth: 80 }}><Label style={{ fontWeight: '600' }}>{item.card.name}</Label><Label kind="caption" style={uiStyles.muted}>{item.quantity} {item.quantity === 1 ? 'copy' : 'copies'} · {item.card.collectorNumber}</Label></View>
@@ -24,6 +25,8 @@ function TopCardRow({ item }: { item: HoldingMover }) {
 }
 
 export function CollectionScreen() {
+  const { formatMoney: money } = useCurrency();
+  const signedMoney = (value: number) => `${sign(value)}${money(Math.abs(value))}`;
   const { state, summary, entitlements, ready, loadError, retryLoad, persistenceError } = useChase();
   const [range, setRange] = useState<HistoryRange>('1M');
   const [preview, setPreview] = useState(false);
@@ -35,7 +38,7 @@ export function CollectionScreen() {
   const topCards = [...movers].sort((a, b) => b.card.marketPrice.amount - a.card.marketPrice.amount || a.card.id.localeCompare(b.card.id)).slice(0, 3);
   if (!ready) return <Screen>{loadError ? <EmptyState title="Collection unavailable" message={loadError} action="Try again" onPress={retryLoad} icon="cloud-offline-outline" /> : <View style={styles.loading}><ActivityIndicator color={colors.primary} /><Label>Loading your collection…</Label></View>}</Screen>;
   return <Screen style={{ gap: 24 }}>
-    <View style={uiStyles.between}><View style={uiStyles.row}><View style={styles.walletIcon}><Icon name="wallet-outline" color={colors.primary} size={22} /></View><Label kind="title" accessibilityRole="header">Collection</Label></View><Badge tone="neutral">USD</Badge></View>
+    <View style={uiStyles.between}><View style={uiStyles.row}><View style={styles.walletIcon}><Icon name="wallet-outline" color={colors.primary} size={22} /></View><Label kind="title" accessibilityRole="header">Collection</Label></View><CurrencyShortcut /></View>
     {preview ? <View style={styles.preview}><Icon name="information-circle-outline" color={colors.primary} /><Label kind="caption" style={{ flex: 1 }}>Sample collection · preview only</Label><Pressable accessibilityRole="button" accessibilityLabel="Return to my collection" onPress={() => setPreview(false)} style={styles.closePreview}><Icon name="close" size={22} color={colors.primary} /></Pressable></View> : null}
     <View style={{ gap: 10 }}>
       <View style={uiStyles.between}><Label kind="caption" style={uiStyles.muted}>Collection value</Label></View>

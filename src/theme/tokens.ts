@@ -9,6 +9,7 @@ export const colors = {
   heroBlue: '#245DE8', heroInk: '#111E3C', heroQuiet: '#E2EBFF',
   mewSoft: '#F0E9FB', mewAccent: '#6946A4',
   scannerOrbitLine: '#2B3C58', scannerFrame: '#ABC8FF',
+  scrim: 'rgba(17, 30, 60, 0.32)',
 } as const;
 export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32, xxxl: 48 } as const;
 export const radii = { small: 8, medium: 14, large: 20 } as const;
