@@ -1,16 +1,21 @@
 export type Plan = 'free' | 'pro';
 
-export type CardVariant = 'Holo' | 'Normal' | 'Reverse holo';
+export type CardVariant = 'Holo' | 'Normal' | 'Reverse holo' | 'First edition' | 'W promo' | 'Unspecified';
 
-/** A prototype estimate, never a live market quote. */
 export interface MarketPrice {
   amount: number;
-  currency: 'USD';
-  source: 'mock';
+  currency: 'USD' | 'EUR';
+  source: 'mock' | 'tcgplayer' | 'cardmarket';
   updatedAt: string;
+  variant?: CardVariant;
+  variantId?: string;
+  metric?: string;
+  market?: 'US' | 'EU';
+  kind?: 'raw' | 'graded';
+  grading?: { company: string; grade: string };
 }
 
-/** id identifies a particular printing and variant, rather than a Pokémon. */
+/** id is the collectible identity. catalogIdentity.id is the independent TCGdex card ID. */
 export interface Card {
   id: string;
   name: string;
@@ -18,13 +23,22 @@ export interface Card {
   collectorNumber: string;
   variant: CardVariant;
   imageKey: string;
-  marketPrice: MarketPrice;
+  marketPrice: MarketPrice | null;
+  catalogIdentity?: { provider: 'tcgdex'; language: string; id: string; variant: string };
+  setId?: string;
+  localId?: string;
+  imageUrl?: string;
+  description?: string;
+  availableVariants?: { id: string; label: CardVariant }[];
+  prices?: MarketPrice[];
 }
 
 export interface CollectionItem {
   cardId: string;
   quantity: number;
   addedAt: string;
+  /** Durable reference for real catalog cards; legacy rows are preserved as-is. */
+  card?: Card;
 }
 
 export interface Collection {
@@ -60,10 +74,14 @@ export interface PrototypeState {
   plan: Plan;
   trial: ScannerTrialState;
   items: CollectionItem[];
+  /** Durable receipts make Organize saves replay-safe across interrupted writes. */
+  savedScanOperations?: string[];
 }
 
 export interface CollectionSummary {
   uniqueCards: number;
   totalCopies: number;
   totalValue: number;
+  unpricedCopies?: number;
+  hasLivePrices?: boolean;
 }

@@ -6,6 +6,7 @@ import { Button, EmptyState, Icon, Label, Screen, SearchField, uiStyles } from '
 import { getCatalogCard } from '@/data/mocks/catalog';
 import { useChase } from '@/features/app/ChaseProvider';
 import { CardTile } from '@/features/cards/CardTile';
+import { priceToUsd } from '@/services/currency';
 import { colors } from '@/theme/tokens';
 
 type Sort = 'date' | 'name' | 'price';
@@ -13,24 +14,27 @@ const sortOptions: { value: Sort; label: string }[] = [{ value: 'date', label: '
 
 export function MyCardsScreen() {
   const { currency } = useCurrency();
-  const { state, summary, ready, loadError, retryLoad } = useChase();
+  const { state, summary, ready, loadError, retryLoad, catalogRevision } = useChase();
   const { width, fontScale } = useWindowDimensions();
   const columns = fontScale > 1.3 ? 1 : width >= 700 ? 3 : 2;
   const [gridWidth, setGridWidth] = useState(Math.min(width, 760) - 48);
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<Sort>('date');
   const cards = useMemo(() => {
+    // Resolve refreshed quotes/artwork even when the owned rows have not changed.
+    void catalogRevision;
     const search = query.trim().toLowerCase();
     return state.items.flatMap((item) => {
-      const card = getCatalogCard(item.cardId);
+      const card = getCatalogCard(item.cardId) ?? item.card;
       if (!card || !`${card.name} ${card.setName} ${card.collectorNumber} ${card.variant}`.toLowerCase().includes(search)) return [];
-      return [{ card, ...item }];
+      return [{ ...item, card }];
     }).sort((a, b) => {
       if (sort === 'name') return a.card.name.localeCompare(b.card.name) || a.card.id.localeCompare(b.card.id);
-      if (sort === 'price') return b.card.marketPrice.amount - a.card.marketPrice.amount || a.card.name.localeCompare(b.card.name);
+      if (sort === 'price') return (priceToUsd(b.card.marketPrice) ?? -1) - (priceToUsd(a.card.marketPrice) ?? -1) || a.card.name.localeCompare(b.card.name);
       return b.addedAt.localeCompare(a.addedAt);
     });
-  }, [state.items, query, sort]);
+  }, [state.items, query, sort, catalogRevision]);
+  const hasRealCards = cards.some(item => item.card.catalogIdentity || item.card.marketPrice?.source !== 'mock');
   if (!ready) return <Screen safeTop={false}>{loadError ? <EmptyState title="Collection unavailable" message={loadError} action="Try again" onPress={retryLoad} /> : <ActivityIndicator color={colors.primary} accessibilityLabel="Loading your cards" />}</Screen>;
   return <Screen safeTop={false} scroll={false} style={{ gap: 16, paddingBottom: 16 }}>
     <FlatList
@@ -49,7 +53,7 @@ export function MyCardsScreen() {
       renderItem={({ item }) => <CardTile card={item.card} quantity={item.quantity} width={(gridWidth - (columns - 1) * 16) / columns} />}
       onLayout={(event) => setGridWidth(event.nativeEvent.layout.width - 48)}
       columnWrapperStyle={columns > 1 ? styles.gridRow : undefined} contentContainerStyle={styles.grid} keyboardShouldPersistTaps="handled"
-      ListFooterComponent={<View style={{ gap: 16, paddingTop: 16 }}>{cards.length ? <Label kind="caption" style={uiStyles.muted}>Sample {currency} / copy</Label> : null}<Button title="Browse catalog" variant="ghost" icon="search-outline" onPress={() => router.push('/search')} /></View>}
+      ListFooterComponent={<View style={{ gap: 16, paddingTop: 16 }}>{cards.length ? <Label kind="caption" style={uiStyles.muted}>{hasRealCards ? 'Estimates' : 'Sample'} {currency} / copy</Label> : null}<Button title="Browse catalog" variant="ghost" icon="search-outline" onPress={() => router.push('/search')} /></View>}
       ListEmptyComponent={<EmptyState title={query.trim() ? 'No matching cards' : 'No cards yet'} message={query.trim() ? 'Try another name to find a card in your collection.' : 'Find your first favorite in the catalog.'} action={query.trim() ? 'Clear search' : 'Browse cards'} onPress={query.trim() ? () => setQuery('') : () => router.push('/search')} icon="search-outline" />}
     />
   </Screen>;

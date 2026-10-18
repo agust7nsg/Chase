@@ -18,6 +18,7 @@
     },
     "plugins": [
       "expo-router",
+      ["expo-camera", { "cameraPermission": "Allow Chase to show the camera while you scan cards.", "microphonePermission": false, "recordAudioAndroid": false, "barcodeScannerEnabled": false }],
       [
         "expo-splash-screen",
         {

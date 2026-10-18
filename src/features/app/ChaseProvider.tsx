@@ -1,9 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { addCard, canScan, getEntitlements, initialState, normalizeStoredState, recordSuccessfulScan, removeCard, setQuantity, summarizeCollection, recognitionService } from '@/services';
-import type { Card, PrototypeState } from '@/types/domain';
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { addCard, getEntitlements, initialState, normalizeStoredState, removeCard, setQuantity, summarizeCollection } from '@/services';
+import type { PrototypeState } from '@/types/domain';
 import { FEATURED_CARD_IDS, type FeaturedCardId } from '@/services/featuredCards';
 import { loadSessionFeaturedCard } from '@/features/home/featuredCardSession';
+import { saveScanItems } from '@/services/scanSession';
+import type { ScanSaveResult, ScanSessionItem } from '@/types/scanner';
+import { catalogRevision, subscribeCatalog } from '@/data/catalogRegistry';
+import { catalogService } from '@/services/catalog';
 
 const STORAGE_KEY = 'chase.prototype.v1';
 async function readStoredState() {
@@ -14,15 +18,17 @@ async function readStoredState() {
 type ActionResult = { ok: boolean; message: string };
 type ChaseContextValue = {
   state: PrototypeState; ready: boolean; loadError: string | null; persistenceError: string | null;
-  featuredCardId: FeaturedCardId;
+  featuredCardId: FeaturedCardId; catalogRevision: number;
   entitlements: ReturnType<typeof getEntitlements>; summary: ReturnType<typeof summarizeCollection>;
   retryLoad: () => void; completeOnboarding: () => void; setDevPro: (enabled: boolean) => void;
-  recognize: (simulateFailure?: boolean, signal?: AbortSignal) => Promise<Card>;
   addToCollection: (cardId: string) => ActionResult; updateQuantity: (cardId: string, quantity: number) => ActionResult;
   removeFromCollection: (cardId: string) => void;
+  recordRecognition: (usedFree: boolean) => void;
+  saveScannedItems: (items: ScanSessionItem[]) => Promise<ScanSaveResult>;
 };
 const ChaseContext = createContext<ChaseContextValue | null>(null);
 export function ChaseProvider({ children }: { children: ReactNode }) {
+  const revision = useSyncExternalStore(subscribeCatalog, catalogRevision, catalogRevision);
   const [state, setState] = useState<PrototypeState>(initialState);
   const [featuredCardId, setFeaturedCardId] = useState<FeaturedCardId>(FEATURED_CARD_IDS[0]);
   const stateRef = useRef(state);
@@ -30,7 +36,7 @@ export function ChaseProvider({ children }: { children: ReactNode }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [persistenceError, setPersistenceError] = useState<string | null>(null);
   const saveQueue = useRef(Promise.resolve());
-  const recognizing = useRef(false);
+  const savingScans = useRef(false);
   const onLoaded = useCallback((next: PrototypeState) => {
     stateRef.current = next; setState(next); setReady(true); setLoadError(null);
   }, []);
@@ -43,6 +49,19 @@ export function ChaseProvider({ children }: { children: ReactNode }) {
       onLoaded(next);
     }).catch(onLoadFailed);
   }, [onLoaded, onLoadFailed]);
+  const remoteIds = state.items.filter(item => item.cardId.startsWith('tcgdex:')).map(item => item.cardId).sort().join('|');
+  useEffect(() => {
+    if (!ready || !remoteIds) return;
+    let active = true;
+    // Refresh references without changing ownership, quantities, or legacy records.
+    const ids = remoteIds.split('|');
+    void (async () => {
+      for (let start = 0; active && start < ids.length; start += 6) {
+        await Promise.allSettled(ids.slice(start, start + 6).map(id => catalogService.getCard(id)));
+      }
+    })();
+    return () => { active = false; };
+  }, [ready, remoteIds]);
   const commit = useCallback((next: PrototypeState) => {
     stateRef.current = next; setState(next);
     saveQueue.current = saveQueue.current.then(() => AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next))).then(() => {
@@ -52,28 +71,36 @@ export function ChaseProvider({ children }: { children: ReactNode }) {
     });
   }, []);
   const perform = (operation: () => PrototypeState): ActionResult => {
+    if (savingScans.current) return { ok: false, message: 'Please wait while your scanned cards are saved.' };
     try { commit(operation()); return { ok: true, message: 'Collection updated.' }; }
     catch (error) { return { ok: false, message: error instanceof Error ? error.message : 'Unable to update your collection.' }; }
   };
-  const recognize = async (simulateFailure = false, signal?: AbortSignal) => {
-    if (signal?.aborted) throw new Error('Sample scan canceled.');
-    if (recognizing.current) throw new Error('A sample recognition is already in progress.');
-    if (!canScan(stateRef.current)) throw new Error('Your complimentary scan has been used. Chase Pro is required for another scan.');
-    recognizing.current = true;
-    try {
-      const card = await recognitionService.recognize({ simulateFailure });
-      if (signal?.aborted) throw new Error('Sample scan canceled.');
-      commit(recordSuccessfulScan(stateRef.current));
-      return card;
-    } finally { recognizing.current = false; }
+  const saveScannedItems = useCallback(async (items: ScanSessionItem[]): Promise<ScanSaveResult> => {
+    if (savingScans.current) throw new Error('A save is already in progress.');
+    savingScans.current = true;
+    const operation = saveQueue.current.then(async () => {
+      const saved = saveScanItems(stateRef.current, items);
+      // Do not acknowledge success or remove pending rows until collection + receipts are durable.
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(saved.state));
+      stateRef.current = saved.state; setState(saved.state); setPersistenceError(null);
+      return saved.result;
+    });
+    saveQueue.current = operation.then(() => undefined, () => { setPersistenceError('Scanned cards could not be saved. They remain in Organize.'); });
+    try { return await operation; } finally { savingScans.current = false; }
+  }, []);
+  const afterScanSave = (action: () => void) => {
+    if (savingScans.current) void saveQueue.current.then(action);
+    else action();
   };
   return <ChaseContext.Provider value={{
-    state, ready, loadError, persistenceError, featuredCardId, entitlements: getEntitlements(state.plan), summary: summarizeCollection(state.items),
-    retryLoad: () => { setLoadError(null); void readStoredState().then(onLoaded).catch(onLoadFailed); }, completeOnboarding: () => commit({ ...stateRef.current, onboardingComplete: true }),
-    setDevPro: (enabled) => { if (__DEV__) commit({ ...stateRef.current, plan: enabled ? 'pro' : 'free' }); },
-    recognize, addToCollection: (cardId) => perform(() => addCard(stateRef.current, cardId)),
+    state, ready, loadError, persistenceError, featuredCardId, catalogRevision: revision, entitlements: getEntitlements(state.plan), summary: summarizeCollection(state.items),
+    retryLoad: () => { setLoadError(null); void readStoredState().then(onLoaded).catch(onLoadFailed); }, completeOnboarding: () => afterScanSave(() => commit({ ...stateRef.current, onboardingComplete: true })),
+    setDevPro: (enabled) => { if (__DEV__) afterScanSave(() => commit({ ...stateRef.current, plan: enabled ? 'pro' : 'free' })); },
+    addToCollection: (cardId) => perform(() => addCard(stateRef.current, cardId)),
     updateQuantity: (cardId, quantity) => perform(() => setQuantity(stateRef.current, cardId, quantity)),
-    removeFromCollection: (cardId) => commit(removeCard(stateRef.current, cardId)),
+    removeFromCollection: (cardId) => afterScanSave(() => commit(removeCard(stateRef.current, cardId))),
+    recordRecognition: (usedFree) => { if (usedFree && stateRef.current.trial.successfulRecognitions === 0) commit({ ...stateRef.current, trial: { successfulRecognitions: 1 } }); },
+    saveScannedItems,
   }}>{children}</ChaseContext.Provider>;
 }
 export function useChase() {

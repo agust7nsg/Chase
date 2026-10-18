@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright-core';
+import { catalogKey, catalogSearchLabel, installTCGdexFixtures } from './fixtures/tcgdex.mjs';
 
 const baseUrl = process.env.CHASE_SMOKE_URL ?? 'http://localhost:8081';
 const executablePath = process.env.CHASE_BROWSER_EXECUTABLE ?? '/usr/bin/chromium';
@@ -18,6 +19,12 @@ const runtimeErrors = [];
 let passed = 0;
 let activePage;
 let browser;
+
+async function fixtureContext(options) {
+  const context = await browser.newContext(options);
+  await installTCGdexFixtures(context);
+  return context;
+}
 
 const money = (value) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
 const totalCopies = (state) => state.items.reduce((sum, item) => sum + item.quantity, 0);
@@ -90,7 +97,7 @@ async function checkHorizontalLayout(page, label) {
 
 try {
   browser = await chromium.launch({ executablePath, headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
-  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+  const context = await fixtureContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
   const page = await context.newPage();
   watchPage(page);
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
@@ -101,6 +108,13 @@ try {
     await visibleText(page, 'Scan a card').waitFor();
     await button(page, 'Continue').click();
     await visibleText(page, 'Your collection').waitFor();
+    await visibleText(page, '$1,280.00').waitFor();
+    await visibleText(page, '+14.29% · 1M').waitFor();
+    await page.getByRole('img', { name: 'Rayquaza VMAX, Evolving Skies, 218/203, Pokémon TCG card', exact: true }).waitFor();
+    assert.equal(await visibleText(page, 'Dragonite V').count(), 0);
+    assert.equal(await visibleText(page, 'Mew').count(), 0);
+    const previewTrend = page.getByRole('img', { name: /Illustrative monthly USD portfolio value/ });
+    assert.match(await previewTrend.getAttribute('aria-label'), /1,120.00.*1,280.00/);
     await button(page, 'Get started').click();
     await button(page, 'Try Free Scan').waitFor();
     await button(page, 'Skip for now').click();
@@ -123,19 +137,19 @@ try {
 
   await scenario('leaving a pending recognition cancels it without spending the trial', async () => {
     await button(page, 'Scan a Card').click();
-    await button(page, 'Use my free sample scan').click();
-    await visibleText(page, 'Identifying sample card…').waitFor();
-    await page.goBack();
-    await home(page);
-    await page.waitForTimeout(1_200);
+    await button(page, 'Present next demo card').click();
+    await visibleText(page, 'Identifying…').waitFor();
+    await button(page, 'Close scanner, keep pending cards').click();
+    await home(page); await page.waitForTimeout(1_200);
     assert.equal((await stateOf(page)).trial.successfulRecognitions, 0);
     assert.deepEqual((await stateOf(page)).items, []);
   });
 
   await scenario('failed recognition leaves the free trial available', async () => {
     await button(page, 'Scan a Card').click();
+    await button(page, 'Demo test controls').click();
     await setSwitch(page, 'Development only: simulate failed recognition', true);
-    await button(page, 'Use my free sample scan').click();
+    await button(page, 'Present next demo card').click();
     await visibleText(page, 'No card recognized. Try centering the card in the frame.').waitFor();
     assert.equal((await stateOf(page)).trial.successfulRecognitions, 0);
     assert.deepEqual((await stateOf(page)).items, []);
@@ -143,19 +157,22 @@ try {
   });
 
   let recognizedCard;
-  await scenario('successful recognition spends the trial and requires one explicit save', async () => {
-    await button(page, 'Use my free sample scan').click();
-    await visibleText(page, 'Demo result').waitFor();
+  await scenario('successful recognition stages a card and Organize explicitly saves it once', async () => {
+    await button(page, 'Retry identification').click();
+    await button(page, 'Organize (1)').waitFor();
     const beforeSave = await waitForState(page, (value) => value.trial.successfulRecognitions === 1, 'one successful recognition');
-    assert.deepEqual(beforeSave.items, [], 'Recognition must not automatically save a card.');
-    await button(page, 'Add to Collection').click();
-    await visibleText(page, 'One copy saved to your collection.').waitFor();
-    const saved = await waitForState(page, (value) => value.items.length === 1, 'confirmed scan save');
-    assert.equal(saved.items[0].quantity, 1);
-    recognizedCard = saved.items[0].cardId;
-    assert.ok(cards[recognizedCard], 'The recognized sample must belong to the catalog.');
-    assert.equal(await button(page, 'Add to Collection').count(), 0, 'The save button must disappear after one successful confirmation.');
-    await button(page, 'View collection').click();
+    assert.deepEqual(beforeSave.items, []);
+    assert.equal(await button(page, 'Add to Collection').count(), 0);
+    await button(page, 'Organize (1)').click();
+    await button(page, 'Save all to Collection').click();
+    await visibleText(page, '1 copy saved to Collection.').waitFor();
+    const saved = await waitForState(page, (value) => value.items.length === 1, 'confirmed session save');
+    assert.equal(saved.items[0].quantity, 1); recognizedCard = saved.items[0].cardId;
+    assert.ok(cards[recognizedCard]);
+    assert.equal(await button(page, 'Save all to Collection').getAttribute('aria-disabled'), 'true');
+    await button(page, 'Return to Scanner').first().click();
+    await button(page, 'Close scanner, keep pending cards').click();
+    await home(page); await tab(page, 'Collection').click();
     await page.getByRole('heading', { name: 'Collection', exact: true }).filter({ visible: true }).waitFor();
     await visibleText(page, money(cards[recognizedCard].price)).first().waitFor();
   });
@@ -205,18 +222,18 @@ try {
 
   await scenario('manual catalog search remains free after the complimentary scan is used', async () => {
     await button(page, 'Browse cards').click();
-    const search = page.getByRole('textbox', { name: 'Search sample catalog by name, set, or card number', exact: true });
+    const search = page.getByRole('textbox', { name: catalogSearchLabel, exact: true });
     await search.fill('Charizard');
     await visibleText(page, '1 result').waitFor();
     await openCard(page, 'Charizard');
     await button(page, 'Add to collection').click();
-    await waitForState(page, (value) => value.items.some((item) => item.cardId === 'base1-4' && item.quantity === 1), 'manually added Charizard');
+    await waitForState(page, (value) => value.items.some((item) => item.cardId === catalogKey('base1-4') && item.quantity === 1), 'manually added remote Charizard');
     await page.goBack();
     await search.fill('35/108');
-    await visibleText(page, '2 results').waitFor();
+    await visibleText(page, '1 result').waitFor();
     await button(page, 'Show list').click();
     await button(page, 'Show grid').click();
-    await button(page, 'View Pikachu, Evolutions, Normal').click();
+    await openCard(page, 'Pikachu');
     await button(page, 'Add to collection').click();
     const saved = await waitForState(page, (value) => totalCopies(value) === 2, 'two manually saved cards');
     assert.equal(saved.trial.successfulRecognitions, 1);
@@ -233,8 +250,10 @@ try {
     await page.screenshot({ path: '/tmp/chase-collection.png' });
     await tab(page, 'Home').click();
     await button(page, 'Scan a Card').click();
+    await button(page, 'Explore Chase Pro').click();
     await visibleText(page, 'Purchases are not connected').waitFor();
-    await button(page, 'Close Chase Pro and go to Home').click();
+    await button(page, 'Close Chase Pro and return').click();
+    await button(page, 'Close scanner, keep pending cards').click();
     await home(page);
     assert.equal((await stateOf(page)).trial.successfulRecognitions, 1);
   });
@@ -246,8 +265,8 @@ try {
     await home(page);
     assert.deepEqual(await stateOf(page), fixture);
     await button(page, 'Search Cards').click();
-    await page.getByRole('textbox', { name: 'Search sample catalog by name, set, or card number', exact: true }).fill('Pikachu');
-    await button(page, 'View Pikachu, Evolutions, Normal').click();
+    await page.getByRole('textbox', { name: catalogSearchLabel, exact: true }).fill('Pikachu');
+    await openCard(page, 'Pikachu');
     await button(page, 'Add to collection').click();
     await visibleText(page, 'Free collections hold up to 50 cards. Upgrade to Pro to add more.').waitFor();
     await button(page, 'Upgrade to Chase Pro').waitFor();
@@ -262,25 +281,21 @@ try {
     await tab(page, 'Profile').click();
     await setSwitch(page, 'Development only · simulate Pro', true);
     await waitForState(page, (value) => value.plan === 'pro', 'simulated Pro access');
-    await tab(page, 'Home').click();
-    await button(page, 'Scan a Card').click();
-    await button(page, 'Run sample scan').click();
-    await button(page, 'Add to Collection').waitFor();
-    assert.equal(totalCopies(await stateOf(page)), 50, 'Pro recognition must still require confirmation.');
-    const before = await stateOf(page);
-    await button(page, 'Add to Collection').click();
+    await tab(page, 'Home').click(); await button(page, 'Scan a Card').click();
+    await button(page, 'Present next demo card').click(); await button(page, 'Organize (1)').waitFor();
+    assert.equal(totalCopies(await stateOf(page)), 50);
+    await button(page, 'Organize (1)').click(); await button(page, 'Save all to Collection').click();
     const firstSave = await waitForState(page, (value) => totalCopies(value) === 51, '51 saved Pro copies');
-    proCard = firstSave.items.find((item) => item.quantity !== (before.items.find((previous) => previous.cardId === item.cardId)?.quantity ?? 0)).cardId;
-    await button(page, 'Scan another card').click();
-    await button(page, 'Run sample scan').click();
-    await button(page, 'Add to Collection').waitFor();
+    proCard = 'base1-4'; assert.equal(firstSave.items.find(item => item.cardId === proCard).quantity, 51);
+    await button(page, 'Return to Scanner').first().click();
+    await button(page, 'Present next demo card').click(); await button(page, 'Organize (1)').waitFor();
     assert.equal(totalCopies(await stateOf(page)), 51);
-    await button(page, 'Add to Collection').click();
+    await button(page, 'Organize (1)').click(); await button(page, 'Save all to Collection').click();
     const secondSave = await waitForState(page, (value) => totalCopies(value) === 52, '52 saved Pro copies');
-    assert.equal(secondSave.plan, 'pro');
-    assert.equal(secondSave.trial.successfulRecognitions, 1);
-    await button(page, 'View collection').click();
-    await visibleText(page, 'Unlimited collection · Pro').waitFor();
+    assert.equal(secondSave.plan, 'pro'); assert.equal(secondSave.trial.successfulRecognitions, 1);
+    await button(page, 'Return to Scanner').first().click(); await button(page, 'Close scanner, keep pending cards').click();
+    await home(page); await tab(page, 'Collection').click();
+    await page.getByRole('heading', {name:'Collection',exact:true}).filter({visible:true}).waitFor();
   });
 
   await scenario('downgrading and reloading preserve owned copies and allow reducing an over-limit quantity', async () => {
@@ -363,7 +378,7 @@ try {
   });
 
   await scenario('320px screens keep Home, Collection, My Cards, detail, and Profile controls usable', async () => {
-    const small = await browser.newContext({ viewport: { width: 320, height: 568 }, deviceScaleFactor: 1 });
+    const small = await fixtureContext({ viewport: { width: 320, height: 568 }, deviceScaleFactor: 1 });
     const fixture = { ...initialState, onboardingComplete: true, items: [
       { cardId: 'base1-4', quantity: 1, addedAt: '2026-10-01T00:00:00.000Z' },
       { cardId: 'xy12-35', quantity: 1, addedAt: '2026-10-02T00:00:00.000Z' },
@@ -394,7 +409,7 @@ try {
   });
 
   await scenario('new chase printings show real images and survive saving and reloading', async () => {
-    const chaseContext = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+    const chaseContext = await fixtureContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
     await chaseContext.addInitScript(({ key, value }) => {
       if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(value));
     }, { key: storageKey, value: { ...initialState, onboardingComplete: true } });
@@ -414,25 +429,21 @@ try {
       ['swsh8-269', 'Mew VMAX', 'Fusion Strike', '269/264'],
     ];
     for (const [id, name, set, number] of chases) {
-      await chasePage.getByRole('textbox', { name: 'Search sample catalog by name, set, or card number' }).fill(id === 'sv6-214' ? number : name);
+      await chasePage.getByRole('textbox', { name: catalogSearchLabel }).fill(id === 'sv6-214' ? number : name);
       await visibleText(chasePage, '1 result').waitFor();
       await openCard(chasePage, name);
       await visibleText(chasePage, `${set} · ${number}`).waitFor();
       const image = chasePage.getByRole('img', { name: `${name}, ${set}, ${number}, Pokémon TCG card`, exact: true });
       await image.waitFor();
-      await image.evaluate(async element => {
-        const img = element instanceof HTMLImageElement ? element : element.querySelector('img');
-        if (!img) throw new Error('Card print does not contain an image');
-        await img.decode();
-        if (img.naturalWidth !== 600 || img.naturalHeight !== 825) throw new Error('Incorrect card image dimensions');
-      });
+      const imageSource = await image.evaluate(element => (element instanceof HTMLImageElement ? element : element.querySelector('img'))?.src);
+      assert.match(imageSource, /^https:\/\/assets\.tcgdex\.net\//, 'Remote printings must use the provider image URL.');
       await button(chasePage, 'Add to collection').click();
-      await waitForState(chasePage, value => value.items.some(item => item.cardId === id && item.quantity === 1), `saved ${name}`);
+      await waitForState(chasePage, value => value.items.some(item => item.cardId === catalogKey(id) && item.quantity === 1 && item.card?.catalogIdentity?.id === id), `saved ${name} with its durable provider snapshot`);
       await chasePage.goBack();
     }
     await chasePage.reload({ waitUntil: 'domcontentloaded' });
     const saved = await waitForState(chasePage, value => value.items.length === chases.length, 'all new chase printings after reload');
-    assert.deepEqual(saved.items.map(item => item.cardId).sort(), chases.map(([id]) => id).sort());
+    assert.deepEqual(saved.items.map(item => item.cardId).sort(), chases.map(([id]) => catalogKey(id)).sort());
     assert.equal(saved.trial.successfulRecognitions, 0, 'Manual additions must not consume the scan trial.');
     await checkHorizontalLayout(chasePage, 'expanded chase catalog');
     await chaseContext.close();
@@ -440,7 +451,7 @@ try {
   });
 
   await scenario('wallet ranges, top-card showcase, full inventory and quantity revaluation stay consistent', async () => {
-    const walletContext = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+    const walletContext = await fixtureContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
     const fixture = { ...initialState, onboardingComplete: true, items: [
       { cardId: 'base1-4', quantity: 2, addedAt: '2026-10-17T00:00:00.000Z' },
       { cardId: 'swsh7-215', quantity: 1, addedAt: '2026-10-17T01:00:00.000Z' },
@@ -497,7 +508,7 @@ try {
   });
 
   await scenario('empty-wallet preview and Home set shortcuts do not mutate owned cards or scan allowance', async () => {
-    const previewContext = await browser.newContext({ viewport: { width: 320, height: 568 }, deviceScaleFactor: 1 });
+    const previewContext = await fixtureContext({ viewport: { width: 320, height: 568 }, deviceScaleFactor: 1 });
     await previewContext.addInitScript(({ key, value }) => { if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(value)); }, { key: storageKey, value: { ...initialState, onboardingComplete: true } });
     const previewPage = await previewContext.newPage(); watchPage(previewPage);
     await previewPage.goto(new URL('/collection', baseUrl).href, { waitUntil: 'domcontentloaded' });
@@ -514,15 +525,16 @@ try {
     await visibleText(previewPage, '$0.00').first().waitFor();
     assert.deepEqual(await stateOf(previewPage), before);
     await tab(previewPage, 'Home').click();
-    await button(previewPage, 'Browse Evolving Skies, 3 printings').click();
+    await button(previewPage, 'Browse Evolving Skies').click();
     await visibleText(previewPage, '3 results').waitFor();
-    assert.equal(await previewPage.getByRole('textbox', { name: 'Search sample catalog by name, set, or card number' }).inputValue(), 'Evolving Skies');
+    assert.equal(await previewPage.getByRole('textbox', { name: catalogSearchLabel }).inputValue(), '');
+    await button(previewPage, 'Filter by set, Evolving Skies').waitFor();
     assert.deepEqual(await stateOf(previewPage), before);
     await previewContext.close(); activePage = page;
   });
 
   await scenario('Home artwork rotates only on app launch, without repeats, ownership changes or layout shifts', async () => {
-    const artworkContext = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+    const artworkContext = await fixtureContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
     const fixture = { ...initialState, onboardingComplete: true, trial: { successfulRecognitions: 1 }, items: [{ cardId: 'base1-4', quantity: 2, addedAt: '2026-10-01T00:00:00.000Z' }] };
     await artworkContext.addInitScript(({ key, value }) => { if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(value)); }, { key: storageKey, value: fixture });
     const artworkPage = await artworkContext.newPage(); watchPage(artworkPage);
@@ -556,7 +568,7 @@ try {
       await tab(artworkPage, 'Home').click(); await scan.waitFor();
       assert.equal(await artworkPage.evaluate(() => localStorage.getItem('chase.home-artwork.v1')), beforeNavigation, 'Tab changes must not draw another card.');
       await button(artworkPage, 'Search Cards').click();
-      await artworkPage.getByRole('textbox', { name: 'Search sample catalog by name, set, or card number' }).waitFor();
+      await artworkPage.getByRole('textbox', { name: catalogSearchLabel }).waitFor();
       await artworkPage.goBack(); await scan.waitFor();
       assert.equal(await artworkPage.evaluate(() => localStorage.getItem('chase.home-artwork.v1')), beforeNavigation, 'Returning from another route must retain session artwork.');
       assert.deepEqual(await stateOf(artworkPage), fixture, 'Artwork must never alter collection, plan or scan quota.');
@@ -566,7 +578,7 @@ try {
   });
 
   await scenario('onboarding price carousel swipes, snaps and updates quotes without changing owned data', async () => {
-    const carouselContext = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true, reducedMotion: 'reduce' });
+    const carouselContext = await fixtureContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true, reducedMotion: 'reduce' });
     const fixture = { ...initialState, trial: { successfulRecognitions: 1 }, items: [{ cardId: 'base1-4', quantity: 2, addedAt: '2026-10-01T00:00:00.000Z' }] };
     await carouselContext.addInitScript(({ key, value }) => { if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(value)); }, { key: storageKey, value: fixture });
     const carouselPage = await carouselContext.newPage(); watchPage(carouselPage);
@@ -610,7 +622,7 @@ try {
   });
 
   await scenario('wallet and Profile share persisted USD/EUR pricing across every card surface', async () => {
-    const currencyContext = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+    const currencyContext = await fixtureContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
     const fixture = { ...initialState, onboardingComplete: true, items: [
       { cardId: 'base1-4', quantity: 1, addedAt: '2026-10-01T00:00:00.000Z' },
       { cardId: 'swsh7-215', quantity: 1, addedAt: '2026-10-02T00:00:00.000Z' },
@@ -649,7 +661,7 @@ try {
     await home(currencyPage);
     await button(currencyPage, 'View Charizard, Holo, 1 copies').getByText('€225.40', { exact: true }).waitFor();
     await button(currencyPage, 'Search Cards').click();
-    await currencyPage.getByRole('textbox', { name: 'Search sample catalog by name, set, or card number' }).fill('Charizard');
+    await currencyPage.getByRole('textbox', { name: catalogSearchLabel }).fill('Charizard');
     await visibleText(currencyPage, '€225.40').first().waitFor();
     await button(currencyPage, 'Show list').click(); await visibleText(currencyPage, '€225.40').first().waitFor();
     await currencyPage.goBack(); await home(currencyPage); await tab(currencyPage, 'Profile').click();
@@ -662,11 +674,11 @@ try {
     await visibleText(currencyPage, '€225.40').first().waitFor();
     await button(currencyPage, 'Next price card').click(); await visibleText(currencyPage, '€276.00').waitFor();
     await button(currencyPage, 'Continue').click(); await visibleText(currencyPage, '€87.40').waitFor();
-    await button(currencyPage, 'Continue').click(); await visibleText(currencyPage, '€94.44').waitFor();
+    await button(currencyPage, 'Continue').click(); await visibleText(currencyPage, '€1,177.60').waitFor();
     await button(currencyPage, 'Skip').click(); await button(currencyPage, 'Skip for now').click();
     await button(currencyPage, 'Close Chase Pro and go to Home').click();
-    await button(currencyPage, 'Scan a Card').click(); await button(currencyPage, 'Use my free sample scan').click();
-    await visibleText(currencyPage, 'Sample EUR price').waitFor(); await visibleText(currencyPage, '€225.40').first().waitFor();
+    await button(currencyPage, 'Scan a Card').click(); await button(currencyPage, 'Present next demo card').click();
+    await button(currencyPage, 'Organize (1)').waitFor(); await visibleText(currencyPage, '€225.40').first().waitFor();
     assert.deepEqual((await stateOf(currencyPage)).items, fixture.items);
     assert.equal((await stateOf(currencyPage)).trial.successfulRecognitions, 1);
     await currencyPage.goBack(); await home(currencyPage); await tab(currencyPage, 'Profile').click();
@@ -683,7 +695,7 @@ try {
   });
 
   await scenario('currency selection can be dismissed and storage failure keeps the previous choice recoverable', async () => {
-    const retryContext = await browser.newContext({ viewport: { width: 320, height: 568 }, deviceScaleFactor: 1 });
+    const retryContext = await fixtureContext({ viewport: { width: 320, height: 568 }, deviceScaleFactor: 1 });
     const fixture = { ...initialState, onboardingComplete: true, items: [{ cardId: 'base1-4', quantity: 1, addedAt: '2026-10-01T00:00:00.000Z' }] };
     await retryContext.addInitScript(({ key, value }) => { if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(value)); }, { key: storageKey, value: fixture });
     const retryPage = await retryContext.newPage(); watchPage(retryPage);

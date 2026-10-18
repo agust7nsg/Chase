@@ -23,3 +23,15 @@ export function convertUsd(amount: number, currency: DisplayCurrency): number {
 export function formatUsd(amount: number, currency: DisplayCurrency): string {
   return formatters[currency].format(convertUsd(amount, currency));
 }
+
+/** Display conversion only. Preserve the provider amount/currency in stored quotes. */
+export function convertCurrency(amount: number, from: DisplayCurrency, to: DisplayCurrency): number {
+  if (!Number.isFinite(amount)) throw new RangeError('A monetary amount must be finite.');
+  return Math.round(amount * rates[to] / rates[from] * 100) / 100 || 0;
+}
+export function formatCurrency(amount: number, from: DisplayCurrency, to: DisplayCurrency): string {
+  return formatters[to].format(convertCurrency(amount, from, to));
+}
+export function priceToUsd(price: { amount: number; currency: DisplayCurrency } | null | undefined): number | null {
+  return price && Number.isFinite(price.amount) && price.amount >= 0 ? convertCurrency(price.amount, price.currency, 'USD') : null;
+}

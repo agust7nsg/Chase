@@ -1,13 +1,16 @@
-import type { Card } from '../../types/domain';
+import type { Card, MarketPrice } from '../../types/domain';
+import { getRegisteredCard, registerCatalogCard } from '../catalogRegistry';
 
 const priceUpdatedAt = '2026-10-01T00:00:00.000Z';
 
-function price(amount: number): Card['marketPrice'] {
+export type LegacyCard = Card & { marketPrice: MarketPrice };
+
+function price(amount: number): MarketPrice {
   return { amount, currency: 'USD', source: 'mock', updatedAt: priceUpdatedAt };
 }
 
 /** Representative mock estimates for ungraded cards; these are not live prices. */
-export const catalog: Card[] = [
+export const catalog: LegacyCard[] = [
   {
     id: 'base1-4',
     name: 'Charizard',
@@ -85,6 +88,12 @@ export const catalog: Card[] = [
   { id: 'swsh8-269', name: 'Mew VMAX', setName: 'Fusion Strike', collectorNumber: '269/264', variant: 'Holo', imageKey: 'mew-vmax', marketPrice: price(120) },
 ];
 
-export function getCatalogCard(cardId: string): Card | undefined {
+catalog.forEach(registerCatalogCard);
+
+export function getLegacyCard(cardId: string): LegacyCard | undefined {
   return catalog.find((card) => card.id === cardId);
+}
+
+export function getCatalogCard(cardId: string): Card | undefined {
+  return getLegacyCard(cardId) ?? getRegisteredCard(cardId);
 }

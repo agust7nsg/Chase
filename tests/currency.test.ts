@@ -1,8 +1,8 @@
 /// <reference types="node" />
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { DISPLAY_CURRENCIES, convertUsd, formatUsd, normalizeDisplayCurrency } from '../src/services/currency';
-import { getCatalogCard } from '../src/data/mocks/catalog';
+import { DISPLAY_CURRENCIES, convertCurrency, convertUsd, formatCurrency, formatUsd, normalizeDisplayCurrency, priceToUsd } from '../src/services/currency';
+import { getLegacyCard } from '../src/data/mocks/catalog';
 import { getCardHistory, getHistoryChange } from '../src/services/priceHistory';
 
 test('display preference accepts only USD and EUR and safely restores older or invalid values', () => {
@@ -22,7 +22,7 @@ test('display conversion changes amounts and symbols using one consistent sample
 });
 
 test('changing display currency never compounds conversion or mutates catalog/history values', () => {
-  const card = getCatalogCard('base1-4')!;
+  const card = getLegacyCard('base1-4')!;
   const history = getCardHistory(card.id, '7D');
   const original = JSON.stringify({ card, history });
   for (let index = 0; index < 20; index += 1) {
@@ -37,4 +37,15 @@ test('changing display currency never compounds conversion or mutates catalog/hi
 
 test('currency formatter rejects non-finite values rather than displaying broken amounts', () => {
   for (const value of [NaN, Infinity, -Infinity]) assert.throws(() => formatUsd(value, 'EUR'), RangeError);
+});
+
+test('native EUR quotes retain their source amount and convert only for display and aggregation', () => {
+  const quote = { amount: 92, currency: 'EUR' as const };
+  assert.equal(formatCurrency(quote.amount, quote.currency, 'EUR'), '€92.00');
+  assert.equal(formatCurrency(quote.amount, quote.currency, 'USD'), '$100.00');
+  assert.equal(priceToUsd(quote), 100);
+  assert.equal(convertCurrency(100, 'USD', 'EUR'), 92);
+  assert.equal(priceToUsd(null), null);
+  assert.equal(priceToUsd({ amount: 0, currency: 'EUR' }), 0);
+  assert.deepEqual(quote, { amount: 92, currency: 'EUR' });
 });

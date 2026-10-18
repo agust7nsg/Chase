@@ -14,14 +14,31 @@ export interface CardCatalogService {
 
 export interface RecognitionOptions {
   simulateFailure?: boolean;
+  cardId?: string;
+  signal?: AbortSignal;
 }
 
+export interface RecognitionResult extends Card {
+  confidence?: number;
+  ambiguity?: 'confirmed' | 'review';
+}
 export interface CardRecognitionService {
-  recognize(options?: RecognitionOptions): Promise<Card>;
+  recognize(options?: RecognitionOptions): Promise<RecognitionResult>;
 }
 
 export interface MarketPricingService {
-  getPrice(cardId: string): Promise<MarketPrice>;
+  getPrice(cardId: string): Promise<MarketPrice | null>;
+}
+
+/** Camera/detector observations; the mock source never inspects real camera frames. */
+export interface CardFrame {
+  fingerprint: string;
+  cardId?: string;
+  timestamp: number;
+}
+
+export interface CardFrameSource {
+  start(onFrame: (frame: CardFrame | null) => void): () => void;
 }
 
 /** A durable database adapter can implement the same contract later. */

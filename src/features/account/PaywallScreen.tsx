@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { BackHandler, Pressable, StyleSheet, View } from 'react-native';
 import { Badge, Button, Icon, Label, Screen, uiStyles } from '@/components/ui';
 import { colors } from '@/theme/tokens';
@@ -14,7 +14,11 @@ const comparison = [
 
 export default function PaywallScreen() {
   const { completeOnboarding } = useChase();
-  const close = useCallback(() => { completeOnboarding(); router.replace('/(tabs)'); }, [completeOnboarding]);
+  const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
+  const close = useCallback(() => {
+    if (returnTo === 'scanner' || returnTo === 'organize') { if (router.canGoBack()) router.back(); else router.replace(returnTo === 'scanner' ? '/scanner' : '/organize'); }
+    else { completeOnboarding(); router.replace('/(tabs)'); }
+  }, [completeOnboarding, returnTo]);
   useFocusEffect(useCallback(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => { close(); return true; });
     return () => subscription.remove();
@@ -23,7 +27,7 @@ export default function PaywallScreen() {
   return <Screen>
     <View style={uiStyles.between}>
       <Badge tone="neutral">Membership preview</Badge>
-      <Pressable onPress={close} accessibilityRole="button" accessibilityLabel="Close Chase Pro and go to Home" style={({ pressed }) => [styles.close, pressed && { opacity: 0.6 }]}><Icon name="close" size={27} /></Pressable>
+      <Pressable onPress={close} accessibilityRole="button" accessibilityLabel={returnTo ? 'Close Chase Pro and return' : 'Close Chase Pro and go to Home'} style={({ pressed }) => [styles.close, pressed && { opacity: 0.6 }]}><Icon name="close" size={27} /></Pressable>
     </View>
     <View style={{ gap: 12 }}>
       <View style={styles.proMark}><Icon name="layers-outline" color={colors.primary} size={28} /></View>

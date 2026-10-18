@@ -16,7 +16,8 @@ export function CardTile({ card, quantity, width }: { card: Card; quantity?: num
       <Label style={{ fontWeight: '600' }}>{card.name}</Label>
       <Label kind="caption" numberOfLines={1} style={{ color: colors.muted }}>{card.setName}</Label>
       <Label kind="caption" style={{ color: colors.muted }}>{card.variant} · {card.collectorNumber}</Label>
-      <Label style={{ fontWeight: '700', paddingTop: 3, fontVariant: ['tabular-nums'] }}>{money(card.marketPrice.amount)}</Label>
+      <Label style={{ fontWeight: '700', paddingTop: 3, fontVariant: ['tabular-nums'] }}>{card.marketPrice ? money(card.marketPrice.amount, card.marketPrice.currency) : 'Price unavailable'}</Label>
+      {card.marketPrice?.source === 'mock' ? <Label kind="caption" style={{ color: colors.muted }}>Sample price</Label> : null}
     </View>
   </Pressable>;
 }

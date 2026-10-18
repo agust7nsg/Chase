@@ -1,5 +1,8 @@
 import { getCatalogCard } from '../data/mocks/catalog';
+import { registerCatalogCard, validateCatalogSnapshot } from '../data/catalogRegistry';
+import { priceToUsd } from './currency';
 import type {
+  Card,
   CollectionItem,
   CollectionSummary,
   Plan,
@@ -60,8 +63,14 @@ export function recordSuccessfulScan(state: PrototypeState): PrototypeState {
   return { ...state, trial: { successfulRecognitions: 1 } };
 }
 
-function requireCard(cardId: string): void {
-  if (!getCatalogCard(cardId)) throw new DomainError('UNKNOWN_CARD', 'This card is not in the catalog.');
+function requireCard(cardId: string, snapshot?: Card): Card {
+  const cached = getCatalogCard(cardId);
+  if (cached) return cached;
+  const saved = snapshot && validateCatalogSnapshot(snapshot, cardId);
+  if (saved) registerCatalogCard(saved);
+  const card = getCatalogCard(cardId);
+  if (!card) throw new DomainError('UNKNOWN_CARD', 'This card is not in the catalog.');
+  return card;
 }
 
 function requireQuantity(quantity: number): void {
@@ -84,22 +93,22 @@ function assertCollectionAllowance(state: PrototypeState, items: CollectionItem[
 }
 
 export function addCard(state: PrototypeState, cardId: string): PrototypeState {
-  requireCard(cardId);
   const existing = state.items.find((item) => item.cardId === cardId);
+  const card = requireCard(cardId, existing?.card);
   const items = existing
-    ? state.items.map((item) => item.cardId === cardId ? { ...item, quantity: item.quantity + 1 } : item)
-    : [...state.items, { cardId, quantity: 1, addedAt: new Date().toISOString() }];
+    ? state.items.map((item) => item.cardId === cardId ? { ...item, quantity: item.quantity + 1, ...(card.catalogIdentity ? { card: validateCatalogSnapshot(card, cardId)! } : {}) } : item)
+    : [...state.items, { cardId, quantity: 1, addedAt: new Date().toISOString(), ...(card.catalogIdentity ? { card: validateCatalogSnapshot(card, cardId)! } : {}) }];
   assertCollectionAllowance(state, items);
   return { ...state, items };
 }
 
 export function setQuantity(state: PrototypeState, cardId: string, quantity: number): PrototypeState {
-  requireCard(cardId);
+  const card = requireCard(cardId, state.items.find(item => item.cardId === cardId)?.card);
   requireQuantity(quantity);
   if (!state.items.some((item) => item.cardId === cardId)) {
     throw new DomainError('UNKNOWN_CARD', 'Add this card to your collection before changing its quantity.');
   }
-  const items = state.items.map((item) => item.cardId === cardId ? { ...item, quantity } : item);
+  const items = state.items.map((item) => item.cardId === cardId ? { ...item, quantity, ...(card.catalogIdentity ? { card: validateCatalogSnapshot(card, cardId)! } : {}) } : item);
   assertCollectionAllowance(state, items);
   return { ...state, items };
 }
@@ -113,14 +122,22 @@ export function summarizeCollection(items: CollectionItem[]): CollectionSummary 
   const uniqueCards = new Set<string>();
   let totalCopies = 0;
   let totalValueCents = 0;
+  let unpricedCopies = 0;
+  let hasLivePrices = false;
   for (const item of items) {
-    const card = getCatalogCard(item.cardId);
+    const card = getCatalogCard(item.cardId) ?? validateCatalogSnapshot(item.card, item.cardId);
     if (!card || !Number.isSafeInteger(item.quantity) || item.quantity < 1) continue;
     uniqueCards.add(item.cardId);
     totalCopies += item.quantity;
-    totalValueCents += Math.round(card.marketPrice.amount * 100) * item.quantity;
+    const usd = priceToUsd(card.marketPrice);
+    if (usd === null) unpricedCopies += item.quantity;
+    else {
+      totalValueCents += Math.round(usd * 100) * item.quantity;
+      hasLivePrices ||= card.marketPrice?.source !== 'mock';
+    }
   }
-  return { uniqueCards: uniqueCards.size, totalCopies, totalValue: totalValueCents / 100 };
+  return { uniqueCards: uniqueCards.size, totalCopies, totalValue: totalValueCents / 100,
+    ...(unpricedCopies ? { unpricedCopies } : {}), ...(hasLivePrices ? { hasLivePrices } : {}) };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -142,20 +159,31 @@ export function normalizeStoredState(value: unknown): PrototypeState {
     trial: { successfulRecognitions: trialValue === 1 ? 1 : 0 },
     items: [],
   };
+  if (Array.isArray(value.savedScanOperations)) {
+    state.savedScanOperations = [...new Set(value.savedScanOperations.filter((id): id is string => typeof id === 'string' && id.length > 0))];
+  }
   if (!Array.isArray(value.items)) return state;
 
   let totalCopies = 0;
   for (const row of value.items) {
-    if (!isRecord(row) || typeof row.cardId !== 'string' || !getCatalogCard(row.cardId)) continue;
+    if (!isRecord(row) || typeof row.cardId !== 'string') continue;
+    const snapshot = validateCatalogSnapshot(row.card, row.cardId);
+    // A dynamic row must survive a cold launch without depending on a network cache.
+    // Refuse recovery instead of silently rewriting away an owned card.
+    if (row.cardId.startsWith('tcgdex:') && !snapshot) {
+      throw new Error('A saved catalog card needs recovery. Your local collection has not been overwritten.');
+    }
+    if (!getCatalogCard(row.cardId) && !snapshot) continue;
     if (typeof row.quantity !== 'number' || !Number.isSafeInteger(row.quantity) || row.quantity < 1) continue;
     if (!validDate(row.addedAt)) continue;
     // Entitlement limits apply to additions, never to restoring owned cards.
     // A row that would make the total unsafe is corrupt and is omitted whole.
     if (!Number.isSafeInteger(totalCopies + row.quantity)) continue;
+    if (snapshot) registerCatalogCard(snapshot);
     const quantity = row.quantity;
     const existing = state.items.find((item) => item.cardId === row.cardId);
     if (existing) existing.quantity += quantity;
-    else state.items.push({ cardId: row.cardId, quantity, addedAt: row.addedAt });
+    else state.items.push({ cardId: row.cardId, quantity, addedAt: row.addedAt, ...(snapshot ? { card: snapshot } : {}) });
     totalCopies += quantity;
   }
   return state;

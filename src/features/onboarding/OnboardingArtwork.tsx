@@ -1,17 +1,17 @@
 import { useCurrency } from '@/features/currency/CurrencyProvider';
 import { useState } from 'react';
-import { Image } from 'expo-image';
 import { StyleSheet, useWindowDimensions, View } from 'react-native';
 import { CardPrint } from '@/components/CardPrint';
 import { Icon, Label, uiStyles } from '@/components/ui';
-import { getCatalogCard } from '@/data/mocks/catalog';
-import { getHistoryChange, getPortfolioHistory, type HistoryPoint } from '@/services/priceHistory';
+import { getLegacyCard } from '@/data/mocks/catalog';
+import { getHistoryChange, type HistoryPoint } from '@/services/priceHistory';
 import { colors } from '@/theme/tokens';
 
 import { PriceCarousel } from './PriceCarousel';
-const collectionCards = [getCatalogCard('swsh7-192')!, getCatalogCard('swshp-053')!];
-const exampleItems = collectionCards.map((card) => ({ cardId: card.id, quantity: 1, addedAt: '2026-10-01T00:00:00.000Z' }));
-const exampleHistory = getPortfolioHistory(exampleItems, '1M');
+const collectionCard = getLegacyCard('swsh7-218')!;
+// An illustrative onboarding portfolio, independent of catalog prices and owned cards.
+const exampleHistory: HistoryPoint[] = [1120, 1135, 1128, 1158, 1150, 1168, 1190, 1183, 1212, 1206, 1225, 1248, 1236, 1263, 1255, 1280]
+  .map((value, index) => ({ value, date: new Date(Date.UTC(2026, 8, 1 + index * 2)).toISOString() }));
 const exampleChange = getHistoryChange(exampleHistory);
 
 /** These visual examples never change ownership or consume a recognition. */
@@ -24,7 +24,7 @@ export function OnboardingArtwork({ step }: { step: 0 | 1 | 2 | 3 }) {
 
 function ScanExample() {
   const { formatMoney: usd } = useCurrency();
-  const card = getCatalogCard('swsh7-192')!;
+  const card = getLegacyCard('swsh7-192')!;
   const { width } = useWindowDimensions();
   const printWidth = Math.min(182, (width - 104) * 0.76);
   return <View style={[styles.viewfinder, { height: printWidth * 825 / 600 + 110 }]}>
@@ -45,35 +45,28 @@ function ScanExample() {
 }
 
 function CollectionExample() {
-  const { currency, formatMoney: usd } = useCurrency();
+  const { currency, formatMoney: money } = useCurrency();
   const value = exampleHistory[exampleHistory.length - 1].value;
-  const sign = exampleChange.amount >= 0 ? '+' : '−';
   const { height, width, fontScale } = useWindowDimensions();
   const stacked = width < 360 || fontScale > 1.3;
-  const largeText = fontScale > 1.3;
-  const compact = height < 740 && !largeText;
-  const mewSize = Math.min(163, (width - 48) * 0.42);
+  const compact = height < 740 && fontScale <= 1.3;
+  const printWidth = Math.min(144, (Math.min(width, 760) - 48) * 0.39);
   return <View style={[styles.artwork, compact && { gap: 14 }]}>
-    <View style={[styles.collectionQuote, compact && { minHeight: 126 }, largeText && { paddingTop: 156 }]}>
-      <View pointerEvents="none" style={[styles.mewDisc, { width: mewSize * 0.8, height: mewSize * 0.8, borderRadius: mewSize * 0.4 }]} />
-      <Image source={require('../../../assets/cards/mew.png')} contentFit="contain" cachePolicy="memory-disk"
-        style={[styles.mew, { width: mewSize, height: mewSize }]} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" />
-      <View style={styles.collectionNumbers}>
+    <View style={[styles.collectionQuote, stacked && styles.collectionQuoteStacked]}>
+      <View style={[styles.collectionNumbers, !stacked && { flex: 1 }]}>
         <Label kind="caption" style={uiStyles.muted}>Sample {currency} value</Label>
-        <Label kind="price" style={styles.collectionValue}>{usd(value)}</Label>
+        <Label kind="price" style={styles.collectionValue}>{money(value)}</Label>
         <View style={[uiStyles.row, { gap: 4 }]}>
-          <Icon name={exampleChange.amount >= 0 ? 'trending-up-outline' : 'trending-down-outline'} size={17} color={exampleChange.amount < 0 ? colors.danger : colors.success} />
-          <Label kind="caption" style={{ color: exampleChange.amount < 0 ? colors.danger : colors.success, fontWeight: '600' }}>{sign}{Math.abs(exampleChange.percent).toFixed(2)}% · 1M</Label>
+          <Icon name="trending-up-outline" size={17} color={colors.success} />
+          <Label kind="caption" style={{ color: colors.success, fontWeight: '600' }}>+{exampleChange.percent.toFixed(2)}% · 1M</Label>
         </View>
+      </View>
+      <View style={[styles.collectionArt, { width: printWidth + 24, height: printWidth * 825 / 600 + 24 }]}>
+        <View pointerEvents="none" style={[styles.collectionDisc, { width: printWidth * 1.3, height: printWidth * 1.3, borderRadius: printWidth }]} />
+        <View style={{ transform: [{ rotate: '7deg' }] }}><CardPrint card={collectionCard} style={{ ...styles.heroPrint, width: printWidth }} /></View>
       </View>
     </View>
     <IllustrativeTrend points={exampleHistory} />
-    <View style={[styles.exampleHoldings, stacked && { flexDirection: 'column' }]}>
-      {collectionCards.map((card) => <View key={card.id} style={styles.holding}>
-        <CardPrint card={card} style={{ width: stacked ? 60 : 64, ...styles.holdingPrint }} />
-        <View style={{ flex: 1, gap: 4 }}><Label kind="caption" style={styles.cardName}>{card.name}</Label><Label style={styles.holdingPrice}>{usd(card.marketPrice.amount)}</Label></View>
-      </View>)}
-    </View>
   </View>;
 }
 
@@ -85,7 +78,7 @@ function IllustrativeTrend({ points }: { points: HistoryPoint[] }) {
   const max = Math.max(...points.map((point) => point.value));
   const span = max - min || 1;
   const coordinates = points.map((point, index) => ({ x: index / (points.length - 1) * width, y: 8 + (1 - (point.value - min) / span) * (height - 16) }));
-  return <View style={{ gap: 10 }} accessible accessibilityRole="image" accessibilityLabel={`Sample monthly ${currency} history of two example copies: ${usd(points[0].value)} at the start, ${usd(points[points.length - 1].value)} at the end. No cards have been added.`}>
+  return <View style={{ gap: 10 }} accessible accessibilityRole="image" accessibilityLabel={`Illustrative monthly ${currency} portfolio value: ${usd(points[0].value)} at the start, ${usd(points[points.length - 1].value)} at the end. Example only; no cards have been added.`}>
     <View onLayout={({ nativeEvent }) => setWidth(nativeEvent.layout.width)} style={{ height }}>
       {[0, 0.5, 1].map((position) => <View key={position} style={[styles.chartGuide, { top: position * height }]} />)}
       {width > 0 ? coordinates.slice(1).map((point, index) => {
@@ -101,7 +94,7 @@ function IllustrativeTrend({ points }: { points: HistoryPoint[] }) {
 }
 
 function TrialExample() {
-  const card = getCatalogCard('swsh7-218')!;
+  const card = getLegacyCard('swsh7-218')!;
   const { width } = useWindowDimensions();
   const printWidth = Math.min(180, width * 0.5);
   return <View style={[styles.trialExample, { height: printWidth * 825 / 600 + 64 }]}>
@@ -128,18 +121,15 @@ const styles = StyleSheet.create({
   recognitionResult: { position: 'absolute', bottom: 14, left: 14, right: 14, minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 9, backgroundColor: colors.white, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 10 },
   checkmark: { width: 28, height: 28, borderRadius: 14, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
   resultPrice: { fontWeight: '700', fontVariant: ['tabular-nums'] },
-  collectionQuote: { minHeight: 146, justifyContent: 'center', position: 'relative' },
-  collectionNumbers: { gap: 4, alignItems: 'flex-start' },
-  collectionValue: { fontSize: 42, lineHeight: 50 },
-  mewDisc: { position: 'absolute', right: 2, top: 8, backgroundColor: colors.mewSoft },
-  mew: { position: 'absolute', right: -9, top: -8, width: 163, height: 163 },
+  collectionQuote: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16 },
+  collectionQuoteStacked: { flexDirection: 'column-reverse', alignItems: 'stretch', gap: 12 },
+  collectionNumbers: { minWidth: 0, gap: 4, alignItems: 'flex-start', zIndex: 1 },
+  collectionValue: { fontSize: 36, lineHeight: 44 },
+  collectionArt: { alignSelf: 'center', alignItems: 'center', justifyContent: 'center' },
+  collectionDisc: { position: 'absolute', backgroundColor: colors.positiveSoft },
   chartGuide: { position: 'absolute', left: 0, right: 0, height: 1, backgroundColor: colors.border },
   chartSegment: { position: 'absolute', height: 3, borderRadius: 2, backgroundColor: colors.primary },
   chartEndpoint: { position: 'absolute', width: 8, height: 8, borderRadius: 4, backgroundColor: colors.primary, borderColor: colors.white, borderWidth: 1 },
-  exampleHoldings: { flexDirection: 'row', gap: 16, paddingTop: 8 },
-  holding: { flexDirection: 'row', alignItems: 'center', flex: 1, gap: 10 },
-  holdingPrint: { shadowColor: colors.text, shadowOpacity: 0.08, shadowOffset: { width: 0, height: 4 }, shadowRadius: 8 },
-  holdingPrice: { fontWeight: '600', fontVariant: ['tabular-nums'] },
   trialExample: { alignItems: 'center', justifyContent: 'center' },
   trialDisc: { position: 'absolute', width: 270, height: 270, borderRadius: 135, backgroundColor: colors.primarySoft },
   trialIcon: { position: 'absolute', right: 30, bottom: 30, width: 58, height: 58, borderRadius: 19, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', borderWidth: 5, borderColor: colors.background },

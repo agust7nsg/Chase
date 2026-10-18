@@ -1,7 +1,7 @@
 import type { Card } from '@/types/domain';
 
 export type CollectorMood = 'moon' | 'sky' | 'ember' | 'garden' | 'cosmic';
-type CardVisual = { source: number; mood: CollectorMood; note?: string; edition: string };
+type CardVisual = { source?: number | { uri: string }; mood: CollectorMood; note?: string; edition: string };
 
 /** Verified local printing images. The legacy inventory keys stay stable. */
 export const cardVisuals: Record<string, CardVisual> = {
@@ -23,6 +23,11 @@ export const cardVisuals: Record<string, CardVisual> = {
   'sv6-214': { source: require('../../assets/chases/sv6-214.webp'), mood: 'sky', edition: 'Special illustration rare' },
   'swsh8-269': { source: require('../../assets/chases/swsh8-269.webp'), mood: 'cosmic', edition: 'Alternate art' },
 };
-export function visualFor(card: Card): CardVisual { return cardVisuals[card.id]; }
+export function visualFor(card: Card): CardVisual {
+  return cardVisuals[card.id] ?? {
+    source: card.imageUrl ? { uri: card.imageUrl } : undefined,
+    mood: 'sky', edition: card.variant,
+  };
+}
 /** A fixed editorial selection, never personalized recommendations. */
 export const showcaseIds = ['swsh7-215', 'swsh7-218', 'swsh11-186', 'swsh12-186', 'swsh8-271', 'sv2-203'] as const;

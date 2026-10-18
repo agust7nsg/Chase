@@ -2,13 +2,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Icon, Label } from '@/components/ui';
-import { CURRENCY_NAMES, DISPLAY_CURRENCIES, formatUsd, normalizeDisplayCurrency, SAMPLE_USD_TO_EUR, type DisplayCurrency } from '@/services/currency';
+import { CURRENCY_NAMES, DISPLAY_CURRENCIES, formatCurrency, normalizeDisplayCurrency, SAMPLE_USD_TO_EUR, type DisplayCurrency } from '@/services/currency';
 import { colors } from '@/theme/tokens';
 
 const STORAGE_KEY = 'chase.currency.v1';
 type CurrencyContextValue = {
   currency: DisplayCurrency;
-  formatMoney: (usdAmount: number) => string;
+  formatMoney: (amount: number, sourceCurrency?: DisplayCurrency) => string;
   openCurrencySelector: () => void;
 };
 const CurrencyContext = createContext<CurrencyContextValue | null>(null);
@@ -42,7 +42,7 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
     } finally { saving.current = false; setPending(null); }
   };
 
-  return <CurrencyContext.Provider value={{ currency, formatMoney: amount => formatUsd(amount, currency), openCurrencySelector: () => { setError(null); setVisible(true); } }}>
+  return <CurrencyContext.Provider value={{ currency, formatMoney: (amount, sourceCurrency = 'USD') => formatCurrency(amount, sourceCurrency, currency), openCurrencySelector: () => { setError(null); setVisible(true); } }}>
     {ready ? children : <View style={styles.loading}><ActivityIndicator color={colors.primary} accessibilityLabel="Opening Chase" /></View>}
     <Modal visible={visible} transparent animationType="none" presentationStyle="overFullScreen" onRequestClose={close}>
       <View style={styles.overlay}>

@@ -1,5 +1,5 @@
-import { getCatalogCard } from '../data/mocks/catalog';
-import type { Card, CollectionItem } from '../types/domain';
+import { getCatalogCard, getLegacyCard, type LegacyCard } from '../data/mocks/catalog';
+import type { CollectionItem } from '../types/domain';
 
 export type HistoryRange = '7D' | '1M' | '3M' | '1Y';
 export type HistoryPoint = { date: string; value: number };
@@ -8,7 +8,7 @@ export type HistoryPoint = { date: string; value: number };
 export const HISTORY_AS_OF = '2026-10-01T00:00:00.000Z';
 
 export type HoldingMover = {
-  card: Card;
+  card: LegacyCard;
   quantity: number;
   value: number;
   changeAmount: number;
@@ -39,7 +39,7 @@ function dailySample(seed: number, daysAgo: number): number {
 }
 
 /** A repeatable illustration of price movement, never fetched or forecast market data. */
-function sampleCents(card: Card, daysAgo: number): number {
+function sampleCents(card: LegacyCard, daysAgo: number): number {
   const currentCents = cents(card.marketPrice.amount);
   if (daysAgo === 0) return currentCents;
 
@@ -67,8 +67,8 @@ function timeline(range: HistoryRange): HistoryPoint[] {
 
 /** Daily USD samples including both endpoints; all ranges share the same trailing curve. */
 export function getCardHistory(cardId: string, range: HistoryRange): HistoryPoint[] {
-  const card = getCatalogCard(cardId);
-  if (!card) return [];
+  const card = getLegacyCard(cardId);
+  if (!card || card.catalogIdentity || card.marketPrice.source !== 'mock' || card.marketPrice.currency !== 'USD') return [];
   const days = rangeDays[range];
   return timeline(range).map((point, index) => ({
     ...point,
@@ -79,11 +79,20 @@ export function getCardHistory(cardId: string, range: HistoryRange): HistoryPoin
 function holdings(items: CollectionItem[]): Map<string, number> {
   const quantities = new Map<string, number>();
   for (const item of items) {
-    if (!getCatalogCard(item.cardId) || !Number.isSafeInteger(item.quantity) || item.quantity < 1) continue;
+    if (!getLegacyCard(item.cardId) || !Number.isSafeInteger(item.quantity) || item.quantity < 1) continue;
     const quantity = (quantities.get(item.cardId) ?? 0) + item.quantity;
     if (Number.isSafeInteger(quantity)) quantities.set(item.cardId, quantity);
   }
   return quantities;
+}
+
+/** Current external quotes cannot establish any historical movement, even in mixed holdings. */
+function hasExternalHoldings(items: CollectionItem[]): boolean {
+  return items.some(item => {
+    if (!Number.isSafeInteger(item.quantity) || item.quantity < 1) return false;
+    const card = getCatalogCard(item.cardId) ?? item.card;
+    return item.cardId.startsWith('tcgdex:') || Boolean(card && (card.catalogIdentity || card.marketPrice?.source !== 'mock' || card.marketPrice.currency !== 'USD'));
+  });
 }
 
 /**
@@ -92,6 +101,7 @@ function holdings(items: CollectionItem[]): Map<string, number> {
  * An empty portfolio has a dated zero series rather than fabricated owned cards.
  */
 export function getPortfolioHistory(items: CollectionItem[], range: HistoryRange): HistoryPoint[] {
+  if (hasExternalHoldings(items)) return [];
   const points = timeline(range);
   const totalsInCents = points.map(() => 0);
   for (const [cardId, quantity] of holdings(items)) {
@@ -116,8 +126,9 @@ export function getHistoryChange(points: HistoryPoint[]): { amount: number; perc
 
 /** Largest absolute USD movement first, with stable card-ID ordering for ties. */
 export function getHoldingMovers(items: CollectionItem[], range: HistoryRange): HoldingMover[] {
+  if (hasExternalHoldings(items)) return [];
   return Array.from(holdings(items), ([cardId, quantity]) => {
-    const card = getCatalogCard(cardId)!;
+    const card = getLegacyCard(cardId)!;
     const history = getCardHistory(cardId, range);
     const change = getHistoryChange(history);
     return {

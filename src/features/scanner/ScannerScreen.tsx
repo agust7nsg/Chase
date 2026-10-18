@@ -1,79 +1,124 @@
-import { useCurrency } from '@/features/currency/CurrencyProvider';
-import { useEffect, useRef, useState } from 'react';
-import { router, useLocalSearchParams } from 'expo-router';
-import { ActivityIndicator, StyleSheet, Switch, View } from 'react-native';
-import { Badge, Button, Icon, Label, Panel, Screen, uiStyles } from '@/components/ui';
-import { CardStage } from '@/components/CardArtwork';
-
+import { useCallback, useEffect, useState } from 'react';
+import { router, useFocusEffect, useIsFocused, useLocalSearchParams } from 'expo-router';
+import { AccessibilityInfo, ActivityIndicator, Animated, AppState, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
+import { Button, Icon, Label, uiStyles } from '@/components/ui';
+import { CardPrint } from '@/components/CardPrint';
 import { colors } from '@/theme/tokens';
-import { useChase } from '@/features/app/ChaseProvider';
-import type { Card } from '@/types/domain';
-import { canScan } from '@/services';
+import { getCatalogCard } from '@/data/mocks/catalog';
+import { ScannerController } from '@/services/scannerController';
+import { MockCardFrameSource } from '@/services/mockCardFrames';
+import { useScanSession } from './ScanSessionProvider';
+import { ScannerCamera } from './ScannerCamera';
+import { useCurrency } from '@/features/currency/CurrencyProvider';
+import type { ScannerStatus, ScanSessionItem } from '@/types/scanner';
+
 export default function ScannerScreen() {
-  const { currency, formatMoney: money } = useCurrency();
+  const scan = useScanSession();
+  const focused = useIsFocused();
   const { onboarding } = useLocalSearchParams<{ onboarding?: string }>();
-  const { state, recognize, addToCollection } = useChase();
-  const [card, setCard] = useState<Card | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [added, setAdded] = useState(false);
-  const addedRef = useRef(false);
-  const scanController = useRef<AbortController | null>(null);
-  useEffect(() => () => { scanController.current?.abort(); }, []);
-  const [simulateFailure, setSimulateFailure] = useState(false);
-  const needsPro = !canScan(state);
-  const openPaywall = () => router.replace({ pathname: '/paywall', params: { onboarding } });
-  const scan = async () => {
-    if (needsPro) { openPaywall(); return; }
-    const controller = new AbortController();
-    scanController.current = controller;
-    setLoading(true); setError(null);
-    try {
-      const result = await recognize(simulateFailure, controller.signal);
-      if (!controller.signal.aborted) { setCard(result); setAdded(false); addedRef.current = false; }
-    }
-    catch (cause) { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Sample recognition failed. Please try again.'); }
-    finally { if (!controller.signal.aborted) setLoading(false); }
-  };
-  const add = () => {
-    if (!card || addedRef.current) return;
-    addedRef.current = true;
-    const result = addToCollection(card.id);
-    if (result.ok) { setAdded(true); setError(null); }
-    else { addedRef.current = false; setError(result.message); }
-  };
-  if (card) return <Screen safeTop={false}>
-    <Badge>Demo result</Badge>
-    <CardStage card={card} compact />
-    <View style={{ gap: 8 }}><Label kind="heading">{card.name}</Label><Label style={uiStyles.muted}>{card.setName} · {card.collectorNumber}</Label><Label style={uiStyles.muted}>{card.variant}</Label><View style={uiStyles.between}><Label>Sample {currency} price</Label><Label kind="heading">{money(card.marketPrice.amount)}</Label></View></View>
-    {error ? <Label style={{ color: colors.danger }} accessibilityRole="alert">{error}</Label> : null}
-    {added ? <Panel><View style={uiStyles.row}><Icon name="checkmark-circle-outline" color={colors.success} /><Label style={{ color: colors.success }} accessibilityLiveRegion="polite">One copy saved to your collection.</Label></View>{onboarding !== '1' ? <Button title="View collection" variant="ghost" onPress={() => router.replace('/(tabs)/collection')} /> : null}</Panel> : <Button title="Add to Collection" icon="add-outline" onPress={add} />}
-    {onboarding === '1' ? <Button title="Continue" variant="secondary" onPress={openPaywall} /> : <Button title="Scan another card" variant="secondary" onPress={() => { if (needsPro) openPaywall(); else { setCard(null); setError(null); } }} />}
-  </Screen>;
-  return <Screen safeTop={false}>
-    <View style={styles.frame}>
-      <View style={styles.frameHeader}><Icon name="camera-outline" size={18} color={colors.scannerMuted} /><Label kind="caption" style={{ color: colors.scannerMuted }}>Demo · camera off</Label></View>
-      <View style={styles.guide}>
-        <View style={[styles.corner, styles.topLeft]} /><View style={[styles.corner, styles.topRight]} /><View style={[styles.corner, styles.bottomLeft]} /><View style={[styles.corner, styles.bottomRight]} />
-        {loading ? <ActivityIndicator size="large" color={colors.white} /> : <Icon name="scan-outline" size={40} color={colors.white} />}
-        <Label style={{ color: colors.white, textAlign: 'center', fontWeight: '600' }}>{loading ? 'Identifying sample card…' : 'Center one card'}</Label>
-
-      </View>
-
+  const [appActive, setAppActive] = useState(AppState.currentState === 'active');
+  const [cameraVisible, setCameraVisible] = useState(false);
+  const [status, setStatus] = useState<ScannerStatus>({ phase: 'SEARCHING', cardId: null, error: null });
+  const [scene, setScene] = useState<{ cardId: string | null; automatic: boolean }>({ cardId: null, automatic: false });
+  const [showTools, setShowTools] = useState(false);
+  const [source] = useState(() => new MockCardFrameSource((cardId, automatic) => setScene({ cardId, automatic })));
+  const [controller] = useState(() => new ScannerController(async () => { throw new Error('Scanner is loading.'); }, setStatus));
+  useEffect(() => { controller.setRecognizer(scan.identify); });
+  useEffect(() => { const listener = AppState.addEventListener('change', value => setAppActive(value === 'active')); return () => listener.remove(); }, []);
+  useFocusEffect(useCallback(() => {
+    if (!appActive || !scan.ready || scan.loadError) return;
+    controller.resume();
+    const stop = source.start(frame => controller.observe(frame, Date.now()));
+    return () => { stop(); controller.pause(); };
+  }, [appActive, scan.ready, scan.loadError, source, controller]));
+  useEffect(() => () => { controller.dispose(); }, [controller]);
+  useEffect(() => { if (!scan.allowed) source.setAutomatic(false); }, [scan.allowed, source]);
+  const paywall = () => router.push({ pathname: '/paywall', params: { returnTo: 'scanner' } });
+  const exit = () => { if (onboarding === '1') router.replace({ pathname: '/paywall', params: { onboarding } }); else if (router.canGoBack()) router.back(); else router.replace('/(tabs)'); };
+  const result = scan.session.items.find(item => item.cardId === status.cardId);
+  const sceneCard = getCatalogCard(scene.cardId ?? '');
+  const working = status.phase === 'IDENTIFYING' || status.phase === 'CARD_CANDIDATE';
+  const title = status.phase === 'IDENTIFYING' ? 'Identifying…' : status.phase === 'CARD_CANDIDATE' ? 'Hold steady' : status.phase === 'WAITING_FOR_CARD_CHANGE' ? 'Ready for the next card' : 'Center a card';
+  return <SafeAreaView style={styles.screen} edges={['top', 'bottom', 'left', 'right']}>
+    {focused ? <StatusBar style="light" /> : null}
+    <View style={styles.header}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Close scanner, keep pending cards" onPress={exit} style={styles.iconButton}><Icon name="close" color={colors.white} size={26} /></Pressable>
+      <Label style={styles.headerTitle}>Scanner</Label>
+      <View style={styles.demoBadge}><Label kind="caption" style={{ color: colors.scannerMuted }}>Demo recognition</Label></View>
     </View>
-
-    {error ? <Panel><Label style={{ color: colors.danger }} accessibilityRole="alert">{error}</Label><Label kind="caption" style={uiStyles.muted}>Free scan still available.</Label></Panel> : null}
-    <Button title={needsPro ? 'Explore Chase Pro' : state.plan === 'pro' ? 'Run sample scan' : 'Use my free sample scan'} icon="scan-outline" loading={loading} onPress={() => { void scan(); }} />
-    {__DEV__ ? <View style={uiStyles.between}><View style={{ flex: 1 }}><Label kind="caption">Development only</Label><Label kind="caption" style={uiStyles.muted}>Simulate failed recognition</Label></View><Switch value={simulateFailure} onValueChange={setSimulateFailure} disabled={loading} accessibilityLabel="Development only: simulate failed recognition" trackColor={{ true: colors.primary }} /></View> : null}
-  </Screen>;
+    <View style={styles.camera}>
+      <ScannerCamera active={focused && appActive && scan.ready} onVisible={setCameraVisible} />
+      <View pointerEvents="none" style={styles.guideArea}>
+        <View style={styles.guide}>
+          {!cameraVisible && sceneCard ? <CardPrint card={sceneCard} style={{ width: '82%', opacity: 0.8 }} /> : !cameraVisible ? <Icon name="scan-outline" size={56} color={colors.scannerFrame} /> : null}
+          {['topLeft', 'topRight', 'bottomLeft', 'bottomRight'].map(corner => <View key={corner} style={[styles.corner, styles[corner as 'topLeft']]} />)}
+        </View>
+      </View>
+      <View style={styles.resultArea}>
+        {status.phase === 'RESULT_READY' && result ? <RecognitionOverlay key={result.identifiedAt + status.cardId} item={result} count={scan.summary.copies} /> : <View style={styles.status}>
+          {working ? <ActivityIndicator color={colors.white} /> : <Icon name={status.phase === 'ERROR' ? 'alert-circle-outline' : 'scan-outline'} color={colors.white} size={18} />}
+          <Label kind="caption" style={{ color: colors.white, flexShrink: 1 }}>{status.phase === 'ERROR' ? status.error : title}</Label>
+        </View>}
+      </View>
+    </View>
+    <ScrollView style={styles.controls} contentContainerStyle={{ gap: 10, padding: 16 }}>
+      {scan.loadError ? <><Label accessibilityRole="alert" style={{ color: colors.white }}>{scan.loadError}</Label><Button title="Retry pending scans" variant="inverse" onPress={scan.retryLoad} /></> : !scan.ready ? <ActivityIndicator color={colors.white} /> : <>
+        {scan.error ? <Label accessibilityRole="alert" kind="caption" style={{ color: colors.white }}>{scan.error}</Label> : null}
+        {status.phase === 'ERROR' ? <Button title="Retry identification" variant="inverse" onPress={() => { if (scan.allowed) controller.retry(); else paywall(); }} /> : null}
+        {scan.allowed ? <View style={styles.demoActions}>
+          <View style={{ flex: 1 }}><Button title={scene.automatic ? 'Pause demo' : 'Start demo'} icon={scene.automatic ? 'pause-outline' : 'play-outline'} variant="inverse" onPress={() => source.setAutomatic(!scene.automatic)} /></View>
+          <Pressable accessibilityRole="button" accessibilityLabel="Present next demo card" style={styles.iconButton} onPress={() => { source.setAutomatic(false); source.next(); }}><Icon name="play-skip-forward-outline" color={colors.white} /></Pressable>
+        </View> : <Button title="Explore Chase Pro" variant="inverse" onPress={paywall} />}
+        <View style={styles.demoActions}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Remove demo card from frame" onPress={() => source.remove()} style={styles.textButton}><Label kind="caption" style={styles.quiet}>Remove card</Label></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Present same demo card again" onPress={() => { if (scan.allowed) source.presentSame(); else paywall(); }} style={styles.textButton}><Label kind="caption" style={styles.quiet}>Present same card</Label></Pressable>
+          {__DEV__ ? <Pressable accessibilityRole="button" accessibilityLabel="Demo test controls" onPress={() => setShowTools(!showTools)} style={styles.iconButton}><Icon name="options-outline" color={colors.scannerMuted} /></Pressable> : null}
+        </View>
+        {__DEV__ && showTools ? <View style={{ gap: 8 }}>
+          {([['fail', 'Simulate failed recognition'], ['missingPrice', 'Simulate unavailable price'], ['ambiguous', 'Simulate variant review']] as const).map(([key, label]) => <View key={key} style={uiStyles.between}><Label kind="caption" style={[styles.quiet, { flex: 1 }]}>{label}</Label><Switch value={scan.options[key]} onValueChange={value => scan.setOptions({ ...scan.options, [key]: value })} accessibilityLabel={`Development only: ${label.toLowerCase()}`} /></View>)}
+        </View> : null}
+      </>}
+    </ScrollView>
+    <View style={styles.bottom}><Button title={`Organize (${scan.summary.copies})`} icon="albums-outline" disabled={!scan.ready} onPress={() => router.push({ pathname: '/organize', params: { onboarding } })} /></View>
+  </SafeAreaView>;
+}
+function RecognitionOverlay({ item, count }: { item: ScanSessionItem; count: number }) {
+  const { formatMoney } = useCurrency();
+  const [opacity] = useState(() => new Animated.Value(0));
+  useEffect(() => {
+    let active = true;
+    void AccessibilityInfo.isReduceMotionEnabled().then(reduce => { if (active) Animated.timing(opacity, { toValue: 1, duration: reduce ? 0 : 180, useNativeDriver: true }).start(); });
+    return () => { active = false; opacity.stopAnimation(); };
+  }, [opacity]);
+  const card = getCatalogCard(item.cardId)!;
+  return <Animated.View style={[styles.result, { opacity }]} accessibilityLiveRegion="polite" accessible accessibilityLabel={`${item.name}. ${count} pending cards. ${item.priceState === 'available' && item.price ? formatMoney(item.price.amount, item.price.currency) : item.priceState === 'loading' ? 'Price loading' : 'Price unavailable'}`}>
+    <CardPrint card={card} style={{ width: 42 }} />
+    <View style={{ flex: 1, gap: 2 }}><Label style={{ fontWeight: '700' }}>{item.name}</Label><Label kind="caption" style={{ color: colors.muted }}>{item.setName} · {item.collectorNumber}</Label><Label kind="caption" style={{ color: colors.primary }}>{item.ambiguity === 'review' ? 'Review variant in Organize' : 'Added to session'}</Label></View>
+    <Label style={{ fontWeight: '700', flexShrink: 1 }}>{item.priceState === 'available' && item.price ? formatMoney(item.price.amount, item.price.currency) : item.priceState === 'loading' ? 'Loading…' : 'Price unavailable'}</Label>
+  </Animated.View>;
 }
 const styles = StyleSheet.create({
-  frame: { padding: 20, backgroundColor: colors.scanner, borderRadius: 20, alignItems: 'center', gap: 20 },
-  frameHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-start' },
-  guide: { width: '100%', maxWidth: 210, aspectRatio: 600 / 825, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20, gap: 12 },
-  corner: { position: 'absolute', width: 30, height: 30, borderColor: colors.white },
-  topLeft: { top: 0, left: 0, borderTopWidth: 3, borderLeftWidth: 3, borderTopLeftRadius: 7 },
-  topRight: { top: 0, right: 0, borderTopWidth: 3, borderRightWidth: 3, borderTopRightRadius: 7 },
-  bottomLeft: { bottom: 0, left: 0, borderBottomWidth: 3, borderLeftWidth: 3, borderBottomLeftRadius: 7 },
-  bottomRight: { bottom: 0, right: 0, borderBottomWidth: 3, borderRightWidth: 3, borderBottomRightRadius: 7 },
+  screen: { flex: 1, backgroundColor: colors.scanner },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 6, flexWrap: 'wrap' },
+  headerTitle: { color: colors.white, fontWeight: '700', flex: 1 },
+  demoBadge: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: colors.scannerOrbitLine },
+  camera: { flex: 1, minHeight: 200, overflow: 'hidden', backgroundColor: colors.heroInk },
+  guideArea: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', paddingTop: 40, paddingBottom: 72 },
+  guide: { height: '100%', maxHeight: 340, aspectRatio: 600 / 825, maxWidth: '70%', alignItems: 'center', justifyContent: 'center' },
+  corner: { position: 'absolute', width: 28, height: 28, borderColor: colors.scannerFrame },
+  topLeft: { top: 0, left: 0, borderTopWidth: 2, borderLeftWidth: 2, borderTopLeftRadius: 10 },
+  topRight: { top: 0, right: 0, borderTopWidth: 2, borderRightWidth: 2, borderTopRightRadius: 10 },
+  bottomLeft: { bottom: 0, left: 0, borderBottomWidth: 2, borderLeftWidth: 2, borderBottomLeftRadius: 10 },
+  bottomRight: { bottom: 0, right: 0, borderBottomWidth: 2, borderRightWidth: 2, borderBottomRightRadius: 10 },
+  resultArea: { position: 'absolute', bottom: 12, left: 12, right: 12 },
+  result: { backgroundColor: colors.white, borderRadius: 14, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  status: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 10, borderRadius: 12, backgroundColor: colors.scanner },
+  controls: { flexGrow: 0, maxHeight: '36%' },
+  bottom: { paddingHorizontal: 16, paddingBottom: 10, paddingTop: 4 },
+  iconButton: { minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center' },
+  demoActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  textButton: { minHeight: 44, flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
+  quiet: { color: colors.scannerMuted, textAlign: 'center' },
 });

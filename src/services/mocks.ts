@@ -1,30 +1,31 @@
-import { catalog, getCatalogCard } from '../data/mocks/catalog';
-import type { Card, Collection, MarketPrice, Plan, SubscriptionEntitlement } from '../types/domain';
+import { catalog, getLegacyCard, type LegacyCard } from '../data/mocks/catalog';
+import type { Collection, MarketPrice, Plan, SubscriptionEntitlement } from '../types/domain';
 import type {
   CardCatalogService,
   CardRecognitionService,
   CollectionRepository,
   MarketPricingService,
   RecognitionOptions,
+  RecognitionResult,
   SubscriptionService,
 } from './contracts';
 import { DomainError, getEntitlements } from './domain';
 
-function copyCard(card: Card): Card {
+function copyCard(card: LegacyCard): LegacyCard {
   return { ...card, marketPrice: { ...card.marketPrice } };
 }
 
 export class MockCardCatalogService implements CardCatalogService {
-  async listCards(): Promise<Card[]> {
+  async listCards(): Promise<LegacyCard[]> {
     return catalog.map(copyCard);
   }
 
-  async getCard(cardId: string): Promise<Card | undefined> {
-    const card = getCatalogCard(cardId);
+  async getCard(cardId: string): Promise<LegacyCard | undefined> {
+    const card = getLegacyCard(cardId);
     return card ? copyCard(card) : undefined;
   }
 
-  async searchCards(query: string): Promise<Card[]> {
+  async searchCards(query: string): Promise<LegacyCard[]> {
     const search = query.trim().toLocaleLowerCase();
     return catalog
       .filter((card) => [card.name, card.setName, card.collectorNumber, card.variant]
@@ -39,12 +40,19 @@ export class MockCardRecognitionService implements CardRecognitionService {
 
   constructor(private readonly delayMs = 900) {}
 
-  async recognize(options: RecognitionOptions = {}): Promise<Card> {
-    if (this.delayMs > 0) await new Promise<void>((resolve) => setTimeout(resolve, this.delayMs));
+  async recognize(options: RecognitionOptions = {}): Promise<RecognitionResult> {
+    if (options.signal?.aborted) throw new Error('Recognition canceled.');
+    if (this.delayMs > 0) await new Promise<void>((resolve, reject) => {
+      const cancel = () => { clearTimeout(timer); reject(new Error('Recognition canceled.')); };
+      const timer = setTimeout(() => { options.signal?.removeEventListener('abort', cancel); resolve(); }, this.delayMs);
+      options.signal?.addEventListener('abort', cancel, { once: true });
+    });
+    if (options.signal?.aborted) throw new Error('Recognition canceled.');
     if (options.simulateFailure) {
       throw new Error('No card recognized. Try centering the card in the frame.');
     }
-    const card = catalog[this.nextCardIndex % catalog.length];
+    const card = options.cardId ? getLegacyCard(options.cardId) : catalog[this.nextCardIndex % catalog.length];
+    if (!card) throw new Error('This printing is not in the catalog.');
     this.nextCardIndex += 1;
     return copyCard(card);
   }
@@ -52,7 +60,7 @@ export class MockCardRecognitionService implements CardRecognitionService {
 
 export class MockMarketPricingService implements MarketPricingService {
   async getPrice(cardId: string): Promise<MarketPrice> {
-    const card = getCatalogCard(cardId);
+    const card = getLegacyCard(cardId);
     if (!card) throw new DomainError('UNKNOWN_CARD', 'This card is not in the catalog.');
     return { ...card.marketPrice };
   }
@@ -97,8 +105,8 @@ export class MockSubscriptionService implements SubscriptionService {
   }
 }
 
-export const catalogService = new MockCardCatalogService();
+export const mockCatalogService = new MockCardCatalogService();
 export const recognitionService = new MockCardRecognitionService();
-export const pricingService = new MockMarketPricingService();
+export const mockPricingService = new MockMarketPricingService();
 export const collectionRepository = new MockCollectionRepository();
 export const subscriptionService = new MockSubscriptionService();

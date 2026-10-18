@@ -5,19 +5,18 @@ import { CardPrint } from '@/components/CardPrint';
 import { CardRow } from '@/components/CardRow';
 import { colors } from '@/theme/tokens';
 import { useChase } from '@/features/app/ChaseProvider';
-import { catalog, getCatalogCard } from '@/data/mocks/catalog';
-import { canScan } from '@/services';
+import { getCatalogCard } from '@/data/mocks/catalog';
 import { ChaseBrand } from '@/components/ChaseBrand';
 
 const sets = [
-  { name: 'Evolving Skies', cardId: 'swsh7-215' },
-  { name: 'Lost Origin', cardId: 'swsh11-186' },
+  { name: 'Evolving Skies', setId: 'swsh7', cardId: 'swsh7-215' },
+  { name: 'Lost Origin', setId: 'swsh11', cardId: 'swsh11-186' },
 ];
 
 export default function HomeScreen() {
   const { state, featuredCardId } = useChase();
   const { fontScale } = useWindowDimensions();
-  const startScan = () => router.push(canScan(state) ? '/scanner' : '/paywall');
+  const startScan = () => router.push('/scanner');
   const recent = [...state.items].sort((a, b) => b.addedAt.localeCompare(a.addedAt)).slice(0, 3);
   const featuredCard = getCatalogCard(featuredCardId)!;
 
@@ -52,10 +51,9 @@ export default function HomeScreen() {
       <Section title="Browse by set" action="All cards" onPress={() => router.push('/search')} />
       {sets.map(set => {
         const card = getCatalogCard(set.cardId)!;
-        const printings = catalog.filter(item => item.setName === set.name).length;
-        return <Pressable key={set.name} accessibilityRole="button" accessibilityLabel={`Browse ${set.name}, ${printings} printings`} onPress={() => router.push({ pathname: '/search', params: { query: set.name } })} style={({ pressed }) => [styles.setRow, pressed && styles.pressed]}>
+        return <Pressable key={set.name} accessibilityRole="button" accessibilityLabel={`Browse ${set.name}`} onPress={() => router.push({ pathname: '/search', params: { setId: set.setId, setName: set.name } })} style={({ pressed }) => [styles.setRow, pressed && styles.pressed]}>
           <View style={styles.setPrint}><CardPrint card={card} /></View>
-          <View style={{ flex: 1, gap: 5 }}><Label style={{ fontWeight: '600' }}>{set.name}</Label><Label kind="caption" style={uiStyles.muted}>{printings} {printings === 1 ? 'printing' : 'printings'}</Label></View>
+          <View style={{ flex: 1, gap: 5 }}><Label style={{ fontWeight: '600' }}>{set.name}</Label><Label kind="caption" style={uiStyles.muted}>Explore expansion</Label></View>
           <Icon name="chevron-forward" color={colors.muted} size={19} />
         </Pressable>;
       })}

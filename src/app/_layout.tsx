@@ -6,6 +6,7 @@ import { ChaseProvider, useChase } from '@/features/app/ChaseProvider';
 import { Button, Label, Screen } from '@/components/ui';
 import { colors } from '@/theme/tokens';
 import { CurrencyProvider } from '@/features/currency/CurrencyProvider';
+import { ScanSessionProvider } from '@/features/scanner/ScanSessionProvider';
 
 function Navigator() {
   const { ready, loadError, retryLoad, persistenceError } = useChase();
@@ -17,7 +18,8 @@ function Navigator() {
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="onboarding" options={{ headerShown: false, gestureEnabled: false }} />
-      <Stack.Screen name="scanner" options={{ title: 'Scan a card' }} />
+      <Stack.Screen name="scanner" options={{ headerShown: false }} />
+      <Stack.Screen name="organize" options={{ headerShown: false }} />
       <Stack.Screen name="paywall" options={{ headerShown: false, presentation: 'modal', gestureEnabled: false }} />
       <Stack.Screen name="my-cards" options={{ title: '' }} />
       <Stack.Screen name="search" options={{ title: '' }} />
@@ -27,5 +29,5 @@ function Navigator() {
   </View>;
 }
 export default function RootLayout() {
-  return <SafeAreaProvider><CurrencyProvider><ChaseProvider><StatusBar style="dark" /><Navigator /></ChaseProvider></CurrencyProvider></SafeAreaProvider>;
+  return <SafeAreaProvider><CurrencyProvider><ChaseProvider><ScanSessionProvider><StatusBar style="dark" /><Navigator /></ScanSessionProvider></ChaseProvider></CurrencyProvider></SafeAreaProvider>;
 }

@@ -4,10 +4,10 @@ import { Animated, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensi
 import { CardPrint } from '@/components/CardPrint';
 
 import { Icon, Label } from '@/components/ui';
-import { getCatalogCard } from '@/data/mocks/catalog';
+import { getLegacyCard } from '@/data/mocks/catalog';
 import { colors } from '@/theme/tokens';
 
-const cards = ['swsh7-215', 'base1-4', 'sv6-214', 'swsh7-218', 'swsh11-186'].map(id => getCatalogCard(id)!);
+const cards = ['swsh7-215', 'base1-4', 'sv6-214', 'swsh7-218', 'swsh11-186'].map(id => getLegacyCard(id)!);
 const initialIndex = 1;
 
 /** A local price demonstration; swiping never saves ownership or spends a scan. */
