@@ -20,6 +20,7 @@ export const cardVisuals: Record<string, CardVisual> = {
   'swsh12-186': { source: require('../../assets/chases/swsh12-186.webp'), mood: 'sky', edition: 'Alternate art' },
   'sv2-203': { source: require('../../assets/chases/sv2-203.webp'), mood: 'sky', edition: 'Illustration rare' },
   'xyp-XY133': { source: require('../../assets/chases/xyp-XY133.webp'), mood: 'sky', edition: 'XY promo' },
+  'sv6-214': { source: require('../../assets/chases/sv6-214.webp'), mood: 'sky', edition: 'Special illustration rare' },
 };
 export function visualFor(card: Card): CardVisual { return cardVisuals[card.id]; }
 /** A fixed editorial selection, never personalized recommendations. */

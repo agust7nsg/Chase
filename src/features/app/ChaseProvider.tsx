@@ -2,6 +2,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { addCard, canScan, getEntitlements, initialState, normalizeStoredState, recordSuccessfulScan, removeCard, setQuantity, summarizeCollection, recognitionService } from '@/services';
 import type { Card, PrototypeState } from '@/types/domain';
+import { FEATURED_CARD_IDS, type FeaturedCardId } from '@/services/featuredCards';
+import { loadSessionFeaturedCard } from '@/features/home/featuredCardSession';
 
 const STORAGE_KEY = 'chase.prototype.v1';
 async function readStoredState() {
@@ -12,6 +14,7 @@ async function readStoredState() {
 type ActionResult = { ok: boolean; message: string };
 type ChaseContextValue = {
   state: PrototypeState; ready: boolean; loadError: string | null; persistenceError: string | null;
+  featuredCardId: FeaturedCardId;
   entitlements: ReturnType<typeof getEntitlements>; summary: ReturnType<typeof summarizeCollection>;
   retryLoad: () => void; completeOnboarding: () => void; setDevPro: (enabled: boolean) => void;
   recognize: (simulateFailure?: boolean, signal?: AbortSignal) => Promise<Card>;
@@ -21,6 +24,7 @@ type ChaseContextValue = {
 const ChaseContext = createContext<ChaseContextValue | null>(null);
 export function ChaseProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<PrototypeState>(initialState);
+  const [featuredCardId, setFeaturedCardId] = useState<FeaturedCardId>(FEATURED_CARD_IDS[0]);
   const stateRef = useRef(state);
   const [ready, setReady] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -33,7 +37,12 @@ export function ChaseProvider({ children }: { children: ReactNode }) {
   const onLoadFailed = useCallback(() => {
     setLoadError('Your local collection could not be loaded. Retry to protect your saved cards.');
   }, []);
-  useEffect(() => { void readStoredState().then(onLoaded).catch(onLoadFailed); }, [onLoaded, onLoadFailed]);
+  useEffect(() => {
+    void Promise.all([readStoredState(), loadSessionFeaturedCard()]).then(([next, cardId]) => {
+      setFeaturedCardId(cardId);
+      onLoaded(next);
+    }).catch(onLoadFailed);
+  }, [onLoaded, onLoadFailed]);
   const commit = useCallback((next: PrototypeState) => {
     stateRef.current = next; setState(next);
     saveQueue.current = saveQueue.current.then(() => AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next))).then(() => {
@@ -59,7 +68,7 @@ export function ChaseProvider({ children }: { children: ReactNode }) {
     } finally { recognizing.current = false; }
   };
   return <ChaseContext.Provider value={{
-    state, ready, loadError, persistenceError, entitlements: getEntitlements(state.plan), summary: summarizeCollection(state.items),
+    state, ready, loadError, persistenceError, featuredCardId, entitlements: getEntitlements(state.plan), summary: summarizeCollection(state.items),
     retryLoad: () => { setLoadError(null); void readStoredState().then(onLoaded).catch(onLoadFailed); }, completeOnboarding: () => commit({ ...stateRef.current, onboardingComplete: true }),
     setDevPro: (enabled) => { if (__DEV__) commit({ ...stateRef.current, plan: enabled ? 'pro' : 'free' }); },
     recognize, addToCollection: (cardId) => perform(() => addCard(stateRef.current, cardId)),

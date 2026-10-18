@@ -42,7 +42,7 @@ export default function OnboardingScreen() {
   const content = steps[step];
   return <Screen key={step} scroll={shortLayout} style={screenStyle}>
     <BrandHeader onSkip={() => setStep(3)} />
-    <OnboardingBody scrollable={!shortLayout} compact={compact}>
+    <OnboardingBody scrollable={!shortLayout} compact={compact} bleed={step === 0}>
       <View style={styles.introduction}>
         <Label kind="title" accessibilityRole="header">{content.title}</Label>
         <Label style={uiStyles.muted}>{content.description}</Label>
@@ -61,10 +61,10 @@ export default function OnboardingScreen() {
   </Screen>;
 }
 
-function OnboardingBody({ children, scrollable, compact }: { children: ReactNode; scrollable: boolean; compact: boolean }) {
+function OnboardingBody({ children, scrollable, compact, bleed = false }: { children: ReactNode; scrollable: boolean; compact: boolean; bleed?: boolean }) {
   const contentStyle = [styles.bodyContent, compact && { gap: 12, paddingBottom: 0 }];
   return scrollable
-    ? <ScrollView style={styles.body} contentContainerStyle={contentStyle}>{children}</ScrollView>
+    ? <ScrollView style={[styles.body, bleed && { marginHorizontal: -24 }]} contentContainerStyle={[contentStyle, bleed && { paddingHorizontal: 24 }]}>{children}</ScrollView>
     : <View style={contentStyle}>{children}</View>;
 }
 

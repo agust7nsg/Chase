@@ -77,7 +77,7 @@ Validate navigation, safe areas, large text, state restoration, errors, and Free
 
 ## Printing presentation and legacy keys
 
-`src/data/cardVisuals.ts` maps stable catalog keys to local full-print images, landscape moods and image limitations. `CardPrint` displays the shared printing image. Active screens use purpose-specific compositions; the previous collector landscapes are no longer used. The expanded catalog has 15 entries and 14 images (Pikachu variants share a disclosed printing reference). All values still use the mock pricing contract.
+`src/data/cardVisuals.ts` maps stable catalog keys to local full-print images, landscape moods and image limitations. `CardPrint` displays the shared printing image. Active screens use purpose-specific compositions; the previous collector landscapes are no longer used. The expanded catalog has 16 entries and 15 images (Pikachu variants share a disclosed printing reference). All values still use the mock pricing contract.
 
 The original mock incorrectly identified Eevee as Base Set 2 68/130 and Mew as SWSH053. Display metadata now matches the actual supplied prints: Eevee 51/130 and Wizards promo Mew 9. The internal `base2-68` and `swshp-053` keys deliberately remain stable, preserving existing AsyncStorage ownership and quantities. They are legacy application keys, not external provider IDs; any future live adapter must map them explicitly to the verified printing. Domain rules and the persistence schema are unchanged.
 
@@ -90,3 +90,13 @@ The curve revalues current holdings at sample historical prices. It deliberately
 `PriceChart` renders native line segments and supports pointer selection, native accessibility adjustment, web keyboard controls and exact date/value disclosure. A keyed chart resets inspection when its date window or endpoint changes. `RangeSelector` is a reusable control, while onboarding, wallet and card detail retain distinct layouts. No chart dependency or native package was added.
 
 `/search?query=...` initializes the existing catalog filter for Home's set shortcuts. The persistent state shape, original IDs, quota handling, recognition cancellation, serialized writes and Free downgrade rules are unchanged.
+
+## Home artwork rotation
+
+`src/services/featuredCards.ts` owns the explicit three-printing editorial pool and draws randomly without replacement. Remaining IDs and the last shown card are saved separately under `chase.home-artwork.v1`. Corrupt rotation data resets safely. A new cycle excludes the previous cycle’s last card from its first draw. Catalog expansion does not automatically expand this pool.
+
+`src/features/home/featuredCardSession.ts` caches one selection promise for the JS app lifetime, so duplicate effects, route remounts and tabs cannot advance the rotation. `ChaseProvider` loads the selection alongside collection hydration before showing navigation. A full app restart/reload draws again; foregrounding an already-running session keeps its card. Rotation storage failure falls back to session-only artwork without blocking the collection; cross-launch non-repetition requires working device storage. The collection schema, quantities, entitlements and scan accounting are untouched.
+
+## Onboarding price carousel
+
+`src/features/onboarding/PriceCarousel.tsx` uses an explicit five-card editorial selection, separate from Home's three-card launch pool. A native horizontal `Animated.ScrollView` snaps to a fixed card interval, with scroll-driven transforms and the nearest centered index controlling the quote. Card prices come from the existing catalog. The first screen's body permits edge previews; later onboarding screens retain their existing layouts. Chevrons, native accessibility increment/decrement and web keyboard arrows/Home/End provide non-swipe controls. There is no autoplay, provider mutation, scan use or saved selection.

@@ -397,9 +397,10 @@ try {
       ['swsh12-186', 'Lugia V', 'Silver Tempest', '186/195'],
       ['sv2-203', 'Magikarp', 'Paldea Evolved', '203/193'],
       ['xyp-XY133', 'Ash-Greninja EX', 'XY Black Star Promos', 'XY133'],
+      ['sv6-214', 'Greninja ex', 'Twilight Masquerade', '214/167'],
     ];
     for (const [id, name, set, number] of chases) {
-      await chasePage.getByRole('textbox', { name: 'Search sample catalog by name, set, or card number' }).fill(name);
+      await chasePage.getByRole('textbox', { name: 'Search sample catalog by name, set, or card number' }).fill(id === 'sv6-214' ? number : name);
       await visibleText(chasePage, '1 result').waitFor();
       await openCard(chasePage, name);
       await visibleText(chasePage, `${set} · ${number}`).waitFor();
@@ -504,6 +505,94 @@ try {
     assert.equal(await previewPage.getByRole('textbox', { name: 'Search sample catalog by name, set, or card number' }).inputValue(), 'Evolving Skies');
     assert.deepEqual(await stateOf(previewPage), before);
     await previewContext.close(); activePage = page;
+  });
+
+  await scenario('Home artwork rotates only on app launch, without repeats, ownership changes or layout shifts', async () => {
+    const artworkContext = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
+    const fixture = { ...initialState, onboardingComplete: true, trial: { successfulRecognitions: 1 }, items: [{ cardId: 'base1-4', quantity: 2, addedAt: '2026-10-01T00:00:00.000Z' }] };
+    await artworkContext.addInitScript(({ key, value }) => { if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(value)); }, { key: storageKey, value: fixture });
+    const artworkPage = await artworkContext.newPage(); watchPage(artworkPage);
+    await artworkPage.goto(baseUrl, { waitUntil: 'domcontentloaded' });
+    const pool = ['swsh7-192', 'sv6-214', 'swsh7-215'];
+    const launches = [];
+    let panelBounds;
+    for (let launch = 0; launch < 9; launch += 1) {
+      if (launch) await artworkPage.reload({ waitUntil: 'domcontentloaded' });
+      const scan = button(artworkPage, 'Scan a Card'); await scan.waitFor();
+      const panel = scan.locator('..');
+      const rotation = await artworkPage.evaluate(() => JSON.parse(localStorage.getItem('chase.home-artwork.v1')));
+      assert.ok(pool.includes(rotation.lastId));
+      assert.notEqual(rotation.lastId, launches.at(-1), 'Consecutive launches must never repeat artwork.');
+      launches.push(rotation.lastId);
+      assert.equal(await artworkPage.getByText(/Demo scan ·/).count(), 0);
+      const bounds = await panel.boundingBox();
+      panelBounds ??= bounds;
+      assert.deepEqual(bounds, panelBounds, 'Artwork changes must preserve the panel dimensions.');
+      const expectedName = { 'swsh7-192': 'Dragonite V, Evolving Skies, 192/203', 'sv6-214': 'Greninja ex, Twilight Masquerade, 214/167', 'swsh7-215': 'Umbreon VMAX, Evolving Skies, 215/203' }[rotation.lastId];
+      const image = panel.getByRole('img', { name: `${expectedName}, Pokémon TCG card`, exact: true });
+      await image.waitFor();
+      await image.evaluate(async element => {
+        const img = element instanceof HTMLImageElement ? element : element.querySelector('img');
+        if (!img) throw new Error('Missing featured card image');
+        await img.decode();
+        if (img.naturalWidth !== 600 || img.naturalHeight !== 825) throw new Error('Incorrect featured artwork dimensions');
+      });
+      const beforeNavigation = JSON.stringify(rotation);
+      await tab(artworkPage, 'Profile').click();
+      await tab(artworkPage, 'Home').click(); await scan.waitFor();
+      assert.equal(await artworkPage.evaluate(() => localStorage.getItem('chase.home-artwork.v1')), beforeNavigation, 'Tab changes must not draw another card.');
+      await button(artworkPage, 'Search Cards').click();
+      await artworkPage.getByRole('textbox', { name: 'Search sample catalog by name, set, or card number' }).waitFor();
+      await artworkPage.goBack(); await scan.waitFor();
+      assert.equal(await artworkPage.evaluate(() => localStorage.getItem('chase.home-artwork.v1')), beforeNavigation, 'Returning from another route must retain session artwork.');
+      assert.deepEqual(await stateOf(artworkPage), fixture, 'Artwork must never alter collection, plan or scan quota.');
+    }
+    for (let start = 0; start < launches.length; start += pool.length) assert.deepEqual(launches.slice(start, start + pool.length).sort(), [...pool].sort());
+    await artworkContext.close(); activePage = page;
+  });
+
+  await scenario('onboarding price carousel swipes, snaps and updates quotes without changing owned data', async () => {
+    const carouselContext = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true, reducedMotion: 'reduce' });
+    const fixture = { ...initialState, trial: { successfulRecognitions: 1 }, items: [{ cardId: 'base1-4', quantity: 2, addedAt: '2026-10-01T00:00:00.000Z' }] };
+    await carouselContext.addInitScript(({ key, value }) => { if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(value)); }, { key: storageKey, value: fixture });
+    const carouselPage = await carouselContext.newPage(); watchPage(carouselPage);
+    await carouselPage.goto(new URL('/onboarding', baseUrl).href, { waitUntil: 'domcontentloaded' });
+    const carousel = carouselPage.getByRole('slider', { name: 'Card price carousel', exact: true });
+    await carousel.waitFor();
+    assert.match(await carousel.getAttribute('aria-valuetext'), /Charizard.*245.00/);
+    assert.equal(await button(carouselPage, /^Preview (Charizard|Umbreon) price$/).count(), 0);
+    const bounds = await carousel.boundingBox(); const y = bounds.y + bounds.height / 2;
+    const touch = await carouselContext.newCDPSession(carouselPage);
+    await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 310, y }] });
+    for (let x = 290; x >= 70; x -= 20) {
+      await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y }] });
+      await carouselPage.waitForTimeout(24);
+    }
+    await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await visibleText(carouselPage, '$300.00').waitFor();
+    assert.match(await carousel.getAttribute('aria-valuetext'), /Greninja ex.*300.00/);
+    await carouselPage.waitForFunction(() => {
+      const stage = document.querySelector('[role="slider"][aria-label="Card price carousel"]')?.getBoundingClientRect();
+      const card = document.querySelector('img[alt^="Greninja ex,"]')?.getBoundingClientRect();
+      return stage && card && Math.abs(card.x + card.width / 2 - stage.x - stage.width / 2) < 2;
+    });
+    await button(carouselPage, 'Next price card').click();
+    await visibleText(carouselPage, '$280.00').waitFor();
+    assert.match(await carousel.getAttribute('aria-valuetext'), /Rayquaza VMAX.*280.00/);
+    await carousel.focus(); await carouselPage.keyboard.press('End');
+    await visibleText(carouselPage, '$290.00').waitFor();
+    assert.equal(await button(carouselPage, 'Next price card').getAttribute('aria-disabled'), 'true');
+    await carouselPage.keyboard.press('Home'); await visibleText(carouselPage, '$650.00').waitFor();
+    assert.equal(await button(carouselPage, 'Previous price card').getAttribute('aria-disabled'), 'true');
+    await carouselPage.keyboard.press('ArrowRight'); await visibleText(carouselPage, '$245.00').waitFor();
+    assert.deepEqual(await stateOf(carouselPage), fixture);
+    await checkHorizontalLayout(carouselPage, '390px price carousel');
+    await carouselPage.setViewportSize({ width: 320, height: 568 });
+    await carousel.waitFor(); await checkHorizontalLayout(carouselPage, '320px price carousel');
+    await button(carouselPage, 'Continue').click();
+    await visibleText(carouselPage, 'Scan a card').waitFor();
+    assert.deepEqual(await stateOf(carouselPage), fixture, 'The carousel must not save cards, change the plan or grant scans.');
+    await carouselContext.close(); activePage = page;
   });
 
   console.log(`Chase browser smoke passed: ${passed} scenarios; no JavaScript runtime errors.`);

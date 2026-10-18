@@ -15,12 +15,11 @@ const sets = [
 ];
 
 export default function HomeScreen() {
-  const { state } = useChase();
+  const { state, featuredCardId } = useChase();
   const { fontScale } = useWindowDimensions();
   const startScan = () => router.push(canScan(state) ? '/scanner' : '/paywall');
   const recent = [...state.items].sort((a, b) => b.addedAt.localeCompare(a.addedAt)).slice(0, 3);
-  const dragonite = getCatalogCard('swsh7-192')!;
-  const scanStatus = state.plan === 'pro' ? 'Demo scan · unlimited' : `Demo scan · ${state.trial.successfulRecognitions === 0 ? '1 free' : '0 free'}`;
+  const featuredCard = getCatalogCard(featuredCardId)!;
 
   return <Screen>
     <View style={uiStyles.between}>
@@ -38,11 +37,11 @@ export default function HomeScreen() {
           </View>
           <View style={styles.heroPrint}>
             <View pointerEvents="none" style={styles.printOffset} accessible={false} />
-            <CardPrint card={dragonite} />
+            <CardPrint card={featuredCard} />
           </View>
         </View>
         <Button title="Scan a Card" variant="inverse" icon="scan-outline" onPress={startScan} />
-        <Label kind="caption" style={styles.scanStatus}>{scanStatus}</Label>
+        <View pointerEvents="none" accessible={false} style={{ height: 19 * fontScale }} />
       </View>
       <Button title="Search Cards" variant="secondary" icon="search-outline" onPress={() => router.push('/search')} />
     </View>
@@ -75,7 +74,6 @@ const styles = StyleSheet.create({
   heroPrint: { width: '43%', maxWidth: 164, alignSelf: 'center', transform: [{ rotate: '8deg' }], shadowColor: colors.scanner, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.28, shadowRadius: 12, elevation: 5 },
   printOffset: { position: 'absolute', top: -10, bottom: 10, left: -10, right: 10, borderWidth: 1, borderColor: colors.onPrimaryMuted, borderRadius: 8, opacity: 0.45 },
   heroOrbit: { position: 'absolute', top: -45, right: -76, width: 300, height: 300, borderRadius: 150, backgroundColor: colors.primaryDeep },
-  scanStatus: { color: colors.heroQuiet, textAlign: 'center' },
   setRow: { flexDirection: 'row', alignItems: 'center', gap: 18, paddingVertical: 16, borderBottomWidth: 1, borderColor: colors.border },
   setPrint: { width: 56 },
   pressed: { opacity: 0.65 },

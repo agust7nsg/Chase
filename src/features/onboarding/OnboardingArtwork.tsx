@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { Image } from 'expo-image';
-import { Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { StyleSheet, useWindowDimensions, View } from 'react-native';
 import { CardPrint } from '@/components/CardPrint';
 import { Icon, Label, uiStyles } from '@/components/ui';
 import { getCatalogCard } from '@/data/mocks/catalog';
 import { getHistoryChange, getPortfolioHistory, type HistoryPoint } from '@/services/priceHistory';
 import { colors } from '@/theme/tokens';
 
-const priceCards = [getCatalogCard('base1-4')!, getCatalogCard('swsh7-215')!];
+import { PriceCarousel } from './PriceCarousel';
 const collectionCards = [getCatalogCard('swsh7-192')!, getCatalogCard('swshp-053')!];
 const exampleItems = collectionCards.map((card) => ({ cardId: card.id, quantity: 1, addedAt: '2026-10-01T00:00:00.000Z' }));
 const exampleHistory = getPortfolioHistory(exampleItems, '1M');
@@ -16,38 +16,10 @@ const usd = (value: number) => value.toLocaleString('en-US', { style: 'currency'
 
 /** These visual examples never change ownership or consume a recognition. */
 export function OnboardingArtwork({ step }: { step: 0 | 1 | 2 | 3 }) {
-  if (step === 0) return <PriceExample />;
+  if (step === 0) return <PriceCarousel />;
   if (step === 1) return <ScanExample />;
   if (step === 2) return <CollectionExample />;
   return <TrialExample />;
-}
-
-function PriceExample() {
-  const [selected, setSelected] = useState(0);
-  const { height, width } = useWindowDimensions();
-  const printWidth = Math.min(width * 0.49, height < 740 ? 170 : 192);
-  const card = priceCards[selected];
-  return <View style={styles.artwork}>
-    <View style={[styles.priceStage, { height: printWidth * 825 / 600 + 36 }]}>
-      <View pointerEvents="none" style={styles.priceDisc} />
-      <View pointerEvents="none" style={styles.priceOrbit} />
-      <View style={{ transform: [{ rotate: selected === 0 ? '-7deg' : '5deg' }] }}>
-        <CardPrint card={card} style={{ ...styles.heroPrint, width: printWidth }} />
-      </View>
-    </View>
-    <View style={styles.priceQuote} accessibilityLiveRegion="polite" accessible
-      accessibilityLabel={`${card.name}, ${usd(card.marketPrice.amount)}. Sample USD price.${selected === 0 ? ' First-edition reference image; sample price does not distinguish editions.' : ''}`}>
-      <View style={{ flex: 1, gap: 3 }}><Label style={styles.cardName}>{card.name}</Label><Label kind="caption" style={uiStyles.muted}>Sample USD prices</Label></View>
-      <Label kind="price" style={styles.quoteValue}>{usd(card.marketPrice.amount)}</Label>
-    </View>
-    <View style={styles.cardChoices}>
-      {priceCards.map((option, index) => <Pressable key={option.id} accessibilityRole="button"
-        accessibilityLabel={`Preview ${option.name} price`} accessibilityState={{ selected: selected === index }}
-        onPress={() => setSelected(index)} style={({ pressed }) => [styles.cardChoice, selected === index && styles.cardChoiceSelected, pressed && { opacity: 0.65 }]}>
-        <Label kind="caption" style={{ color: selected === index ? colors.primaryDeep : colors.muted, fontWeight: '600' }}>{index === 0 ? 'Charizard' : 'Umbreon'}</Label>
-      </Pressable>)}
-    </View>
-  </View>;
 }
 
 function ScanExample() {
@@ -140,14 +112,6 @@ const styles = StyleSheet.create({
   artwork: { gap: 18, width: '100%' },
   heroPrint: { shadowColor: colors.text, shadowOpacity: 0.16, shadowOffset: { width: 0, height: 10 }, shadowRadius: 16 },
   cardName: { fontWeight: '600' },
-  priceStage: { alignItems: 'center', justifyContent: 'center', position: 'relative' },
-  priceDisc: { position: 'absolute', width: 256, height: 256, borderRadius: 128, backgroundColor: colors.artCool },
-  priceOrbit: { position: 'absolute', width: 286, height: 234, borderRadius: 143, borderWidth: 1, borderColor: colors.artCoolBorder, transform: [{ rotate: '-28deg' }] },
-  priceQuote: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  quoteValue: { fontSize: 34, lineHeight: 42 },
-  cardChoices: { flexDirection: 'row', gap: 8 },
-  cardChoice: { flex: 1, minHeight: 48, alignItems: 'center', justifyContent: 'center', padding: 8, borderRadius: 24, borderWidth: 1, borderColor: colors.border },
-  cardChoiceSelected: { borderColor: colors.tintBorder, backgroundColor: colors.primarySoft },
   viewfinder: { backgroundColor: colors.scanner, borderRadius: 26, alignItems: 'center', paddingTop: 32, overflow: 'hidden' },
   scannerOrbit: { position: 'absolute', width: 340, height: 340, borderRadius: 170, borderWidth: 1, borderColor: colors.scannerOrbitLine, top: 2 },
   scannerInnerOrbit: { position: 'absolute', width: 270, height: 270, borderRadius: 135, borderWidth: 1, borderColor: colors.scannerOrbitLine, top: 37 },

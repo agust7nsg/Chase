@@ -1,6 +1,6 @@
 # Bundled Pokémon TCG reference images
 
-Retrieved 2026-10-16 from TCGdex. All 14 files are 600 × 825 WebP images; all 15 catalog entries have bundled artwork. No image request or TCGdex API call runs in the app. One printing reference is shared by the two Evolutions Pikachu variants.
+Retrieved 2026-10-16 from TCGdex. The original 14 files are 600 × 825 WebP images; all original 15 catalog entries have bundled artwork. No image request or TCGdex API call runs in the app. One printing reference is shared by the two Evolutions Pikachu variants.
 
 Card identities and collector numbers were checked against the Pokémon TCG Developers dataset at https://github.com/PokemonTCG/pokemon-tcg-data/tree/master/cards/en (base1, base2, basep, xy12, xyp, swsh7, swsh8, swsh11, swsh12, sv2). Background landscapes in `assets/scenes` are original Chase SVG interface illustrations, not Pokémon card art.
 
@@ -19,6 +19,8 @@ Pokémon card artwork © Nintendo / Creatures Inc. / GAME FREAK inc. TCGdex dist
 - Lugia V 186/195: Silver Tempest alternate artwork.
 - Magikarp 203/193: Paldea Evolved illustration rare.
 - Ash-Greninja EX: English XY Black Star Promo **XY133**. This image depicts Greninja; it is not Japanese 218/XY-P featuring the human character Ash.
+
+- Greninja ex: **Twilight Masquerade 214/167**, Special Illustration Rare. Added 2026-10-17 from https://assets.tcgdex.net/en/sv/sv06/214/high.webp, verified against `sv6-214` in the Pokémon TCG Developers dataset. The new file is also 600 × 825 WebP. This is distinct from Ash-Greninja EX; its $300 estimate is a fixed prototype value. There are now 15 images across 16 catalog entries.
 
 Every price in the app is a fixed **mock USD estimate**, including the new entries. Prices are not researched market quotes, edition-specific estimates or guaranteed resale values. Catalog expansion does not seed ownership or consume a scan.
 
@@ -40,3 +42,4 @@ Every price in the app is a fixed **mock USD estimate**, including the new entri
 | `swshp-053.webp` | https://assets.tcgdex.net/en/base/basep/9/high.webp | `004d765ee9a310c0892d67bb9ee3c355f51bbc717a3a773f6c49f96ba27b082c` |
 | `xy12-35.webp` | https://assets.tcgdex.net/en/xy/xy12/35/high.webp | `df23ff52f772fb0571eb39d5c4b3235a50c1f33f715b4805b8e2de866f811bca` |
 | `xyp-XY133.webp` | https://assets.tcgdex.net/en/xy/xyp/XY133/high.webp | `b2e545ce6479472df39c52e59dc10066693419b2dfcf517abf3097bfd87cd1ba` |
+| `sv6-214.webp` | https://assets.tcgdex.net/en/sv/sv06/214/high.webp | `39dc7b2717079667b34d5b250a9e7bc93a1e0dc96fb03dbb78fc131e0c913934` |
