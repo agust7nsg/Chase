@@ -11,7 +11,7 @@ export function HomeSetsShelf() {
   return <View style={{ gap: 8 }}>
     <Section title="Browse by set" action="See all" onPress={() => router.push('/search')} />
     {sets.length ? <>
-      <Label kind="caption" style={uiStyles.muted}>{sets.length} expansions · A–Z</Label>
+      <Label kind="caption" style={uiStyles.muted}>{sets.length} expansions · Newest first</Label>
       <FlatList horizontal data={sets} keyExtractor={set => set.id} initialNumToRender={4} windowSize={5} showsHorizontalScrollIndicator={false}
         accessibilityLabel="Pokémon TCG expansions" contentContainerStyle={{ gap: 12, paddingVertical: 8 }}
         renderItem={({ item }) => <Pressable accessibilityRole="button" accessibilityLabel={`Browse ${item.name}`}

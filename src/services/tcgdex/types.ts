@@ -22,6 +22,7 @@ export interface CatalogQuery {
   page?: number;
   pageSize?: number;
   signal?: AbortSignal;
+  onProgress?: (progress: { loaded: number; total: number }) => void;
 }
 
 export interface CatalogPage {

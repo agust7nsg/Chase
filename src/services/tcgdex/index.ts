@@ -1,6 +1,6 @@
 import type { Card } from '../../types/domain';
 import type { CardCatalogService } from '../contracts';
-import { orderedSetCards } from './organization';
+import { compareCardPrices, orderedSetCards, priceRepresentative } from './organization';
 import { normalizeBrief, normalizeCards, normalizeSet, normalizeSetDetails, parseCollectibleId, record } from './normalize';
 import { CatalogError, type CatalogPage, type CatalogQuery, type CatalogSet, type CatalogSetDetails, type TcgDexOptions } from './types';
 
@@ -8,7 +8,7 @@ export * from './types';
 export { collectibleId } from './normalize';
 
 interface Cached { savedAt: number; value: unknown }
-interface Resource { value: unknown; fromCache: boolean; stale: boolean }
+interface Resource { value: unknown; fromCache: boolean; stale: boolean; savedAt?: number }
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const abortError = () => new CatalogError('ABORTED', 'Catalog request canceled.');
 
@@ -64,12 +64,22 @@ export class TcgDexCatalogService implements CardCatalogService {
   }
 
   private validate(path: string, value: unknown): void {
-    if (path === 'sets') {
+    if (path.split('?')[0] === 'sets') {
       if (!Array.isArray(value)) throw new CatalogError('INVALID_RESPONSE', 'TCGdex returned an invalid set list.');
       value.forEach(normalizeSet);
     } else if (path.startsWith('sets/')) {
       const parsed = normalizeSetDetails(value);
       if (parsed.id !== decodeURIComponent(path.slice(5))) throw new CatalogError('INVALID_RESPONSE', 'TCGdex returned a different set.');
+    } else if (path.startsWith('ranked-sets-price-v1/')) {
+      if (!Array.isArray(value)) throw new CatalogError('INVALID_RESPONSE', 'Invalid saved set prices.');
+      const setId = decodeURIComponent(path.slice('ranked-sets-price-v1/'.length));
+      const ids = new Set<string>();
+      for (const raw of value) {
+        const card = normalizeCards(raw, this.language)[0];
+        const id = card.catalogIdentity!.id;
+        if (card.setId !== setId || ids.has(id)) throw new CatalogError('INVALID_RESPONSE', 'Invalid saved set identity.');
+        ids.add(id);
+      }
     } else if (path.startsWith('cards/')) {
       const parsed = normalizeCards(value, this.language);
       if (parsed[0].catalogIdentity?.id !== decodeURIComponent(path.slice(6))) throw new CatalogError('INVALID_RESPONSE', 'TCGdex returned a different card.');
@@ -100,7 +110,7 @@ export class TcgDexCatalogService implements CardCatalogService {
     if (existing) return existing;
     const operation = (async (): Promise<Resource> => {
       const cached = await this.readCache(path);
-      if (cached && this.now() - cached.savedAt < this.ttl) return { value: clone(cached.value), fromCache: true, stale: false };
+      if (cached && this.now() - cached.savedAt < this.ttl) return { value: clone(cached.value), fromCache: true, stale: false, savedAt: cached.savedAt };
       const controller = new AbortController();
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
@@ -116,9 +126,9 @@ export class TcgDexCatalogService implements CardCatalogService {
         const entry = { savedAt: this.now(), value };
         this.remember(path, entry);
         try { await this.persist(path, entry); } catch { /* Network results remain usable when the device cache is full. */ }
-        return { value: clone(value), fromCache: false, stale: false };
+        return { value: clone(value), fromCache: false, stale: false, savedAt: entry.savedAt };
       } catch (error) {
-        if (cached) return { value: clone(cached.value), fromCache: true, stale: true };
+        if (cached) return { value: clone(cached.value), fromCache: true, stale: true, savedAt: cached.savedAt };
         if (error instanceof CatalogError) throw error;
         throw new CatalogError('NETWORK', 'Could not reach the card catalog. Check your connection and retry.');
       } finally { if (timer) clearTimeout(timer); }
@@ -150,7 +160,9 @@ export class TcgDexCatalogService implements CardCatalogService {
   }
 
   async listSets(): Promise<CatalogSet[]> {
-    const result = await this.resource('sets');
+    // /sets briefs omit releaseDate. Ask the server to sort the complete records
+    // before projection, rather than downloading hundreds of set details or guessing from IDs.
+    const result = await this.resource('sets?sort:field=releaseDate&sort:order=DESC');
     if (!Array.isArray(result.value)) throw new CatalogError('INVALID_RESPONSE', 'TCGdex returned an invalid set list.');
     return result.value.map(normalizeSet);
   }
@@ -189,26 +201,77 @@ export class TcgDexCatalogService implements CardCatalogService {
   async listCards(): Promise<Card[]> { return (await this.queryCards()).cards; }
   async searchCards(query: string): Promise<Card[]> { return (await this.queryCards({ query })).cards; }
 
+  private async setPrices(set: CatalogSetDetails, matching: typeof set.cards, query: CatalogQuery): Promise<Resource> {
+    const path = `ranked-sets-price-v1/${encodeURIComponent(set.id)}`;
+    const cached = await this.readCache(path);
+    if (query.signal?.aborted) throw abortError();
+    const currentIds = new Set(set.cards.map(card => card.id));
+    // A changed printing index invalidates a complete-set ranking, even within its TTL.
+    const reusable = cached && Array.isArray(cached.value) && cached.value.length === currentIds.size
+      && cached.value.every(raw => record(raw) && typeof raw.id === 'string' && currentIds.has(raw.id)) ? cached : undefined;
+    if (reusable && this.now() - reusable.savedAt < this.ttl) {
+      return { value: clone(reusable.value), fromCache: true, stale: false };
+    }
+    const values: unknown[] = [];
+    let fromCache = false;
+    let stale = false;
+    let oldestQuote = this.now();
+    query.onProgress?.({ loaded: 0, total: matching.length });
+    try {
+      // Rank the entire matching index BEFORE slicing into pages. Six requests at
+      // a time, with cancellation between groups; a stationary UI never starts a global crawl.
+      for (let start = 0; start < matching.length; start += 6) {
+        if (query.signal?.aborted) throw abortError();
+        const group = await Promise.all(matching.slice(start, start + 6).map(brief => this.resource(`cards/${encodeURIComponent(brief.id)}`, query.signal)));
+        for (const detail of group) {
+          if (!record(detail.value)) throw new CatalogError('INVALID_RESPONSE', 'A printing in this set could not be loaded. Please retry.');
+          const card = normalizeCards(detail.value, this.language)[0];
+          if (card.setId !== set.id) throw new CatalogError('INVALID_RESPONSE', 'This printing belongs to a different set.');
+          // Compact raw payloads keep a complete ranking available after per-card
+          // LRU eviction and across restarts, without persisting unrelated card text.
+          const { id, localId, name, image, variants, pricing, set: cardSet } = detail.value;
+          values.push({ id, localId, name, image, variants, pricing, set: cardSet });
+          fromCache ||= detail.fromCache;
+          stale ||= detail.stale;
+          oldestQuote = Math.min(oldestQuote, detail.savedAt ?? oldestQuote);
+        }
+        if (query.signal?.aborted) throw abortError();
+        query.onProgress?.({ loaded: values.length, total: matching.length });
+      }
+    } catch (error) {
+      if (query.signal?.aborted) throw abortError();
+      if (reusable) return { value: clone(reusable.value), fromCache: true, stale: true };
+      throw error;
+    }
+    if (query.signal?.aborted) throw abortError();
+    if (matching.length === currentIds.size && !stale) {
+      const entry = { savedAt: oldestQuote, value: values };
+      this.remember(path, entry);
+      try { await this.persist(path, entry); } catch { /* Full cache does not hide successfully loaded prices. */ }
+    }
+    return { value: values, fromCache, stale };
+  }
+
   private async querySetCards(query: CatalogQuery, page: number, pageSize: number): Promise<CatalogPage> {
     const result = await this.resource(`sets/${encodeURIComponent(query.setId!)}`, query.signal);
     if (result.value === null) throw new CatalogError('HTTP', 'This expansion is not available. Try another set.', 404);
     const set = normalizeSetDetails(result.value);
     const matching = orderedSetCards(set, query);
-    const selected = matching.slice((page - 1) * pageSize, page * pageSize);
-    const resources = [result];
-    const cards: Card[] = [];
-    for (let start = 0; start < selected.length; start += 6) {
-      const group = await Promise.all(selected.slice(start, start + 6).map(brief => this.resource(`cards/${encodeURIComponent(brief.id)}`, query.signal)));
-      resources.push(...group);
-      for (const detail of group) {
-        if (detail.value === null) throw new CatalogError('INVALID_RESPONSE', 'A printing in this set could not be loaded. Please retry.');
-        const card = normalizeCards(detail.value, this.language)[0];
-        if (card.setId !== set.id) throw new CatalogError('INVALID_RESPONSE', 'This printing belongs to a different set.');
-        cards.push(card);
-      }
+    const prices = matching.length ? await this.setPrices(set, matching, query) : { value: [], fromCache: result.fromCache, stale: result.stale };
+    // A large set can evict its own index during hydration. Keep the index and
+    // complete ranking together so pagination and cold offline reopening work.
+    if (matching.length === set.cards.length && result.savedAt !== undefined) {
+      const path = `sets/${encodeURIComponent(set.id)}`;
+      const entry = { value: result.value, savedAt: result.savedAt };
+      this.remember(path, entry);
+      try { await this.persist(path, entry); } catch { /* The in-memory index remains usable. */ }
     }
+    const ids = new Set(matching.map(card => card.id));
+    const ranked = (prices.value as unknown[]).map(raw => priceRepresentative(normalizeCards(raw, this.language)))
+      .filter(card => ids.has(card.catalogIdentity!.id)).sort(compareCardPrices);
+    const cards = ranked.slice((page - 1) * pageSize, page * pageSize);
     return { cards: this.publish(cards), page, total: matching.length, hasMore: page * pageSize < matching.length,
-      set: normalizeSet(result.value), fromCache: resources.some(resource => resource.fromCache), stale: resources.some(resource => resource.stale) };
+      set: normalizeSet(result.value), fromCache: result.fromCache || prices.fromCache, stale: result.stale || prices.stale };
   }
 
   async queryCards(query: CatalogQuery = {}): Promise<CatalogPage> {

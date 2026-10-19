@@ -82,10 +82,17 @@ try {
   const { page, network, context } = main;
   await go(page, '/search');
 
-  await check('all expansions open in an alphabetical logo directory without a random card feed', async () => {
+  await check('all expansions open newest first with logos and no random card feed', async () => {
     await page.getByRole('tab', { name: 'Browse sets', exact: true }).waitFor();
     assert.equal(await page.getByRole('tab', { name: 'Browse sets', exact: true }).getAttribute('aria-selected'), 'true');
     await text(page, `${fixtureSets.length} sets`).waitFor();
+    await text(page, 'Newest first').waitFor();
+    const setButtons = button(page, /^Browse /);
+    assert.deepEqual((await setButtons.evaluateAll(rows => rows.map(row => row.getAttribute('aria-label')))).slice(0, 2), ['Browse 30th Celebration', 'Browse 30th Classic Collection']);
+    const anniversary = page.getByRole('img', { name: '30th Celebration set logo', exact: true });
+    await anniversary.waitFor();
+    await page.waitForFunction(() => [...document.images].some(image => image.src.endsWith('/me/30th/logo.png') && image.complete && image.naturalWidth > 0));
+    await page.getByRole('img', { name: '30th Classic Collection anniversary logo', exact: true }).waitFor();
     assert.equal(await tiles(page).count(), 0);
     assert.equal(await text(page, '24 results').count(), 0);
     const field = page.getByRole('textbox', { name: 'Search Pokémon card sets', exact: true });
@@ -98,7 +105,7 @@ try {
     await text(page, '2 cards').waitFor();
     await page.getByRole('heading', { name: 'Fusion Strike', exact: true }).waitFor();
     const rows = await tiles(page).allTextContents();
-    assert.ok(rows[0].includes('Mew VMAX')); assert.ok(rows[1].includes('Gengar VMAX'));
+    assert.ok(rows[0].includes('Gengar VMAX')); assert.ok(rows[1].includes('Mew VMAX'));
     await page.goBack();
     await field.waitFor(); assert.equal(await field.inputValue(), 'Fusion');
     await field.fill("McDonald's");
@@ -125,18 +132,39 @@ try {
     assert.deepEqual((await stored(page)).items, legacyItems);
   });
 
-  await check('set pages show exact loaded totals and all cards in collector-number order', async () => {
+  await check('set pages show exact loaded totals and paginate the entire set by descending price', async () => {
     await go(page, '/search?setId=base1&setName=Base%20Set');
     await text(page, '24 of 26 cards').waitFor();
     const labels = await tiles(page).evaluateAll(rows => rows.map(row => row.getAttribute('aria-label')));
-    assert.match(labels[0], /^View Alakazam,/); assert.match(labels[1], /^View Blastoise,/);
-    assert.match(labels[2], /^View Chansey,/); assert.match(labels[3], /^View Charizard,/);
+    assert.match(labels[0], /^View Charizard,/); assert.match(labels[1], /^View Dewgong,/);
+    assert.match(labels[2], /^View Charmeleon,/); assert.match(labels[3], /^View Arcanine,/);
+    await text(page, 'Price: high to low · USD / copy').waitFor();
+    const requestsBeforeMore = network.requests.length;
     await button(page, 'Load more cards').click(); await text(page, '26 cards').waitFor();
+    assert.equal(network.requests.length, requestsBeforeMore, 'The cached full-set ranking must paginate without another price crawl.');
+    assert.match((await tiles(page).last().getAttribute('aria-label')), /^View Squirtle,/);
     assert.equal(await tiles(page).count(), 26);
     assert.equal(await button(page, 'Load more cards').count(), 0);
     await go(page, '/search?view=cards');
     await text(page, 'Search across all sets').waitFor();
     assert.equal(await tiles(page).count(), 0);
+  });
+
+  await check('anniversary RGB Mew printings precede commons, and Home shares newest-first expansion order', async () => {
+    await go(page, '/search?setId=30th&setName=30th%20Celebration');
+    await text(page, '5 cards').waitFor();
+    const labels = await tiles(page).evaluateAll(rows => rows.map(row => row.getAttribute('aria-label')));
+    assert.ok(labels.slice(0, 3).every(label => label.startsWith('View Mew,')));
+    const contents = await tiles(page).allTextContents();
+    assert.match(contents[0], /Holo · R/); assert.match(contents[1], /Holo · B/); assert.match(contents[2], /Holo · G/);
+    await go(page, '/');
+    const shelf = page.getByLabel('Pokémon TCG expansions', { exact: true });
+    await shelf.waitFor();
+    const names = await shelf.getByRole('button').evaluateAll(rows => rows.map(row => row.getAttribute('aria-label')));
+    assert.deepEqual(names.slice(0, 2), ['Browse 30th Celebration', 'Browse 30th Classic Collection']);
+    assert.ok(network.requests.some(value => { const url = new URL(value); return url.pathname.endsWith('/sets') && url.searchParams.get('sort:field') === 'releaseDate' && url.searchParams.get('sort:order') === 'DESC'; }));
+    assert.deepEqual((await stored(page)).items, legacyItems);
+    await go(page, '/search?view=cards');
   });
 
   await check('remote name, set-name, collector-number and explicit set filters resolve matching printings', async () => {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { catalogService } from '@/services/catalog';
 
 export function useCatalogSets() {
@@ -12,6 +12,6 @@ export function useCatalogSets() {
       .catch(() => { if (active) setError(true); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [attempt]);
-  const sorted = useMemo(() => [...sets].sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base', numeric: true }) || a.id.localeCompare(b.id)), [sets]);
-  return { sets: sorted, loading, error, retry: () => { setLoading(true); setError(false); setAttempt(previous => previous + 1); } };
+  // The adapter orders by releaseDate before TCGdex strips dates from its brief response.
+  return { sets, loading, error, retry: () => { setLoading(true); setError(false); setAttempt(previous => previous + 1); } };
 }

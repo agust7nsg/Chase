@@ -527,6 +527,8 @@ try {
     await visibleText(previewPage, '$0.00').first().waitFor();
     assert.deepEqual(await stateOf(previewPage), before);
     await tab(previewPage, 'Home').click();
+    await button(previewPage, 'See all').click();
+    await previewPage.getByRole('textbox', { name: 'Search Pokémon card sets', exact: true }).fill('Evolving Skies');
     await button(previewPage, 'Browse Evolving Skies').click();
     await visibleText(previewPage, '3 cards').waitFor();
     assert.equal(await previewPage.getByRole('textbox', { name: catalogSearchLabel }).inputValue(), '');

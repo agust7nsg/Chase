@@ -13,8 +13,10 @@ const setDefinitions = [
   ['swsh12', 'Silver Tempest', 195, 'swsh'], ['sv2', 'Paldea Evolved', 193, 'sv'],
   ['xyp', 'XY Black Star Promos', 211, 'xy'], ['sv6', 'Twilight Masquerade', 167, 'sv'],
   ['mcd11', "McDonald's Collection 2011", 25, 'mcd'],
+  ['30th', '30th Celebration', 128, 'me'], ['30th-c', '30th Classic Collection', 30, 'me'],
 ];
-export const fixtureSets = setDefinitions.map(([id, name, official, prefix]) => ({ id, name, logo: `https://assets.tcgdex.net/en/${prefix}/${id}/logo`, cardCount: { official, total: official } }));
+const releaseDates = { base1: '1999-01-09', base4: '2000-02-24', xy12: '2016-11-02', swsh7: '2021-08-27', swsh8: '2021-11-12', swsh11: '2022-09-09', swsh12: '2022-11-11', sv2: '2023-06-09', xyp: '2014-02-05', sv6: '2024-05-24', mcd11: '2011-06-17', '30th': '2026-09-16', '30th-c': '2026-09-16' };
+export const fixtureSets = setDefinitions.map(([id, name, official, prefix]) => ({ id, name, releaseDate: releaseDates[id], logo: id === '30th-c' ? undefined : `https://assets.tcgdex.net/en/${prefix}/${id}/logo`, cardCount: { official, total: official } }));
 const sets = new Map(fixtureSets.map(set => [set.id, set]));
 const series = new Map(setDefinitions.map(([id, , , prefix]) => [id, prefix]));
 
@@ -34,6 +36,12 @@ function printing(id, name, setId, localId, amount, variants = { normal: false, 
 }
 
 const fixturePrintings = [
+  printing('30th-001', 'Exeggcute', '30th', '001', 0.12),
+  printing('30th-002', 'Exeggutor', '30th', '002', 0.35),
+  printing('30th-R', 'Mew', '30th', 'R', 950),
+  printing('30th-G', 'Mew', '30th', 'G', 870),
+  printing('30th-B', 'Mew', '30th', 'B', 900),
+  printing('30th-c-001', 'Venusaur', '30th-c', '001', 30),
   printing('mcd11-1', 'Bulbasaur', 'mcd11', '1', null, { normal: true, holo: false, reverse: false, firstEdition: false, wPromo: false }, { image: undefined }),
   printing('base1-4', 'Charizard', 'base1', '4', 245),
   printing('xy12-35', 'Pikachu', 'xy12', '35', 1.25,
@@ -68,7 +76,7 @@ const decodeFilter = value => (value ?? '').replace(/^(?:like|eq):/i, '').replac
 /** Every API/image request is intercepted so browser checks never need TCGdex access. */
 export async function installTCGdexFixtures(context) {
   const state = { offline: false, requests: [], failures: [], failNext: null, brokenLogos: false };
-  await context.route('https://assets.tcgdex.net/**', route => state.brokenLogos && route.request().url().includes('/logo.') ? route.abort('failed') : route.fulfill({
+  await context.route('https://assets.tcgdex.net/**', route => (state.brokenLogos && route.request().url().includes('/logo.')) || route.request().url().endsWith('/me/30th/logo.webp') ? route.abort('failed') : route.fulfill({
     contentType: 'image/png',
     headers: { 'access-control-allow-origin': '*' },
     body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5xkAAAAASUVORK5CYII=', 'base64'),
@@ -85,11 +93,13 @@ export async function installTCGdexFixtures(context) {
     const respond = value => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(value) });
     if (path === 'sets') {
       const name = decodeFilter(url.searchParams.get('name'));
-      return respond(fixtureSets.filter(set => !name || set.name.toLowerCase().includes(name)));
+      const result = fixtureSets.filter(set => !name || set.name.toLowerCase().includes(name));
+      if (url.searchParams.get('sort:field') === 'releaseDate' && url.searchParams.get('sort:order') === 'DESC') result.sort((a, b) => b.releaseDate.localeCompare(a.releaseDate));
+      return respond(result.map(({ releaseDate, ...set }) => set));
     }
     if (path.startsWith('sets/')) {
       const set = sets.get(path.slice(5));
-      if (set) return respond({ ...set, releaseDate: '1999-01-09', serie: { id: series.get(set.id), name: 'Fixture series' }, cards: fixturePrintings.filter(card => card.set.id === set.id).map(brief) });
+      if (set) return respond({ ...set, serie: { id: series.get(set.id), name: 'Fixture series' }, cards: fixturePrintings.filter(card => card.set.id === set.id).map(brief) });
     }
     if (path.startsWith('cards/')) {
       const card = fixtureCards.get(path.slice(6));

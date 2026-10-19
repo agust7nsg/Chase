@@ -40,6 +40,7 @@ function SearchContent({ query, setQuery, selectedSet, setSelectedSet, onBrowseS
   const [result, setResult] = useState<{ key: string; page: CatalogPage } | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [progress, setProgress] = useState<{ loaded: number; total: number } | null>(null);
   const [error, setError] = useState<'search' | 'more' | null>(null);
   const [retry, setRetry] = useState(0);
   const generation = useRef(0);
@@ -67,8 +68,10 @@ function SearchContent({ query, setQuery, selectedSet, setSelectedSet, onBrowseS
     moreController.current?.abort();
     if (!enabled) return () => controller.abort();
     const timer = setTimeout(() => {
-      setLoading(true); setLoadingMore(false); setError(null);
-      void catalogService.queryCards({ query: normalizedQuery, setId, page: 1, pageSize: 24, signal: controller.signal }).then((next) => {
+      setLoading(true); setLoadingMore(false); setError(null); setProgress(null);
+      void catalogService.queryCards({ query: normalizedQuery, setId, page: 1, pageSize: 24, signal: controller.signal,
+        onProgress: next => { if (current === generation.current && !controller.signal.aborted) setProgress(next); },
+      }).then((next) => {
         if (current === generation.current && !controller.signal.aborted) setResult({ key: searchKey, page: next });
       }).catch(() => {
         if (current === generation.current && !controller.signal.aborted) setError('search');
@@ -119,7 +122,7 @@ function SearchContent({ query, setQuery, selectedSet, setSelectedSet, onBrowseS
         {enabled ? <View style={uiStyles.between}>
           <View style={{ gap: 3, flex: 1 }} accessibilityLiveRegion="polite">
             <Label style={{ fontWeight: '600' }}>{searching ? 'Searching cards…' : resultCount}</Label>
-            <Label kind="caption" style={uiStyles.muted}>{setId ? 'Number order · ' : ''}{currency} / copy</Label>
+            <Label kind="caption" style={uiStyles.muted}>{searching && progress ? `Loading prices… ${progress.loaded} / ${progress.total}` : `${setId ? 'Price: high to low · ' : ''}${currency} / copy`}</Label>
           </View>
           <View style={styles.layoutControls}>
             <Pressable accessibilityRole="button" accessibilityLabel="Show grid" accessibilityState={{ selected: layout === 'grid' }} aria-pressed={layout === 'grid'} onPress={() => setLayout('grid')} style={[styles.toggle, layout === 'grid' && styles.selected]}><Icon name="grid-outline" color={layout === 'grid' ? colors.primary : colors.muted} size={20} /></Pressable>

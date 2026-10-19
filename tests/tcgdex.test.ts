@@ -188,7 +188,7 @@ test('cache survives a new service, stale search stays explicit, and stale detai
   });
 });
 
-test('set browsing uses the complete expansion index and paginates by actual collector number', async () => {
+test('equal-price set printings use natural collector-number ties and retain exact filters', async () => {
   const cards = ['10', '2', '1', '100', '3', 'TG05'].map(number => raw(`xy12-${number}`, `Pikachu ${number}`, number));
   const source = fixture(cards);
   const service = new TcgDexCatalogService({ fetch: source.fetch });
@@ -266,4 +266,95 @@ test('persistent cache is bounded and corrupt device data is ignored', async () 
   assert.equal(backing.values.size, 3, 'two resources and their bounded index');
   assert.equal(backing.values.has('chase.tcgdex.v1:en:cards/xy12-35'), false);
   assert.equal(source.requests.length, 3);
+});
+
+test('set directory requests release-date descending before the provider projects briefs without dates', async () => {
+  const recent = { id: '30th', name: '30th Celebration' };
+  const classic = { id: '30th-c', name: '30th Classic Collection' };
+  const requests: URL[] = [];
+  const service = new TcgDexCatalogService({ fetch: async input => {
+    const url = new URL(String(input)); requests.push(url);
+    assert.equal(url.pathname, '/v2/en/sets');
+    assert.equal(url.searchParams.get('sort:field'), 'releaseDate');
+    assert.equal(url.searchParams.get('sort:order'), 'DESC');
+    return Response.json([recent, classic, sets[0], sets[1]]);
+  } });
+  assert.deepEqual((await service.listSets()).map(set => set.id), ['30th', '30th-c', 'xy12', 'base1']);
+  await service.listSets();
+  assert.equal(requests.length, 1);
+});
+
+test('full-set price ranking precedes pagination, selects an exact finish, converts currencies and keeps unknown prices last', async () => {
+  const cards = Array.from({ length: 30 }, (_, index) => raw(`xy12-${index + 1}`, `Card ${index + 1}`, String(index + 1)));
+  // Most valuable printing occurs beyond the old first page by collector number.
+  cards[29].name = 'Mew RGB'; cards[29].pricing.tcgplayer['reverse-holofoil'].marketPrice = 950;
+  cards[28].pricing.tcgplayer.normal.marketPrice = 500;
+  const euroOnly = cards[27];
+  (euroOnly.pricing as { tcgplayer?: unknown }).tcgplayer = undefined;
+  euroOnly.pricing.cardmarket.trend = 600; euroOnly.pricing.cardmarket['trend-holo'] = 3;
+  (cards[0] as { pricing?: unknown }).pricing = undefined;
+  cards[1].pricing.tcgplayer.normal.marketPrice = 0; cards[1].pricing.tcgplayer['reverse-holofoil'].marketPrice = 0;
+  cards[1].pricing.cardmarket.trend = 0; cards[1].pricing.cardmarket['trend-holo'] = 0;
+  const source = fixture(cards);
+  const backing = memoryStorage();
+  const progress: number[] = [];
+  const service = new TcgDexCatalogService({ fetch: source.fetch, storage: backing.storage, maxCacheEntries: 3 });
+  const first = await service.queryCards({ setId: 'xy12', pageSize: 24, onProgress: value => progress.push(value.loaded) });
+  assert.equal(first.total, 30); assert.equal(first.hasMore, true);
+  assert.deepEqual(first.cards.slice(0, 3).map(card => card.localId), ['30', '28', '29']);
+  assert.equal(first.cards[0].id, 'tcgdex:en:xy12-30:reverse');
+  assert.equal(first.cards[0].marketPrice?.amount, 950);
+  assert.equal(first.cards[0].marketPrice?.variantId, 'reverse');
+  assert.equal(first.cards[1].marketPrice?.currency, 'EUR');
+  assert.deepEqual(progress, [0, 6, 12, 18, 24, 30]);
+  const before = source.requests.length;
+  const second = await service.queryCards({ setId: 'xy12', page: 2 });
+  assert.equal(source.requests.filter(url => url.pathname.includes('/cards/')).length, 30);
+  assert.ok(source.requests.length <= before + 1, 'Only the evicted set index may need reloading, not all prices.');
+  assert.equal(second.cards.at(-1)?.localId, '1');
+  assert.equal(second.cards.at(-2)?.localId, '2', 'A real zero quote precedes a missing quote.');
+  assert.equal(new Set([...first.cards, ...second.cards].map(card => card.catalogIdentity?.id)).size, 30);
+  source.offline();
+  const restarted = new TcgDexCatalogService({ fetch: source.fetch, storage: backing.storage, maxCacheEntries: 3 });
+  const restored = await restarted.queryCards({ setId: 'xy12' });
+  assert.deepEqual(restored.cards.map(card => card.id), first.cards.map(card => card.id));
+  assert.equal(restored.fromCache, true);
+});
+
+test('set price loading is bounded and cancellation stops future batches without publishing a partial order', async () => {
+  const source = fixture(Array.from({ length: 20 }, (_, index) => raw(`xy12-${index}`, `Card ${index}`, String(index))));
+  let concurrent = 0; let peak = 0;
+  const controller = new AbortController();
+  const published: Card[] = [];
+  const service = new TcgDexCatalogService({ onCards: cards => published.push(...cards), fetch: async input => {
+    if (!String(input).includes('/cards/')) return source.fetch(input);
+    concurrent++; peak = Math.max(peak, concurrent);
+    const response = await source.fetch(input); await new Promise(resolve => setTimeout(resolve, 2)); concurrent--; return response;
+  } });
+  await assert.rejects(service.queryCards({ setId: 'xy12', signal: controller.signal,
+    onProgress: progress => { if (progress.loaded >= 6) controller.abort(); },
+  }), error => error instanceof CatalogError && error.code === 'ABORTED');
+  assert.equal(peak, 6);
+  assert.equal(source.requests.filter(url => url.pathname.includes('/cards/')).length, 6);
+  assert.deepEqual(published, []);
+  const retry = await service.queryCards({ setId: 'xy12' });
+  assert.equal(retry.total, 20);
+  assert.equal(source.requests.filter(url => url.pathname.includes('/cards/')).length, 20, 'Retry reuses completed cached cards.');
+});
+
+test('a failed full-set lookup is recoverable and a stale complete ranking stays explicitly stale offline', async () => {
+  const source = fixture([raw(), raw('xy12-36', 'Raichu', '36')]);
+  let fail = true;
+  const service = new TcgDexCatalogService({ fetch: input => fail && String(input).endsWith('/cards/xy12-36')
+    ? Promise.reject(new TypeError('offline')) : source.fetch(input) });
+  await assert.rejects(service.queryCards({ setId: 'xy12' }), error => error instanceof CatalogError && error.code === 'NETWORK');
+  fail = false;
+  assert.equal((await service.queryCards({ setId: 'xy12' })).cards.length, 2);
+  const backing = memoryStorage(); let now = 1000;
+  const options = { fetch: source.fetch, storage: backing.storage, now: () => now, cacheTtlMs: 10, maxCacheEntries: 2 };
+  const initial = await new TcgDexCatalogService(options).queryCards({ setId: 'xy12' });
+  now += 20; source.offline();
+  const offline = await new TcgDexCatalogService(options).queryCards({ setId: 'xy12' });
+  assert.equal(offline.stale, true);
+  assert.deepEqual(offline.cards.map(card => card.id), initial.cards.map(card => card.id));
 });
