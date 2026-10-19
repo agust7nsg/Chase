@@ -21,7 +21,7 @@ export function appendRecognition(session: ScanSession, card: Card, id: string, 
   if (existing && !Number.isSafeInteger(existing.quantity + 1)) throw new Error('Quantity is too large.');
   const items = existing
     ? session.items.map(item => item.id === existing.id ? { ...item, quantity: item.quantity + 1, operationId: id, confidence: score ?? item.confidence, ...(snapshot ? { card: snapshot } : {}) } : item)
-    : [...session.items, { id, operationId: id, cardId: card.id, name: card.name, imageKey: card.imageKey, setName: card.setName, collectorNumber: card.collectorNumber, variant: card.variant, quantity: 1, identifiedAt: date, ambiguity, confidence: score, priceState: 'loading' as const, price: null, ...(snapshot ? { card: snapshot } : {}) }];
+    : [...session.items, { id, operationId: id, cardId: card.id, name: card.name, imageKey: card.imageKey, setName: card.setName, collectorNumber: card.collectorNumber, variant: card.variant, quantity: 1, identifiedAt: date, ambiguity, confidence: score, priceState: ambiguity === 'review' ? 'unavailable' as const : 'loading' as const, price: null, ...(snapshot ? { card: snapshot } : {}) }];
   return { ...session, items, freeRecognitionUsed: session.freeRecognitionUsed || isFree };
 }
 export function editSessionQuantity(session: ScanSession, id: string, quantity: number, operationId: string): ScanSession {
@@ -52,11 +52,11 @@ export function updateSessionPrice(session: ScanSession, cardId: string, price: 
     && (price.variantId === undefined || price.variantId === card?.catalogIdentity?.variant || price.variantId === cardId);
   const nextPrice = valid ? price : null;
   if (!session.items.some(item => item.cardId === cardId && (item.priceState === 'loading' || JSON.stringify(item.price) !== JSON.stringify(nextPrice) || (!valid && item.priceState !== 'unavailable')))) return session;
-  return { ...session, items: session.items.map(item => item.cardId === cardId ? { ...item, priceState: valid ? 'available' : 'unavailable', price: nextPrice, ...(item.card ? { card: { ...item.card, marketPrice: nextPrice } } : {}) } : item) };
+  return { ...session, items: session.items.map(item => item.cardId === cardId && item.ambiguity === 'confirmed' ? { ...item, priceState: valid ? 'available' : 'unavailable', price: nextPrice, ...(item.card ? { card: { ...item.card, marketPrice: nextPrice } } : {}) } : item) };
 }
 export function sessionSummary(session: ScanSession) {
   return session.items.reduce((sum, item) => {
-    const usd = item.priceState === 'available' ? priceToUsd(item.price) : null;
+    const usd = item.ambiguity === 'confirmed' && item.priceState === 'available' ? priceToUsd(item.price) : null;
     return { copies: sum.copies + item.quantity, value: sum.value + (usd !== null ? Math.round(usd * 100) * item.quantity / 100 : 0), unpriced: sum.unpriced + (usd === null ? item.quantity : 0) };
   }, { copies: 0, value: 0, unpriced: 0 });
 }
@@ -108,7 +108,7 @@ export function restoreScanSession(value: unknown, fallbackId: string): ScanSess
     if (!Number.isSafeInteger(total)) throw new Error('Pending quantity needs recovery.');
     ids.add(row.id);
     operations.add(row.operationId);
-    items.push({ ...row, cardId: card.id, name: card.name, setName: card.setName, collectorNumber: card.collectorNumber, imageKey: card.imageKey, variant: card.variant, ambiguity: row.ambiguity === 'review' ? 'review' : 'confirmed', priceState: 'loading', price: null, ...(snapshot ? { card: snapshot } : {}) });
+    items.push({ ...row, cardId: card.id, name: card.name, setName: card.setName, collectorNumber: card.collectorNumber, imageKey: card.imageKey, variant: card.variant, ambiguity: row.ambiguity === 'review' ? 'review' : 'confirmed', priceState: row.ambiguity === 'review' ? 'unavailable' : 'loading', price: null, ...(snapshot ? { card: snapshot } : {}) });
   }
   return { version: 1, id: data.id || fallbackId, items, freeRecognitionUsed: data.freeRecognitionUsed === true };
 }

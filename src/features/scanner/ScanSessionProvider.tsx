@@ -6,17 +6,20 @@ import { useChase } from '@/features/app/ChaseProvider';
 import { appendRecognition, createScanSession, editSessionQuantity, editSessionVariant, sessionSummary, updateSessionPrice } from '@/services/scanSession';
 import { ScanSessionStore } from '@/services/scanSessionStore';
 import type { CardFrame } from '@/services/contracts';
-import type { MarketPrice } from '@/types/domain';
+import type { Card, MarketPrice } from '@/types/domain';
 import type { ScanSession } from '@/types/scanner';
+import { CardSightRecognitionService } from '@/services/cardsight/client';
+import { liveScannerConfig } from '@/services/cardsight/config';
 
 let sequence = 0;
 const uniqueId = () => `scan-${Date.now().toString(36)}-${(++sequence).toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 type DemoOptions = { fail: boolean; missingPrice: boolean; ambiguous: boolean };
+export type IdentifyMode = { mode: 'live'; chooseCandidate?: (cards: Card[], signal?: AbortSignal) => Promise<Card> };
 type SessionContext = {
   session: ScanSession; summary: ReturnType<typeof sessionSummary>; ready: boolean; loadError: string | null;
   error: string | null; busy: boolean; allowed: boolean; options: DemoOptions;
   setOptions: (options: DemoOptions) => void; retryLoad: () => void;
-  identify: (frame: CardFrame, signal: AbortSignal) => Promise<string>;
+  identify: (frame: CardFrame, signal: AbortSignal, source?: IdentifyMode) => Promise<string>;
   quantity: (id: string, quantity: number) => Promise<void>; variant: (id: string, cardId: string) => Promise<void>;
   remove: (id: string) => Promise<void>; discard: () => Promise<void>; retryPrices: () => void;
   save: (ids: string[]) => Promise<{ saved: number; messages: string[] }>;
@@ -40,6 +43,7 @@ export function ScanSessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => { optionsRef.current = options; }, [options]);
   const [store] = useState(() => new ScanSessionStore(AsyncStorage, uniqueId, setSession));
   const prices = useRef(new Map<string, Promise<MarketPrice | null>>());
+  const liveRecognition = useRef<CardSightRecognitionService | null>(null);
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const load = async () => {
@@ -85,14 +89,18 @@ export function ScanSessionProvider({ children }: { children: ReactNode }) {
     }); }
     catch (cause) { const message = cause instanceof Error ? cause.message : 'Pending changes could not be saved.'; setError(message); throw cause; }
   };
-  const identify = async (frame: CardFrame, signal: AbortSignal) => {
+  const identify = async (frame: CardFrame, signal: AbortSignal, source?: IdentifyMode) => {
     if (identifying.current) throw new Error('Recognition is already in progress.');
     if (!ready || busyRef.current) throw new Error('Pending scans are not ready.');
     const current = chaseRef.current;
     if (!canScan(current.state) || (current.state.plan === 'free' && store.session.freeRecognitionUsed)) throw new Error('Your free scan has been used. Explore Chase Pro to continue.');
     identifying.current = true;
     try {
-      const result = await recognitionService.recognize({ cardId: frame.cardId, simulateFailure: optionsRef.current.fail, signal });
+      if (source?.mode === 'live' && (!liveScannerConfig || !frame.image)) throw new Error('Connect the development scanner server before using CardSight.');
+      if (source?.mode === 'live' && !liveRecognition.current) liveRecognition.current = new CardSightRecognitionService({ ...liveScannerConfig!, catalog: catalogService });
+      const result = source?.mode === 'live'
+        ? await liveRecognition.current!.recognize({ image: frame.image, signal, chooseCandidate: source.chooseCandidate })
+        : await recognitionService.recognize({ cardId: frame.cardId, simulateFailure: optionsRef.current.fail, signal });
       const card = result.catalogIdentity ? await catalogService.getCard(result.id) : getLegacyCard(result.id);
       if (signal.aborted) throw new Error('Recognition canceled.');
       if (!card) throw new Error('Printing not found. Try again.');
@@ -100,12 +108,13 @@ export function ScanSessionProvider({ children }: { children: ReactNode }) {
       if (!canScan(chaseRef.current.state) || (chaseRef.current.state.plan === 'free' && store.session.freeRecognitionUsed)) throw new Error('Your free scan has been used.');
       const isFree = chaseRef.current.state.plan === 'free';
       await store.update(value => {
+        if (signal.aborted) throw new Error('Recognition canceled.');
         const receipts = new Set(chaseRef.current.state.savedScanOperations ?? []);
         const pending = { ...value, items: value.items.filter(item => !receipts.has(item.operationId)) };
-        return appendRecognition(pending, card, uniqueId(), new Date().toISOString(), isFree, optionsRef.current.ambiguous ? 'review' : result.ambiguity ?? 'confirmed', result.confidence);
+        return appendRecognition(pending, card, uniqueId(), new Date().toISOString(), isFree, source?.mode !== 'live' && optionsRef.current.ambiguous ? 'review' : result.ambiguity ?? 'confirmed', result.confidence);
       });
       chaseRef.current.recordRecognition(isFree);
-      resolvePrice(card.id, optionsRef.current.missingPrice);
+      if (result.ambiguity !== 'review' && !(source?.mode !== 'live' && optionsRef.current.ambiguous)) resolvePrice(card.id, source?.mode === 'live' ? false : optionsRef.current.missingPrice);
       return card.id;
     } finally { identifying.current = false; }
   };
@@ -131,7 +140,7 @@ export function ScanSessionProvider({ children }: { children: ReactNode }) {
     variant: async (id, cardId) => { await mutate(current => editSessionVariant(current, id, cardId, uniqueId())); resolvePrice(cardId, optionsRef.current.missingPrice); },
     remove: id => mutate(current => ({ ...current, items: current.items.filter(item => item.id !== id) })),
     discard: () => mutate(current => ({ ...current, items: [] })),
-    retryPrices: () => { prices.current.clear(); [...new Set(store.session.items.map(item => item.cardId))].forEach(id => resolvePrice(id, false)); }, save,
+    retryPrices: () => { prices.current.clear(); [...new Set(store.session.items.filter(item => item.ambiguity === 'confirmed').map(item => item.cardId))].forEach(id => resolvePrice(id, false)); }, save,
   }}>{children}</Context.Provider>;
 }
 export function useScanSession() { const context = useContext(Context); if (!context) throw new Error('ScanSessionProvider is missing.'); return context; }

@@ -16,6 +16,15 @@ export interface RecognitionOptions {
   simulateFailure?: boolean;
   cardId?: string;
   signal?: AbortSignal;
+  image?: RecognitionImage;
+}
+
+/** Ephemeral camera input. Never persisted with a ScanSession or Collection row. */
+export interface RecognitionImage {
+  base64: string;
+  mimeType: 'image/jpeg';
+  width: number;
+  height: number;
 }
 
 export interface RecognitionResult extends Card {
@@ -35,6 +44,7 @@ export interface CardFrame {
   fingerprint: string;
   cardId?: string;
   timestamp: number;
+  image?: RecognitionImage;
 }
 
 export interface CardFrameSource {

@@ -25,6 +25,7 @@ export class ScannerController {
   resume() { this.active = true; this.candidate = null; this.absentSince = null; if (this.status.phase !== 'ERROR') this.publish(this.acceptedFingerprint ? 'WAITING_FOR_CARD_CHANGE' : 'SEARCHING'); }
   pause() { this.active = false; this.generation++; this.flight?.abort(); this.candidate = null; if (this.status.phase === 'IDENTIFYING') this.publish('SEARCHING', null); }
   dispose() { this.pause(); }
+  tick(now: number) { if (this.active && this.status.phase === 'RESULT_READY' && now >= this.resultUntil) this.publish('WAITING_FOR_CARD_CHANGE'); }
   retry() { if (this.flight) return; this.candidate = null; this.acceptedFingerprint = null; this.publish('SEARCHING', null); }
   observe(frame: CardFrame | null, now: number) {
     if (!this.active) return;

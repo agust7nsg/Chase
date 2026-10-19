@@ -1,0 +1,204 @@
+import type { CardFrame } from './contracts';
+
+/** A small, oriented RGBA crop around the alignment guide, including its surroundings. */
+export interface CardPixelInput {
+  width: number;
+  height: number;
+  data: Uint8Array | Uint8ClampedArray;
+}
+
+export interface CardPixelObservation {
+  presence: 'card' | 'empty' | 'uncertain';
+  quality: 'ready' | 'blurred' | 'uncertain';
+  /** Normalized spatial colour/contrast descriptor; never an image-byte hash. */
+  signature: number[] | null;
+  boundary: number;
+  detail: number;
+  contrast: number;
+}
+
+const invalidObservation = (): CardPixelObservation => ({
+  presence: 'uncertain', quality: 'uncertain', signature: null, boundary: 0, detail: 0, contrast: 0,
+});
+
+/**
+ * Conservative local heuristics, not a trained detector or recognition confidence.
+ * The card should occupy approximately x=.09–.91/y=.06–.94 of the crop; keep a
+ * visible ring of surroundings. A border search tolerates nearby insets. These
+ * thresholds require physical-device tuning for sleeves, glare and backgrounds.
+ * A textured/ambiguous scene is deliberately uncertain rather than proof of removal.
+ */
+export function analyzeCardPixels(input: CardPixelInput): CardPixelObservation {
+  const { width, height, data } = input;
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 24 || height < 32
+    || width > 512 || height > 704 || !data || data.length < width * height * 4) return invalidObservation();
+  const luminance = (x: number, y: number) => {
+    const p = (y * width + x) * 4;
+    return data[p] * 0.299 + data[p + 1] * 0.587 + data[p + 2] * 0.114;
+  };
+  const left = Math.round(width * 0.18);
+  const right = Math.round(width * 0.82);
+  const top = Math.round(height * 0.14);
+  const bottom = Math.round(height * 0.86);
+  let sum = 0;
+  let squares = 0;
+  let laplacian = 0;
+  let samples = 0;
+  for (let y = top; y < bottom; y++) for (let x = left; x < right; x++) {
+    const value = luminance(x, y);
+    sum += value;
+    squares += value * value;
+    laplacian += Math.abs(4 * value - luminance(x - 1, y) - luminance(x + 1, y) - luminance(x, y - 1) - luminance(x, y + 1));
+    samples++;
+  }
+  const mean = sum / samples;
+  const contrast = Math.sqrt(Math.max(0, squares / samples - mean * mean));
+  const detail = laplacian / samples;
+
+  // Signed differences along a complete boundary reject random texture more
+  // reliably than counting arbitrary high-contrast pixels in a camera image.
+  const line = (vertical: boolean, position: number): number => {
+    const differences = [0, 0, 0];
+    const limit = vertical ? height : width;
+    const inset = Math.round(limit * 0.19);
+    let count = 0;
+    for (let t = inset; t < limit - inset; t++) {
+      const a = vertical ? (t * width + position - 2) * 4 : ((position - 2) * width + t) * 4;
+      const b = vertical ? (t * width + position + 2) * 4 : ((position + 2) * width + t) * 4;
+      for (let channel = 0; channel < 3; channel++) differences[channel] += data[b + channel] - data[a + channel];
+      count++;
+    }
+    return differences.reduce((total, value) => total + Math.abs(value / count), 0) / 3;
+  };
+  let vertical = 0;
+  let horizontal = 0;
+  for (let inset = 0.05; inset <= 0.181; inset += 0.015) {
+    const a = Math.max(2, Math.round(width * inset));
+    const b = Math.min(width - 3, width - 1 - a);
+    vertical = Math.max(vertical, Math.min(line(true, a), line(true, b)));
+  }
+  for (let inset = 0.03; inset <= 0.141; inset += 0.012) {
+    const a = Math.max(2, Math.round(height * inset));
+    const b = Math.min(height - 3, height - 1 - a);
+    horizontal = Math.max(horizontal, Math.min(line(false, a), line(false, b)));
+  }
+  const boundary = Math.min(vertical, horizontal);
+  const empty = boundary < 8 && contrast < 12 && detail < 5;
+  if (empty) return { presence: 'empty', quality: 'uncertain', signature: null, boundary, detail, contrast };
+  const present = boundary >= 13 && contrast >= 13;
+  const quality = detail >= 3 ? 'ready' : 'blurred';
+  if (!present) return { presence: 'uncertain', quality, signature: null, boundary, detail, contrast };
+  if (quality !== 'ready') return { presence: 'card', quality, signature: null, boundary, detail, contrast };
+
+  // Cell averages tolerate small translations, sensor noise and JPEG artefacts.
+  // Luminance is centered and contrast-normalized; chroma retains card/art colour
+  // differences while a neutral exposure shift does not change the signature.
+  const signature: number[] = [];
+  const scale = Math.max(24, contrast);
+  for (let row = 0; row < 10; row++) for (let column = 0; column < 8; column++) {
+    const x0 = left + Math.floor((right - left) * column / 8);
+    const x1 = left + Math.floor((right - left) * (column + 1) / 8);
+    const y0 = top + Math.floor((bottom - top) * row / 10);
+    const y1 = top + Math.floor((bottom - top) * (row + 1) / 10);
+    const rgb = [0, 0, 0];
+    let count = 0;
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+      const p = (y * width + x) * 4;
+      rgb[0] += data[p]; rgb[1] += data[p + 1]; rgb[2] += data[p + 2]; count++;
+    }
+    const [r, g, b] = rgb.map(value => value / count);
+    signature.push((r * 0.299 + g * 0.587 + b * 0.114 - mean) / scale, (r - g) / 128, (b - g) / 128);
+  }
+  return { presence: 'card', quality: 'ready', signature, boundary, detail, contrast };
+}
+
+export function cardSignatureDistance(a: readonly number[], b: readonly number[]): number {
+  if (!a.length || a.length !== b.length) return Infinity;
+  let difference = 0;
+  for (let index = 0; index < a.length; index++) {
+    if (!Number.isFinite(a[index]) || !Number.isFinite(b[index])) return Infinity;
+    difference += Math.abs(a[index] - b[index]);
+  }
+  return difference / a.length;
+}
+
+export interface LiveCardTrackerOptions {
+  stableMs?: number;
+  absenceMs?: number;
+  maxObservationGapMs?: number;
+  sameThreshold?: number;
+  changeThreshold?: number;
+  tokenPrefix?: string;
+}
+
+/**
+ * Turns similar images into one physical-presentation token. `undefined` means
+ * skip the controller observation; `null` means positively confirmed absence.
+ * Capture failures/blur never rearm an accepted presentation. A deliberate local
+ * reset is available, but navigation should call resetCandidates() instead.
+ */
+export class LiveCardPresentationTracker {
+  private accepted: { signature: number[]; fingerprint: string } | null = null;
+  private candidate: { signature: number[]; since: number; samples: number } | null = null;
+  private absentSince: number | null = null;
+  private absentSamples = 0;
+  private lastObservationAt: number | null = null;
+  private sequence = 0;
+  private readonly options: Required<LiveCardTrackerOptions>;
+
+  constructor(options: LiveCardTrackerOptions = {}) {
+    this.options = { stableMs: 650, absenceMs: 500, maxObservationGapMs: 2200,
+      sameThreshold: 0.16, changeThreshold: 0.30, tokenPrefix: 'camera', ...options };
+  }
+
+  resetCandidates(): void {
+    this.candidate = null;
+    this.absentSince = null;
+    this.absentSamples = 0;
+    this.lastObservationAt = null;
+  }
+
+  reset(): void { this.resetCandidates(); this.accepted = null; }
+
+  observe(observation: CardPixelObservation | null, now: number): CardFrame | null | undefined {
+    if (!Number.isFinite(now)) return undefined;
+    if (observation === null) { this.resetCandidates(); return undefined; }
+    if (this.lastObservationAt !== null && (now < this.lastObservationAt || now - this.lastObservationAt > this.options.maxObservationGapMs)) this.resetCandidates();
+    this.lastObservationAt = now;
+    if (observation.presence === 'empty') {
+      this.candidate = null;
+      this.absentSince ??= now;
+      this.absentSamples++;
+      if (this.absentSamples >= 2 && now - this.absentSince >= this.options.absenceMs) {
+        this.accepted = null;
+        return null;
+      }
+      return undefined;
+    }
+    this.absentSince = null;
+    this.absentSamples = 0;
+    const signature = observation.signature;
+    if (observation.presence !== 'card' || observation.quality !== 'ready' || !signature?.length
+      || signature.some(value => !Number.isFinite(value))) { this.candidate = null; return undefined; }
+    if (this.accepted) {
+      const distance = cardSignatureDistance(this.accepted.signature, signature);
+      if (distance <= this.options.sameThreshold) {
+        this.candidate = null;
+        return { fingerprint: this.accepted.fingerprint, timestamp: now };
+      }
+      // A medium difference may be a tilt, sleeve reflection or framing change.
+      // Keep the lock rather than confidently treating it as another card.
+      if (distance < this.options.changeThreshold) { this.candidate = null; return undefined; }
+    }
+    if (!this.candidate || cardSignatureDistance(this.candidate.signature, signature) > this.options.sameThreshold) {
+      this.candidate = { signature: [...signature], since: now, samples: 1 };
+      return undefined;
+    }
+    const candidate = this.candidate;
+    candidate.samples++;
+    if (candidate.samples < 2 || now - candidate.since < this.options.stableMs) return undefined;
+    this.accepted = { signature: [...signature], fingerprint: `${this.options.tokenPrefix}-${++this.sequence}` };
+    this.candidate = null;
+    return { fingerprint: this.accepted.fingerprint, timestamp: now };
+  }
+}

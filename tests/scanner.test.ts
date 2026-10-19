@@ -201,3 +201,17 @@ test('cancelable deterministic recognition returns selected printings without sp
   assert.equal((await service.recognize({ cardId: 'sv6-214' })).id, 'sv6-214');
   assert.equal(initialState.trial.successfulRecognitions, 0);
 });
+
+test('an unresolved finish stays unpriced until explicit variant confirmation', () => {
+  const card = getLegacyCard('xy12-35')!;
+  let session = appendRecognition(createScanSession('finish-review'), card, 'review-row', '2026-10-19T00:00:00.000Z', false, 'review');
+  assert.equal(session.items[0].priceState, 'unavailable');
+  session = updateSessionPrice(session, card.id, card.marketPrice);
+  assert.equal(session.items[0].price, null);
+  assert.equal(sessionSummary(session).value, 0);
+  assert.equal(sessionSummary(session).unpriced, 1);
+  session = editSessionVariant(session, 'review-row', card.id, 'confirmed-row');
+  session = updateSessionPrice(session, card.id, card.marketPrice);
+  assert.equal(session.items[0].ambiguity, 'confirmed');
+  assert.equal(sessionSummary(session).unpriced, 0);
+});

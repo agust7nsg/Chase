@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { router, useFocusEffect, useIsFocused, useLocalSearchParams } from 'expo-router';
-import { AccessibilityInfo, ActivityIndicator, Animated, AppState, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
+import { ActivityIndicator, AppState, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Button, Icon, Label, uiStyles } from '@/components/ui';
@@ -11,10 +11,17 @@ import { ScannerController } from '@/services/scannerController';
 import { MockCardFrameSource } from '@/services/mockCardFrames';
 import { useScanSession } from './ScanSessionProvider';
 import { ScannerCamera } from './ScannerCamera';
-import { useCurrency } from '@/features/currency/CurrencyProvider';
-import type { ScannerStatus, ScanSessionItem } from '@/types/scanner';
+import { RecognitionOverlay } from './RecognitionOverlay';
+import { LiveScannerScreen } from './LiveScannerScreen';
+import { liveScannerConfig } from '@/services/cardsight/config';
+import type { ScannerStatus } from '@/types/scanner';
 
 export default function ScannerScreen() {
+  const [mode, setMode] = useState<'demo' | 'live'>(liveScannerConfig ? 'live' : 'demo');
+  return mode === 'live' ? <LiveScannerScreen onDemo={() => setMode('demo')} /> : <DemoScannerScreen onLive={() => setMode('live')} />;
+}
+
+function DemoScannerScreen({ onLive }: { onLive: () => void }) {
   const scan = useScanSession();
   const focused = useIsFocused();
   const { onboarding } = useLocalSearchParams<{ onboarding?: string }>();
@@ -46,6 +53,7 @@ export default function ScannerScreen() {
     <View style={styles.header}>
       <Pressable accessibilityRole="button" accessibilityLabel="Close scanner, keep pending cards" onPress={exit} style={styles.iconButton}><Icon name="close" color={colors.white} size={26} /></Pressable>
       <Label style={styles.headerTitle}>Scanner</Label>
+      <Pressable accessibilityRole="button" accessibilityLabel="Use real card scanner" onPress={onLive} style={styles.iconButton}><Icon name="camera-outline" color={colors.scannerFrame} /></Pressable>
       <View style={styles.demoBadge}><Label kind="caption" style={{ color: colors.scannerMuted }}>Demo recognition</Label></View>
     </View>
     <View style={styles.camera}>
@@ -83,21 +91,6 @@ export default function ScannerScreen() {
     </ScrollView>
     <View style={styles.bottom}><Button title={`Organize (${scan.summary.copies})`} icon="albums-outline" disabled={!scan.ready} onPress={() => router.push({ pathname: '/organize', params: { onboarding } })} /></View>
   </SafeAreaView>;
-}
-function RecognitionOverlay({ item, count }: { item: ScanSessionItem; count: number }) {
-  const { formatMoney } = useCurrency();
-  const [opacity] = useState(() => new Animated.Value(0));
-  useEffect(() => {
-    let active = true;
-    void AccessibilityInfo.isReduceMotionEnabled().then(reduce => { if (active) Animated.timing(opacity, { toValue: 1, duration: reduce ? 0 : 180, useNativeDriver: true }).start(); });
-    return () => { active = false; opacity.stopAnimation(); };
-  }, [opacity]);
-  const card = getCatalogCard(item.cardId)!;
-  return <Animated.View style={[styles.result, { opacity }]} accessibilityLiveRegion="polite" accessible accessibilityLabel={`${item.name}. ${count} pending cards. ${item.priceState === 'available' && item.price ? formatMoney(item.price.amount, item.price.currency) : item.priceState === 'loading' ? 'Price loading' : 'Price unavailable'}`}>
-    <CardPrint card={card} style={{ width: 42 }} />
-    <View style={{ flex: 1, gap: 2 }}><Label style={{ fontWeight: '700' }}>{item.name}</Label><Label kind="caption" style={{ color: colors.muted }}>{item.setName} · {item.collectorNumber}</Label><Label kind="caption" style={{ color: colors.primary }}>{item.ambiguity === 'review' ? 'Review variant in Organize' : 'Added to session'}</Label></View>
-    <Label style={{ fontWeight: '700', flexShrink: 1 }}>{item.priceState === 'available' && item.price ? formatMoney(item.price.amount, item.price.currency) : item.priceState === 'loading' ? 'Loading…' : 'Price unavailable'}</Label>
-  </Animated.View>;
 }
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.scanner },
