@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { networkInterfaces } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { createScannerProxy, SCANNER_MAX_BODY_BYTES } from './cardsightProxy';
+import { cardSightTransport } from './cardsightTransport';
 
 type Handler = (request: Request) => Promise<Response>;
 
@@ -79,6 +80,7 @@ export function startScannerProxy() {
   const devToken = process.env.SCANNER_DEV_TOKEN || randomBytes(32).toString('base64url');
   const handler = createScannerProxy({
     apiKey: process.env.CARDSIGHT_API_KEY,
+    transport: cardSightTransport,
     devToken,
     minIntervalMs: envNumber(process.env.SCANNER_MIN_INTERVAL_MS),
     maxRunRequests: envNumber(process.env.SCANNER_MAX_RUN_REQUESTS),
@@ -100,7 +102,7 @@ export function startScannerProxy() {
     }
     console.info(`Local pairing token (expires after 2 hours by default): ${devToken}`);
     console.info('Use that local token in EXPO_PUBLIC_SCANNER_TOKEN. Never use the CardSight API key there.');
-    console.info('CardSight recognition is DISABLED until the official API contract and provider adapter are verified.');
+    console.info('CardSight transport: POST /v1/identify/card. Health checks local configuration, not provider authentication.');
     if (!process.env.CARDSIGHT_API_KEY) console.info('CARDSIGHT_API_KEY is missing; recognition remains disabled.');
   });
   const shutdown = () => { server.close(); server.closeIdleConnections(); };

@@ -12,11 +12,15 @@ interface ClientOptions {
 }
 
 const messages: Record<string, string> = {
-  provider_contract_pending: 'CardSight connection is waiting for the verified API contract. Demo scanning remains available.',
+  provider_contract_pending: 'Update and restart the local scanner server to enable CardSight.',
+  provider_adapter_missing: 'The local scanner server needs its CardSight adapter configured.',
   not_configured: 'The development scanner proxy is not configured.',
   unauthorized: 'The development scanner token is invalid. Check the proxy configuration.',
   token_expired: 'The development scanner token expired. Restart the proxy and update its token.',
   provider_response: 'The recognition service returned an unsupported response. Retry or use manual search.',
+  multiple_cards: 'Present one card at a time and retry.',
+  provider_rejected: 'CardSight could not read this photo. Adjust the card and retry.',
+  provider_auth: 'The CardSight key needs attention on the local server.',
   run_limit: 'This development proxy reached its scan limit. Restart it only after reviewing usage.',
 };
 

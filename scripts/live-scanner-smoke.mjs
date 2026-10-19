@@ -81,9 +81,9 @@ const pending = page => stored(page, 'chase.scan-session.v1');
 const collection = page => stored(page, 'chase.prototype.v1');
 const copies = value => (value?.items ?? []).reduce((sum, item) => sum + item.quantity, 0);
 const check = async (name, action) => { await action(); console.log(`PASS ${++passed}: ${name}`); };
-const charizard = { providerId: 'fixture-charizard', name: 'Charizard', setName: 'Base Set', collectorNumber: '4/102', language: 'en', finish: 'holo', confidence: 0.98, tcgdexId: 'base1-4' };
-const pikachu = { providerId: 'fixture-pikachu', name: 'Pikachu', setName: 'Evolutions', collectorNumber: '35/108', language: 'en', finish: 'unknown', confidence: 0.98, tcgdexId: 'xy12-35' };
-const greninja = { providerId: 'fixture-greninja', name: 'Greninja ex', setName: 'Twilight Masquerade', collectorNumber: '214/167', language: 'en', finish: 'holo', confidence: 0.98, tcgdexId: 'sv6-214' };
+const charizard = { providerId: 'fixture-charizard', name: 'Charizard', setName: 'Base Set', collectorNumber: '4/102', language: 'en', finish: 'holo', confidenceTier: 'High', tcgdexId: 'base1-4' };
+const pikachu = { providerId: 'fixture-pikachu', name: 'Pikachu', setName: 'Evolutions', collectorNumber: '35/108', language: 'en', finish: 'unknown', confidenceTier: 'High', tcgdexId: 'xy12-35' };
+const greninja = { providerId: 'fixture-greninja', name: 'Greninja ex', setName: 'Twilight Masquerade', collectorNumber: '214/167', language: 'en', finish: 'holo', confidenceTier: 'High', tcgdexId: 'sv6-214' };
 
 async function fixture({ candidates = [charizard], plan = 'pro', permission = true, fail = false, ready = true } = {}) {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
@@ -266,6 +266,22 @@ try {
     assert.equal(new URL(page.url()).pathname, '/scanner');
   });
   await ambiguous.context.close();
+
+  for (const [reason, changes] of [['missing language', { language: 'und' }], ['Medium confidence tier', { confidenceTier: 'Medium' }]]) {
+    const uncertain = await fixture({ candidates: [{ ...charizard, ...changes }] });
+    await check(`${reason} requires English printing confirmation before staging`, async () => {
+      const { page } = uncertain;
+      await enable(page);
+      await page.getByText('Confirm the English printing.', { exact: true }).waitFor();
+      assert.equal(copies(await pending(page)), 0);
+      await button(page, 'Choose Charizard, Base Set, 4/102').click();
+      await button(page, 'Organize (1)').waitFor();
+      assert.equal((await pending(page)).items[0].ambiguity, 'confirmed');
+      assert.equal((await pending(page)).items[0].confidence, undefined, 'No invented exact probability.');
+      assert.equal(new URL(page.url()).pathname, '/scanner');
+    });
+    await uncertain.context.close();
+  }
 
   const denied = await fixture({ permission: false });
   await check('permission denial remains recoverable and the explicit demo makes no proxy requests', async () => {

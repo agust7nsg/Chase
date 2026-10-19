@@ -3,10 +3,14 @@ export interface CardSightCandidate {
   providerId: string;
   name: string;
   setName: string;
+  /** Exact vendor set/release names, never guessed expansion aliases. */
+  setNames?: string[];
   collectorNumber: string;
-  language: string;
+  language: string; // ISO language or und (vendor did not verify a language).
   finish?: 'normal' | 'holo' | 'reverse' | 'unknown';
   confidence?: number;
+  /** Vendor evidence tier; never converted to an invented exact probability. */
+  confidenceTier?: 'High' | 'Medium' | 'Low';
   tcgdexId?: string;
 }
 
@@ -22,12 +26,16 @@ export function parseCardSightRecognitionResponse(value: unknown): CardSightReco
   const candidates: CardSightCandidate[] = [];
   for (const item of value.candidates) {
     if (!record(item) || !text(item.providerId, 256) || !text(item.name, 200) || !text(item.setName, 200)
-      || !text(item.collectorNumber, 64) || typeof item.language !== 'string' || !/^[a-z]{2}(?:-[a-z]{2})?$/.test(item.language)
+      || !text(item.collectorNumber, 64) || typeof item.language !== 'string' || !/^(?:[a-z]{2}(?:-[a-z]{2})?|und)$/.test(item.language)
+      || (item.setNames !== undefined && (!Array.isArray(item.setNames) || item.setNames.length < 1 || item.setNames.length > 2 || !item.setNames.every(name => text(name, 200))))
+      || (item.confidenceTier !== undefined && !['High', 'Medium', 'Low'].includes(String(item.confidenceTier)))
       || (item.finish !== undefined && !['normal', 'holo', 'reverse', 'unknown'].includes(String(item.finish)))
       || (item.confidence !== undefined && (typeof item.confidence !== 'number' || !Number.isFinite(item.confidence) || item.confidence < 0 || item.confidence > 1))
       || (item.tcgdexId !== undefined && (!text(item.tcgdexId, 200) || !/^[a-zA-Z0-9._-]+$/.test(item.tcgdexId)))) return undefined;
     candidates.push({ providerId: item.providerId, name: item.name, setName: item.setName, collectorNumber: item.collectorNumber,
       language: item.language, ...(item.finish !== undefined ? { finish: item.finish as CardSightCandidate['finish'] } : {}),
+      ...(item.setNames !== undefined ? { setNames: item.setNames as string[] } : {}),
+      ...(item.confidenceTier !== undefined ? { confidenceTier: item.confidenceTier as CardSightCandidate['confidenceTier'] } : {}),
       ...(item.confidence !== undefined ? { confidence: item.confidence as number } : {}),
       ...(item.tcgdexId !== undefined ? { tcgdexId: item.tcgdexId as string } : {}) });
   }

@@ -1,68 +1,78 @@
-# CardSight scanning integration status
+# CardSight scanning integration
 
-The camera-to-session integration and local development proxy are implemented. The actual CardSight HTTP transport is **not connected** until its official OpenAPI contract can be retrieved and verified. This distinction is intentional: Chase's normalized proxy protocol is not a guessed representation of the vendor API.
+The local development server now uses the real CardSight HTTP transport. The adapter was implemented from the official OpenAPI JSON supplied by the user on October 19, 2026 (OpenAPI 3.1.0, API version 1.0.0). It posts direct binary JPEGs to `https://api.cardsight.ai/v1/identify/card` with server-only `X-API-Key` authentication. There are no automatic billable retries, catalog-enrichment calls or commercial dependencies added by this change.
 
-The user supplied the official OpenAPI URL: https://api.cardsight.ai/documentation/json. In this execution environment requests to that host failed with proxy HTTP 403, including an escalated attempt. The screenshot verifies the public REST base `https://api.cardsight.ai/v1/` and `X-API-Key` authentication, but not a recognition path, upload fields or response schema. `CARDSIGHT_API_KEY` was absent in the running environment; a domain-scoped secret requirement has been saved in the environment draft. Its saved value and runtime activation still need to be supplied/applied by the user.
+Schema source: https://api.cardsight.ai/documentation/json. SHA-256 of the supplied file: `a14b6efa11e1619c6771d73a4fc6bde617125b866866153e985c191a210d4a58`. Automated vendor payloads are synthetic fixtures following that schema, not recorded successful CardSight responses.
 
 ## What works
 
-- Explicit real-camera mode alongside the retained demo mode. Home/Collection/Profile/onboarding design and routes remain intact.
-- Expo Camera captures bounded images only while the scanner is focused and foregrounded. Local crop/thumbnail analysis estimates card presence and stability before a network request. This is a conservative heuristic, not a trained card detector or a claimed provider confidence score.
-- Perceptual presentation tokens suppress stationary-card repeats. A sustained different card or genuine absence followed by the same printing rearms recognition. Capture failures and uncertain frames do not count as absence. Accepted locks survive opening Organize/paywalls and temporary backgrounding.
-- One external request at a time; existing stability/cooldown/error/retry controller remains in use. Recognition keeps the camera view open. Results stage into ScanSession; only Organize's explicit saves affect Collection.
-- Exact English printing resolution against TCGdex using set, collector number and name. Provider IDs never become TCGdex or legacy IDs. Low-confidence printing candidates need user selection before staging. An unresolved finish requires review in Organize, contributes no estimated value and cannot be saved until confirmed.
-- Camera/manipulator cache files are deleted after processing, and images/base64 are not stored in session/collection records or application logs. Native captures already underway cannot be aborted; their late outputs are discarded on pause/exit and their temporary files are cleaned up.
-- Local authenticated proxy boundary, body/JPEG limits, one in-flight request, minimum request interval, expiring pairing token, capped per-run use, digest-based idempotency and sanitized errors. Test transports are explicitly injected in automated tests only.
+- Explicit real-camera mode alongside the retained deterministic demo. Existing screens, navigation, entitlements and separately persisted ScanSession remain intact.
+- Focused/foreground Expo Camera captures, crop/thumbnail analysis, local presence/stability heuristics, one recognition request at a time and presentation locks. A stationary card is not submitted on every frame; removing and presenting another copy rearms the scanner. Capture failures are not treated as card removal.
+- The server sends JPEG bytes to the fixed HTTPS CardSight endpoint. Requests have abort/timeout handling, bounded response reads, no redirects, sanitized errors, a short-lived local pairing token, a minimum request interval, a per-run cap and digest-based request receipts. Replaying the same request ID and image does not call the provider twice.
+- CardSight `detections` represent physical cards, while `card.suggestions` represent alternative identifications. Multiple physical cards produce a recoverable one-card-at-a-time error. Set-only/slab-only matches never invent a printing.
+- Exact English TCGdex resolution by name, collector number and the vendor's set/release names. CardSight UUIDs never become TCGdex IDs. A collector denominator must match if supplied; `numberedTo` is a print run, not a denominator. Unknown expansion aliases are not guessed.
+- High/Medium/Low tiers remain tiers; no fabricated exact confidence percentage. Medium/Low results require printing selection. Explicit non-English cards are not silently translated; absent/conflicting language evidence requires deliberate English printing confirmation.
+- Finish evidence must be one supported High-confidence parallel (Normal, Holo/Holofoil or Reverse Holo/Reverse Holofoil). Missing, unsupported, numbered, low-confidence or multiple parallel suggestions leave the finish unresolved. Ranking does not override ambiguity. The pending row remains unpriced and cannot save until its variant is explicitly confirmed in Organize. No alternative-finish price is borrowed.
+- Recognition keeps the live camera screen open and stages into ScanSession. Only explicit Organize saves affect Collection. Pending rows survive navigation, paywalls and local restoration; durable save receipts preserve retry safety.
+- Local camera/manipulator temporary files are removed; photos/base64 are not persisted in ScanSession/Collection or application logs. Native captures already underway cannot be aborted; late outputs are discarded on pause/exit and cleaned up.
 
-## Current provider gate
+## Local setup on Windows and a phone
 
-The default server has no provider transport. `/health` reports `ready: false`, and `/recognize` reports `provider_contract_pending` without contacting CardSight or consuming the per-run quota. A key alone does not enable it. There is no mock substitution for a failed real request.
+Use Node24 and the updated extracted Chase folder. This requires a server running on the computer, as well as Expo. A cloud environment secret does not automatically configure the downloaded Windows project.
 
-To finish the provider adapter, verify the OpenAPI recognition path, request MIME/body, response identification/confidence/printing identifiers, no-match and rate-limit schemas. Implement a server-only transport that emits the Chase protocol defined in `src/services/cardsight/types.ts`; add fixtures drawn from that verified schema. Then validate a small authorized real recognition sample with the secret through the supported HTTPS route. Do not publish images or the key to inspect them.
-
-## Local development setup
-
-These commands prepare the development boundary. Until the provider gate above is completed, they do not enable actual CardSight identification.
-
-Use Node24 and the existing extracted Chase folder. Install the updated dependencies once:
+In CMD, inside Chase, install dependencies once if this is a new download, then create the server-only settings file. Do not overwrite an existing configured file:
 
 ```cmd
 npm ci
-copy .env.scanner.example .env.scanner
+if not exist .env.scanner copy .env.scanner.example .env.scanner
+notepad .env.scanner
 ```
 
-Edit `.env.scanner` locally, putting the CardSight key only in `CARDSIGHT_API_KEY`. This ignored file is loaded only by the server command, not Expo:
+Put the CardSight key only in `CARDSIGHT_API_KEY` in that ignored file. Leave `SCANNER_DEV_TOKEN` blank to generate a short-lived local token, or use a local URL-safe token with 24–256 characters. Then:
 
 ```cmd
 npm run scanner:proxy
 ```
 
-The server binds to the local network on port8787 and prints its LAN address and a short-lived pairing token. It never prints the vendor key. Keep this prototype server on a trusted local network. It rejects production startup and is not a deployed production authentication/quota system.
+Keep this terminal open. Copy the printed **Phone server URL** and **Local pairing token**. The CardSight key is never printed. A browser on the computer can check `/health` on port8787: `ready:true` means the adapter/key are configured and the local token has not expired. **Health does not verify the key with CardSight or prove recognition accuracy.** Missing credentials return `ready:false`. The adapter is now wired into the runner; there is no pending-contract gate in normal startup.
 
-In a separate terminal, create `.env.local` in Chase using `.env.example`. Set only these mobile development values:
+In a second CMD window, enter the same Chase folder and create/edit `.env.local`:
+
+```cmd
+if not exist .env.local copy .env.example .env.local
+notepad .env.local
+```
+
+Set these values using the address and local token printed by the server, never the vendor key:
 
 ```dotenv
 EXPO_PUBLIC_SCANNER_URL=http://192.168.1.10:8787
 EXPO_PUBLIC_SCANNER_TOKEN=the-local-pairing-token-from-the-server
 ```
 
-Replace the example LAN address with the printed address of the computer hosting the proxy. `localhost` on a phone means the phone itself. The phone and computer must share a reachable network. The public pairing token is a temporary development control, not a vendor secret or production user credential. Production builds disable this development connection.
+Then start Expo from that second terminal:
 
 ```cmd
 npx expo start --clear
 ```
 
-Both terminals must remain running. Changing folders or opening another terminal does not require another dependency installation. Start real scanning using the camera control in the scanner; the app requests permission after the user opts into uploading card photos. The demo remains available through its flask control.
+Keep both terminals open. The phone and computer must share a reachable trusted Wi-Fi network. `localhost` on the phone means the phone itself. Windows Firewall must permit this Node server on the private network. An Expo tunnel alone does not tunnel the separate scanner proxy. After restarting the proxy, copy its newly generated token and restart Expo to load changed public settings. There is no need to reinstall npm dependencies each time.
 
-The added `expo-image-manipulator` and `expo-file-system` versions match Expo57. Use a compatible Expo Go, or rebuild an existing native development build to include newly declared modules and updated permission text. JavaScript exports are not signed native builds or physical-device validation.
+Open Home → scanner and consent to photo upload. With valid development settings, live mode is selected; the flask control still opens the demo. Use **Development only · simulate Pro** in Profile for multi-card testing; Free retains its single successful recognition. Confirm the English printing if asked; open Organize to confirm an unresolved finish and explicitly save cards. Invalid credentials, no match, multiple cards, unsupported printing, provider rate limits and network errors remain recoverable without consuming a successful Free recognition.
 
-## Data flow and privacy work
+Expo Camera/file-system/manipulator versions match SDK57. Use compatible Expo Go or rebuild a native development build if its native modules/permission text predate those dependencies. No native dependency was added by the transport change.
 
-The intended flow is: local camera → local crop/stability analysis → Chase's proxy → CardSight → normalized candidate metadata → TCGdex identity/finish → pending ScanSession → explicit Organize save → Collection.
+## Cloud setup and remaining provider validation
 
-This code does not persist photos in the proxy, session or collection. It does not establish CardSight's own retention, training-use or deletion policy; those must be checked in the provider's terms/privacy/DPA and reflected in Chase's reviewed Privacy Policy before release. Do not promise vendor-side deletion based on local cleanup.
+During this implementation, the actual `CARDSIGHT_API_KEY` environment variable was absent and the saved requirement reported no bound value. Earlier attempts to reach the CardSight documentation were blocked with proxy HTTP403; the supplied JSON resolved the documentation blocker. No authenticated CardSight recognition or free provider-auth probe could be run without the active key. Securely bind `CARDSIGHT_API_KEY` to `api.cardsight.ai` in environment settings and apply/publish the configuration to enable testing from this cloud runtime. Never paste its value into chat, Expo public settings or GitHub. A supported proxy binding may be a placeholder resolved only on its allowed HTTPS destination.
 
-Supabase authentication, durable server entitlements, production quotas and RevenueCat purchase verification remain separate work. Local Free/Pro logic still protects the prototype workflow, but a development pairing token does not enforce production paid access.
+A real phone needs a reachable computer-hosted server. This development server binds to the LAN, rejects production startup and is not a deployed production authentication/entitlement service. Supabase authentication, durable server quotas and RevenueCat verification remain separate work.
+
+## Privacy and data flow
+
+Camera → local crop/stability analysis → Chase proxy → CardSight → normalized candidate metadata → exact TCGdex printing/finish → pending ScanSession → explicit Organize save → Collection.
+
+Local photo cleanup does not establish CardSight's retention, training-use or deletion policy. Check provider terms/privacy/DPA and reflect the confirmed practices in Chase's reviewed Privacy Policy before release. Do not promise vendor-side deletion based on local cleanup.
 
 ## Validation
 
@@ -71,14 +81,13 @@ npm run typecheck
 npm run lint
 npm test
 npm run test:scanner
-npm run test:catalog
-npm run test:smoke
-npm run export:mobile
+npm run test:live-scanner
+EXPO_OFFLINE=1 npm run export:mobile -- --max-workers 4
 ```
 
-Browser tests intercept proxy/catalog responses. Synthetic camera fixtures and pixel tests demonstrate the capture/controller/session interaction without calling the vendor or spending credits. These do not prove CardSight accuracy. Real devices must still verify sleeves/glare, focus/orientation, memory/battery impact, permission denial, background/restore, actual same-card re-presentation and correct printing resolution.
+Unit tests exercise the actual server adapter against schema-based fixtures, authenticated proxy/client integration, TCGdex identity, uncertainty/finish safeguards, Organize staging and replay-safe Collection persistence. Tests never contact CardSight or spend credits. Browser tests use intercepted proxy/catalog responses and a synthetic camera. A passing fixture does not establish CardSight accuracy or physical-device behavior.
 
-To run the new live-mode browser fixtures, keep the normal demo Metro on8081 and start a separate development process with dummy pairing values (these are not vendor credentials):
+For the separate live-mode browser server:
 
 ```bash
 EXPO_OFFLINE=1 EXPO_PUBLIC_SCANNER_URL=http://localhost:8787 EXPO_PUBLIC_SCANNER_TOKEN=chase-browser-fixture-pairing-only-1234 npm run web -- --localhost --port 8083
@@ -86,6 +95,8 @@ EXPO_OFFLINE=1 EXPO_PUBLIC_SCANNER_URL=http://localhost:8787 EXPO_PUBLIC_SCANNER
 npm run test:live-scanner
 ```
 
-The script generates a synthetic YUV camera file using Node alone, intercepts all scanner/vendor/catalog network boundaries, and cleans up its temporary file. It needs Chromium, not ffmpeg or Python image tools. Do not run these fixture pairing settings when testing real cards on a phone.
+This generates a synthetic YUV source using Node (no ffmpeg/Python dependency) and uses Chromium. Do not use fixture settings for a real phone.
 
-Executed in this change: TypeScript and lint passed; 129 unit tests passed; 14 scanner, 12 catalog, 22 general and 11 live-camera browser scenarios passed (59 total), with no runtime errors. Final Android/iOS JavaScript/Hermes exports passed. The Node entrypoint was started and stopped successfully: health correctly reported not ready and recognition returned503 while the provider gate was closed. Live-camera browser checks used a synthetic video source and intercepted normalized proxy responses; no CardSight calls or credits were used. Physical phone and actual vendor recognition have not been validated.
+Validation in this change: TypeScript and lint passed; 143 unit tests passed; 14 continuous-scanner and 13 live-camera browser scenarios passed without runtime errors. Android/iOS JavaScript/Hermes exports passed. The actual Node entrypoint started with an explicitly fake in-memory key and reported configured health; it was stopped without calling CardSight. These checks used no vendor quota. Optional standalone React Native DevTools could not launch its bundled Chromium under this Linux sandbox; Metro and browser tests still ran successfully. No authenticated vendor identification or physical-device test was performed.
+
+Real devices must still verify CardSight acceptance of camera JPEGs, actual release/set metadata naming, English/language confirmation, focus/orientation/sleeves/glare, heuristics and deduplication, background/restore, memory/battery use and correct variant pricing. Japanese catalog resolution and graded pricing are not implemented. Existing saved Collection/ScanSession identities are not migrated or overwritten.

@@ -12,7 +12,7 @@ export type ScannerTransport = (jpeg: Uint8Array, context: {
   apiKey: string; fetch: typeof fetch; signal: AbortSignal;
 }) => Promise<CardSightRecognitionResponse>;
 
-type TransportErrorCode = 'provider_auth' | 'provider_rate_limited' | 'provider_rejected' | 'provider_unavailable' | 'provider_response';
+type TransportErrorCode = 'provider_auth' | 'provider_rate_limited' | 'provider_rejected' | 'provider_unavailable' | 'provider_response' | 'multiple_cards';
 /** Only a reviewed provider adapter may classify failures. Raw provider messages never leave this boundary. */
 export class ScannerTransportError extends Error {
   constructor(readonly code: TransportErrorCode) { super(code); this.name = 'ScannerTransportError'; }
@@ -138,7 +138,7 @@ export function createScannerProxy(options: ScannerProxyOptions): (request: Requ
     if (!matchesToken(request.headers.get('authorization') ?? '', `Bearer ${options.devToken}`)) {
       return json(error(401, 'unauthorized', 'A valid local scanner token is required.'), responseOrigin);
     }
-    if (!options.transport) return json(error(503, 'provider_contract_pending', 'CardSight recognition is disabled until its official API contract is verified.'), responseOrigin);
+    if (!options.transport) return json(error(503, 'provider_adapter_missing', 'The recognition adapter is not configured on this server.'), responseOrigin);
     if (!options.apiKey) return json(error(503, 'not_configured', 'Card recognition is not configured on the local server.'), responseOrigin);
     if (request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json') {
       return json(error(415, 'unsupported_media_type', 'Send a JPEG using the scanner JSON format.'), responseOrigin);
@@ -172,6 +172,7 @@ export function createScannerProxy(options: ScannerProxyOptions): (request: Requ
 function transportError(cause: unknown): Outcome {
   if (cause instanceof ScannerTransportError) {
     switch (cause.code) {
+      case 'multiple_cards': return error(422, cause.code, 'Present one card at a time and retry.');
       case 'provider_auth': return error(503, cause.code, 'The recognition provider credentials need attention on the server.');
       case 'provider_rate_limited': return error(429, cause.code, 'The recognition provider limit was reached. Try again later.');
       case 'provider_rejected': return error(422, cause.code, 'The recognition provider could not read this image. Try a clearer photo.');

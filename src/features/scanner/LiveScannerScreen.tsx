@@ -117,6 +117,7 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
     <Modal transparent visible={Boolean(review)} animationType="fade" onRequestClose={() => chooser.current?.finish()}>
       <View style={styles.scrim}><View style={styles.dialog} accessibilityViewIsModal>
         <Label kind="heading" accessibilityRole="header">Choose the printing</Label>
+        <Label kind="caption" style={{ color: colors.muted }}>Confirm the English printing.</Label>
         <ScrollView contentContainerStyle={{ gap: 8 }}>{review?.map(card => <Pressable key={card.id} accessibilityRole="button" accessibilityLabel={`Choose ${card.name}, ${card.setName}, ${card.collectorNumber}`}
           onPress={() => chooser.current?.finish(card)} style={styles.choice}>
           <CardPrint card={card} style={{ width: 45 }} /><View style={{ flex: 1 }}><Label style={{ fontWeight: '600' }}>{card.name}</Label><Label kind="caption" style={{ color: colors.muted }}>{card.setName} · {card.collectorNumber}</Label></View><Icon name="chevron-forward" color={colors.primary} />

@@ -29,7 +29,7 @@ test('local scanner health exposes readiness and mode without credentials or usa
   assert.deepEqual(await missing.json(), { ready: false, mode: 'local-development' });
 });
 
-test('the default server is disabled until the official vendor contract exists, without spending quota', async () => {
+test('an explicitly missing transport stays disabled without spending quota', async () => {
   let fetchCalls = 0;
   const handler = proxy({ transport: undefined, maxRunRequests: 1, fetch: async () => { fetchCalls++; return Response.json({}); } });
   const health = await handler(new Request('http://scanner.test/health'));
@@ -37,7 +37,7 @@ test('the default server is disabled until the official vendor contract exists, 
   for (const id of ['request_0001', 'request_0002']) {
     const response = await handler(request(id));
     assert.equal(response.status, 503);
-    assert.equal((await response.json()).error.code, 'provider_contract_pending');
+    assert.equal((await response.json()).error.code, 'provider_adapter_missing');
   }
   assert.equal(fetchCalls, 0);
 });

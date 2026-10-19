@@ -29,6 +29,7 @@ export interface RecognitionImage {
 
 export interface RecognitionResult extends Card {
   confidence?: number;
+  confidenceTier?: 'High' | 'Medium' | 'Low';
   ambiguity?: 'confirmed' | 'review';
 }
 export interface CardRecognitionService {
