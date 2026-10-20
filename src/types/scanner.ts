@@ -1,4 +1,13 @@
 import type { Card, CardVariant, MarketPrice } from './domain';
+import type { CardSightRecognitionResponse, CatalogResolutionDiagnostics } from '../services/cardsight/types';
+
+export interface PendingCatalogRecognition {
+  id: string;
+  recognition: CardSightRecognitionResponse;
+  diagnostics: CatalogResolutionDiagnostics;
+  identifiedAt: string;
+  quantity: number;
+}
 
 export type PriceState = 'loading' | 'available' | 'unavailable';
 export interface ScanSessionItem {
@@ -22,6 +31,8 @@ export interface ScanSession {
   version: 1;
   id: string;
   items: ScanSessionItem[];
+  /** Identified by the provider, not yet a canonical collectible. Never saved as ownership. */
+  unresolved?: PendingCatalogRecognition[];
   /** Never cleared by discarding pending cards. Protects the trial after interrupted persistence. */
   freeRecognitionUsed: boolean;
 }

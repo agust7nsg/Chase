@@ -12,8 +12,9 @@ import { getCatalogCard } from '@/data/mocks/catalog';
 import { variantsFor } from '@/services/scanSession';
 import { catalogService } from '@/services/catalog';
 import type { Card } from '@/types/domain';
-import type { ScanSessionItem } from '@/types/scanner';
+import type { ScanSessionItem, PendingCatalogRecognition } from '@/types/scanner';
 import { useScanSession } from './ScanSessionProvider';
+import { PendingSessionRow } from './PendingSessionRow';
 
 export default function OrganizeScreen() {
   const scan = useScanSession();
@@ -25,6 +26,10 @@ export default function OrganizeScreen() {
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const receipts = new Set(state.savedScanOperations ?? []);
   const items = scan.session.items.filter(item => !receipts.has(item.operationId));
+  const pending = scan.session.unresolved ?? [];
+  const rows: ({ kind: 'card'; item: ScanSessionItem } | { kind: 'pending'; item: PendingCatalogRecognition })[] = [
+    ...items.map(item => ({ kind: 'card' as const, item })), ...pending.map(item => ({ kind: 'pending' as const, item })),
+  ];
   const selected = items.filter(item => !excluded.includes(item.id));
   const back = () => { if (router.canGoBack()) router.back(); else router.replace({ pathname: '/scanner', params: { onboarding } }); };
   const attempt = async (action: () => Promise<unknown>) => { try { await action(); setFeedback(null); } catch (cause) { setFeedback(cause instanceof Error ? cause.message : 'Please try again.'); } };
@@ -39,22 +44,22 @@ export default function OrganizeScreen() {
     <View style={styles.header}>
       <Pressable accessibilityRole="button" accessibilityLabel="Return to Scanner" onPress={back} style={styles.icon}><Icon name="chevron-back" color={colors.primary} /></Pressable>
       <Label kind="heading" accessibilityRole="header" style={{ flex: 1 }}>Organize</Label>
-      <Pressable accessibilityRole="button" accessibilityLabel="Discard pending session" disabled={!items.length || scan.busy} onPress={() => setConfirmDiscard(true)} style={styles.icon}><Icon name="trash-outline" color={colors.muted} /></Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel="Discard pending session" disabled={!rows.length || scan.busy} onPress={() => setConfirmDiscard(true)} style={styles.icon}><Icon name="trash-outline" color={colors.muted} /></Pressable>
     </View>
-    <FlatList data={items} keyExtractor={item => item.id} contentContainerStyle={styles.list}
+    <FlatList data={rows} keyExtractor={row => row.item.id} contentContainerStyle={styles.list}
       ListHeaderComponent={<View style={{ gap: 8, paddingBottom: 16 }}>
         <View style={uiStyles.between}><Label style={{ fontWeight: '600' }}>{scan.summary.copies} pending {scan.summary.copies === 1 ? 'card' : 'cards'}</Label><Label kind="heading">{scan.summary.copies > 0 && scan.summary.unpriced === scan.summary.copies ? '—' : formatMoney(scan.summary.value)}</Label></View>
-        <Label kind="caption" style={uiStyles.muted}>{items.some(item => item.card?.catalogIdentity) ? 'Market estimate' : 'Sample estimate'} · {currency}{scan.summary.unpriced ? ` · ${scan.summary.unpriced} unpriced` : ''}</Label>
+        <Label kind="caption" style={uiStyles.muted}>{pending.length || items.some(item => item.card?.catalogIdentity) ? 'Market estimate' : 'Sample estimate'} · {currency}{scan.summary.unpriced ? ` · ${scan.summary.unpriced} unpriced` : ''}</Label>
         {scan.loadError ? <><Label accessibilityRole="alert">{scan.loadError}</Label><Button title="Retry pending scans" onPress={scan.retryLoad} /></> : null}
         {feedback || scan.error ? <Label accessibilityRole="alert" style={{ color: colors.primary }}>{feedback ?? scan.error}</Label> : null}
-        {scan.summary.unpriced ? <Button title="Retry prices" variant="ghost" onPress={scan.retryPrices} /> : null}
+        {items.some(item => item.ambiguity === 'confirmed' && item.priceState === 'unavailable') ? <Button title="Retry prices" variant="ghost" onPress={scan.retryPrices} /> : null}
       </View>}
       ListEmptyComponent={<View style={styles.empty}><Icon name="scan-outline" size={40} color={colors.primary} /><Label kind="heading">No pending cards</Label><Button title="Return to Scanner" variant="secondary" onPress={back} /></View>}
-      renderItem={({ item }) => <SessionRow item={item} selected={!excluded.includes(item.id)} busy={scan.busy}
-        toggle={() => setExcluded(previous => previous.includes(item.id) ? previous.filter(id => id !== item.id) : [...previous, item.id])}
-        onQuantity={quantity => { void attempt(() => scan.quantity(item.id, quantity)); }}
-        onVariant={cardId => { void attempt(() => scan.variant(item.id, cardId)); }}
-        onRemove={() => { void attempt(() => scan.remove(item.id)); }} />}
+      renderItem={({ item: row }) => row.kind === 'pending' ? <PendingSessionRow item={row.item} /> : <SessionRow item={row.item} selected={!excluded.includes(row.item.id)} busy={scan.busy}
+        toggle={() => setExcluded(previous => previous.includes(row.item.id) ? previous.filter(id => id !== row.item.id) : [...previous, row.item.id])}
+        onQuantity={quantity => { void attempt(() => scan.quantity(row.item.id, quantity)); }}
+        onVariant={cardId => { void attempt(() => scan.variant(row.item.id, cardId)); }}
+        onRemove={() => { void attempt(() => scan.remove(row.item.id)); }} />}
     />
     <View style={styles.footer}>
       <Button title="Save all to Collection" icon="checkmark-outline" disabled={!items.length || !scan.ready} loading={scan.busy} onPress={() => { void save(items.map(item => item.id)); }} />
@@ -79,6 +84,7 @@ function SessionRow({ item, selected, busy, toggle, onQuantity, onVariant, onRem
   const [loadingVariants, setLoadingVariants] = useState(false);
   const [variantError, setVariantError] = useState<string | null>(null);
   const card = getCatalogCard(item.cardId)!;
+  const canChooseVariant = (card.availableVariants?.length ?? variants.length) > 1 || card.variant === 'Unspecified';
   const reviewVariants = async () => {
     if (loadingVariants) return;
     setEditingVariant(true); setVariantError(null);
@@ -95,7 +101,9 @@ function SessionRow({ item, selected, busy, toggle, onQuantity, onVariant, onRem
       <View style={{ flex: 1, gap: 3 }}><Label style={{ fontWeight: '700' }}>{item.name}</Label><Label kind="caption" style={uiStyles.muted}>{item.setName} · {item.collectorNumber}</Label><Label kind="caption" style={{ fontWeight: '600' }}>{item.priceState === 'available' && item.price ? formatMoney(Math.round(item.price.amount * 100) * item.quantity / 100, item.price.currency) : item.priceState === 'loading' ? 'Price loading…' : 'Price unavailable'}</Label></View>
     </View>
     <View style={[styles.rowTools, { flexWrap: 'wrap' }]}>
-      <Pressable accessibilityRole="button" accessibilityLabel={`Review ${item.name} variant`} disabled={busy || loadingVariants} onPress={() => { if (editingVariant) setEditingVariant(false); else void reviewVariants(); }} style={styles.variant}><Label kind="caption" style={{ color: item.ambiguity === 'review' ? colors.danger : colors.primary }}>{item.ambiguity === 'review' ? 'Review: ' : ''}{item.variant}</Label><Icon name="chevron-down" size={16} color={colors.primary} /></Pressable>
+      {canChooseVariant ? <Pressable accessibilityRole="button" accessibilityLabel={`Review ${item.name} variant`} disabled={busy || loadingVariants} onPress={() => { if (editingVariant) setEditingVariant(false); else void reviewVariants(); }} style={styles.variant}><Label kind="caption" style={{ color: item.ambiguity === 'review' ? colors.danger : colors.primary }}>{item.ambiguity === 'review' ? 'Review: ' : ''}{item.variant}</Label><Icon name="chevron-down" size={16} color={colors.primary} /></Pressable>
+        : item.ambiguity === 'review' ? <Button title="Confirm printing" variant="ghost" disabled={busy} onPress={() => onVariant(card.id)} />
+          : <Label kind="caption" style={uiStyles.muted}>{item.variant}</Label>}
       <View style={styles.quantity}>
         <Pressable accessibilityRole="button" accessibilityLabel={`Decrease pending ${item.name} quantity`} accessibilityState={{ disabled: busy || item.quantity <= 1 }} disabled={busy || item.quantity <= 1} onPress={() => onQuantity(item.quantity - 1)} style={styles.icon}><Icon name="remove" size={20} color={item.quantity <= 1 ? colors.muted : colors.primary} /></Pressable>
         <Label accessibilityLabel={`${item.quantity} pending copies`} style={{ minWidth: 22, textAlign: 'center', fontWeight: '600' }}>{item.quantity}</Label>

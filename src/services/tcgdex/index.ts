@@ -23,6 +23,7 @@ export class TcgDexCatalogService implements CardCatalogService {
   private readonly ttl: number;
   private readonly maxCacheEntries: number;
   private persistence: Promise<void> = Promise.resolve();
+  private recognitionRefreshAt = -Infinity;
 
   constructor(options: TcgDexOptions = {}) {
     this.options = options;
@@ -105,12 +106,14 @@ export class TcgDexCatalogService implements CardCatalogService {
     } catch { return undefined; }
   }
 
-  private request(path: string): Promise<Resource> {
+  private request(path: string, refresh = false): Promise<Resource> {
     const existing = this.pending.get(path);
     if (existing) return existing;
     const operation = (async (): Promise<Resource> => {
       const cached = await this.readCache(path);
-      if (cached && this.now() - cached.savedAt < this.ttl) return { value: clone(cached.value), fromCache: true, stale: false, savedAt: cached.savedAt };
+      // Empty searches can become valid as newly released printings arrive.
+      const ttl = cached && Array.isArray(cached.value) && cached.value.length === 0 ? Math.min(this.ttl, 60_000) : this.ttl;
+      if (!refresh && cached && this.now() - cached.savedAt < ttl) return { value: clone(cached.value), fromCache: true, stale: false, savedAt: cached.savedAt };
       const controller = new AbortController();
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
@@ -163,6 +166,16 @@ export class TcgDexCatalogService implements CardCatalogService {
     // /sets briefs omit releaseDate. Ask the server to sort the complete records
     // before projection, rather than downloading hundreds of set details or guessing from IDs.
     const result = await this.resource('sets?sort:field=releaseDate&sort:order=DESC');
+    if (!Array.isArray(result.value)) throw new CatalogError('INVALID_RESPONSE', 'TCGdex returned an invalid set list.');
+    return result.value.map(normalizeSet);
+  }
+
+  /** A catalog miss can refresh its small index once/minute, never on every frame. */
+  async refreshRecognitionIndex(setIds: string[] = []): Promise<CatalogSet[]> {
+    if (this.now() - this.recognitionRefreshAt < 60_000) return this.listSets();
+    this.recognitionRefreshAt = this.now();
+    const [result] = await Promise.all(['sets?sort:field=releaseDate&sort:order=DESC',
+      ...[...new Set(setIds)].slice(0, 4).map(id => `sets/${encodeURIComponent(id)}`)].map(path => this.request(path, true)));
     if (!Array.isArray(result.value)) throw new CatalogError('INVALID_RESPONSE', 'TCGdex returned an invalid set list.');
     return result.value.map(normalizeSet);
   }

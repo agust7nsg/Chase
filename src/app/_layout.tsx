@@ -24,6 +24,7 @@ function Navigator() {
       <Stack.Screen name="my-cards" options={{ title: '' }} />
       <Stack.Screen name="search" options={{ title: '' }} />
       <Stack.Screen name="card/[id]" options={{ title: '' }} />
+      <Stack.Screen name="match-scan/[id]" options={{ title: 'Match printing' }} />
       <Stack.Screen name="account" options={{ title: 'Account & settings' }} />
     </Stack>
   </View>;

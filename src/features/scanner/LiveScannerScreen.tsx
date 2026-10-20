@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { router, useIsFocused, useLocalSearchParams } from 'expo-router';
-import { ActivityIndicator, AppState, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ActivityIndicator, AppState, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Button, Icon, Label } from '@/components/ui';
 import { CardPrint } from '@/components/CardPrint';
@@ -13,14 +13,17 @@ import type { Card } from '@/types/domain';
 import type { ScannerStatus } from '@/types/scanner';
 import { useScanSession } from './ScanSessionProvider';
 import { LiveScannerCamera, type LiveCameraHandle } from './LiveScannerCamera';
-import { RecognitionOverlay } from './RecognitionOverlay';
+import { ScannedCardReveal } from './ScannedCardReveal';
 
 export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
   const scan = useScanSession();
   const focused = useIsFocused();
+  const insets = useSafeAreaInsets();
   const { onboarding } = useLocalSearchParams<{ onboarding?: string }>();
   const [appActive, setAppActive] = useState(AppState.currentState === 'active');
-  const [paused, setPaused] = useState(false);
+  const [torch, setTorch] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [torchNotice, setTorchNotice] = useState<string | null>(null);
   const [captureError, setCaptureError] = useState<string | null>(null);
   const [connection, setConnection] = useState<'loading' | 'ready' | 'unavailable'>('loading');
   const [connectionAttempt, setConnectionAttempt] = useState(0);
@@ -28,6 +31,8 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
   const [review, setReview] = useState<Card[] | null>(null);
   const chooser = useRef<{ finish: (card?: Card) => void } | null>(null);
   const camera = useRef<LiveCameraHandle>(null);
+  const captureFailures = useRef(0);
+  const captureRetryAt = useRef(0);
   const allowed = useRef(scan.allowed);
   useEffect(() => { allowed.current = scan.allowed; }, [scan.allowed]);
   const [tracker] = useState(() => new LiveCardPresentationTracker());
@@ -35,7 +40,7 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
   const chooseCandidate = useCallback((cards: Card[], signal?: AbortSignal) => new Promise<Card>((resolve, reject) => {
     if (signal?.aborted) { reject(new Error('Recognition canceled.')); return; }
     const cancel = () => finish();
-    const finish = (card?: Card) => { signal?.removeEventListener('abort', cancel); chooser.current = null; setReview(null); if (card) resolve(card); else reject(new Error('Printing selection canceled. Retry when ready.')); };
+    const finish = (card?: Card) => { signal?.removeEventListener('abort', cancel); chooser.current = null; setReview(null); if (card) resolve(card); else reject(new Error('Printing selection canceled. Present the next card.')); };
     chooser.current = { finish }; setReview(cards);
     signal?.addEventListener('abort', cancel, { once: true });
   }), []);
@@ -54,25 +59,33 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
     }).catch(() => { if (!stopped) setConnection('unavailable'); }).finally(() => clearTimeout(timer));
     return () => { stopped = true; clearTimeout(timer); abort.abort(); };
   }, [focused, appActive, connectionAttempt]);
-  const active = focused && appActive && scan.ready && !scan.loadError && connection === 'ready' && Boolean(liveScannerConfig) && !paused;
+  const active = focused && appActive && scan.ready && !scan.loadError && connection === 'ready' && Boolean(liveScannerConfig);
   useEffect(() => {
     if (!active) return;
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     controller.resume(); tracker.resetCandidates();
+    captureFailures.current = 0; captureRetryAt.current = 0;
     const tick = async () => {
       if (stopped) return;
       controller.tick(Date.now());
-      if (allowed.current && !chooser.current) {
+      if (allowed.current && !chooser.current && controller.status.phase !== 'IDENTIFYING' && Date.now() >= captureRetryAt.current) {
         try {
+          const captureVersion = tracker.captureVersion;
           const captured = await camera.current?.capture();
           if (stopped) return;
           if (captured) {
+            captureFailures.current = 0;
             setCaptureError(null);
-            const frame = tracker.observe(captured.observation, Date.now());
-            if (frame !== undefined) controller.observe(frame ? { ...frame, image: captured.image } : null, Date.now());
+            const frame = tracker.observe(captured.observation, Date.now(), captureVersion);
+            if (frame !== undefined) controller.observe(frame ? { ...frame, image: captured.image } : null, Date.now(), frame === null);
           }
-        } catch { if (!stopped) { tracker.resetCandidates(); setCaptureError('Camera capture failed. Keep the card steady and retry.'); } }
+        } catch { if (!stopped) {
+          tracker.resetCandidates(); captureFailures.current++;
+          captureRetryAt.current = Date.now() + Math.min(8000, 1000 * 2 ** Math.min(captureFailures.current, 3));
+          tracker.settleLighting(Date.now()); setTorch(false); camera.current?.restart();
+          setCaptureError('Reconnecting camera…');
+        } }
       }
       if (!stopped) timer = setTimeout(() => { void tick(); }, 650);
     };
@@ -83,35 +96,56 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
   const paywall = () => router.push({ pathname: '/paywall', params: { returnTo: 'scanner' } });
   const exit = () => { if (onboarding === '1') router.replace({ pathname: '/paywall', params: { onboarding } }); else if (router.canGoBack()) router.back(); else router.replace('/(tabs)'); };
   const result = scan.session.items.find(item => item.cardId === status.cardId);
+  const pendingResult = scan.session.unresolved?.find(item => `pending:${item.id}` === status.cardId);
   const title = status.phase === 'IDENTIFYING' ? 'Identifying…' : status.phase === 'CARD_CANDIDATE' ? 'Hold steady' : status.phase === 'WAITING_FOR_CARD_CHANGE' ? 'Present the next card' : 'Center a card';
-  return <SafeAreaView style={styles.screen} edges={['top', 'bottom', 'left', 'right']}>
+  const onCameraError = useCallback((message: string) => { tracker.settleLighting(Date.now()); setTorch(false); setCaptureError(message); }, [tracker]);
+  const onCameraReadyChange = useCallback((ready: boolean) => {
+    setCameraReady(ready);
+    if (!ready) { tracker.settleLighting(Date.now()); setTorch(false); }
+  }, [tracker]);
+  useEffect(() => {
+    if (!torchNotice) return;
+    const timer = setTimeout(() => setTorchNotice(null), 2400);
+    return () => clearTimeout(timer);
+  }, [torchNotice]);
+  const toggleTorch = () => {
+    if (Platform.OS === 'web') { setTorchNotice('Flashlight is available in the Android and iOS app.'); return; }
+    tracker.settleLighting(Date.now());
+    setTorch(value => !value);
+  };
+  const scanningMessage = captureError ?? (status.phase === 'ERROR' ? status.error : !scan.allowed ? 'Free scan used' : title);
+  return <View style={styles.screen}>
     {focused ? <StatusBar style="light" /> : null}
-    <View style={styles.header}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Close scanner, keep pending cards" onPress={exit} style={styles.icon}><Icon name="close" color={colors.white} size={26} /></Pressable>
-      <Label style={styles.heading}>Scanner</Label><Label kind="caption" style={styles.quiet}>CardSight · Test</Label>
-      <Pressable accessibilityRole="button" accessibilityLabel="Use demo scanner" onPress={onDemo} style={styles.icon}><Icon name="flask-outline" color={colors.scannerFrame} /></Pressable>
-    </View>
-    <View style={styles.camera}>
-      {liveScannerConfig && connection === 'ready' ? <LiveScannerCamera ref={camera} active={focused && appActive && scan.ready} onError={setCaptureError} /> : <View style={styles.setup}>
+    <View style={StyleSheet.absoluteFill} testID="live-scanner-preview">
+      {liveScannerConfig && connection === 'ready' ? <LiveScannerCamera ref={camera} active={focused && appActive && scan.ready && !scan.loadError}
+        torch={torch && focused && appActive} onReadyChange={onCameraReadyChange} onError={onCameraError} /> : <View style={[styles.setup, { paddingTop: insets.top + 72, paddingBottom: insets.bottom + 96 }]}>
         {liveScannerConfig && connection === 'loading' ? <ActivityIndicator color={colors.white} /> : <Icon name="server-outline" color={colors.scannerFrame} size={36} />}<Label kind="heading" style={styles.heading}>{!liveScannerConfig ? 'Connect scanner server' : connection === 'loading' ? 'Connecting scanner…' : 'Scanner unavailable'}</Label>
         <Label style={styles.quiet}>{!liveScannerConfig ? 'Configure the local scanner URL and pairing token, then restart Expo.' : 'The local server must be online with CardSight recognition configured.'}</Label>
         {liveScannerConfig && connection === 'unavailable' ? <Button title="Retry connection" variant="inverse" onPress={() => { setConnection('loading'); setConnectionAttempt(value => value + 1); }} /> : null}
         <Button title="Use demo scanner" variant="inverse" onPress={onDemo} />
       </View>}
-      {liveScannerConfig && connection === 'ready' ? <View style={styles.result}>
-        {status.phase === 'RESULT_READY' && result ? <RecognitionOverlay item={result} count={scan.summary.copies} /> : <View style={styles.status}>
-          {status.phase === 'IDENTIFYING' ? <ActivityIndicator color={colors.white} /> : <Icon name="scan-outline" color={colors.white} size={20} />}
-          <Label kind="caption" style={styles.quiet}>{status.phase === 'ERROR' ? status.error : paused ? 'Scanning paused' : !scan.allowed ? 'Free scan used' : title}</Label>
-        </View>}
-      </View> : null}
     </View>
-    <View style={styles.controls}>
-      {scan.loadError || scan.error || captureError ? <Label kind="caption" accessibilityRole="alert" style={styles.quiet}>{scan.loadError ?? scan.error ?? captureError}</Label> : null}
+    <View pointerEvents="box-none" style={[styles.header, { top: insets.top + 8, left: insets.left + 16, right: insets.right + 16 }]}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Close scanner, keep pending cards" onPress={exit} style={({ pressed }) => [styles.icon, pressed && styles.pressed]}><Icon name="close" color={colors.white} size={26} /></Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel={torch ? 'Turn flashlight off' : 'Turn flashlight on'}
+        accessibilityState={{ selected: torch, disabled: !cameraReady }} disabled={!cameraReady} onPress={toggleTorch}
+        style={({ pressed }) => [styles.icon, styles.torch, torch && styles.torchOn, !cameraReady && styles.disabled, pressed && styles.pressed]}>
+        <Icon name={torch ? 'flash' : 'flash-off-outline'} color={torch ? colors.primary : colors.white} size={24} />
+      </Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel="Use demo scanner" onPress={onDemo} style={({ pressed }) => [styles.icon, pressed && styles.pressed]}><Icon name="flask-outline" color={colors.scannerFrame} /></Pressable>
+    </View>
+    <View pointerEvents="box-none" style={[styles.controls, { paddingBottom: Math.max(insets.bottom, 16), paddingLeft: insets.left + 16, paddingRight: insets.right + 16 }]}>
+      {liveScannerConfig && connection === 'ready' ? <View pointerEvents="none" style={styles.feedback}>
+        {status.phase === 'RESULT_READY' && result ? <ScannedCardReveal key={status.cardId} item={result} count={scan.summary.copies} />
+          : <View style={styles.status} accessibilityLiveRegion="polite">
+            {status.phase === 'IDENTIFYING' ? <ActivityIndicator color={colors.white} /> : <Icon name={status.phase === 'ERROR' || captureError ? 'alert-circle-outline' : 'scan-outline'} color={colors.white} size={18} />}
+            <Label kind="caption" style={styles.statusText}>{status.phase === 'RESULT_READY' && pendingResult ? `${pendingResult.recognition.candidates[0]?.name ?? 'Card recognized'} · Match printing in Organize` : scanningMessage}</Label>
+          </View>}
+      </View> : null}
+      {torchNotice ? <Label kind="caption" accessibilityLiveRegion="polite" style={styles.notice}>{torchNotice}</Label> : null}
+      {scan.loadError || scan.error ? <Label kind="caption" accessibilityRole="alert" style={styles.notice}>{scan.loadError ?? scan.error}</Label> : null}
       {scan.loadError ? <Button title="Retry pending scans" variant="inverse" onPress={scan.retryLoad} /> : null}
-      {liveScannerConfig && connection === 'ready' && scan.allowed ? <View style={styles.row}>
-        <View style={{ flex: 1 }}><Button title={paused ? 'Resume scanning' : 'Pause scanning'} variant="inverse" icon={paused ? 'play-outline' : 'pause-outline'} onPress={() => setPaused(value => !value)} /></View>
-        {status.phase === 'ERROR' || captureError ? <Button title="Retry" variant="inverse" onPress={() => { setCaptureError(null); controller.retry(); }} /> : null}
-      </View> : !scan.allowed ? <Button title="Explore Chase Pro" variant="inverse" onPress={paywall} /> : null}
+      {!scan.allowed ? <Button title="Explore Chase Pro" variant="inverse" onPress={paywall} /> : null}
       <Button title={`Organize (${scan.summary.copies})`} icon="albums-outline" disabled={!scan.ready} onPress={() => router.push({ pathname: '/organize', params: { onboarding } })} />
     </View>
     <Modal transparent visible={Boolean(review)} animationType="fade" onRequestClose={() => chooser.current?.finish()}>
@@ -125,15 +159,22 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
         <Button title="Cancel identification" variant="secondary" onPress={() => chooser.current?.finish()} />
       </View></View>
     </Modal>
-  </SafeAreaView>;
+  </View>;
 }
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.scanner }, header: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, flexWrap: 'wrap' },
-  heading: { color: colors.white, fontWeight: '700', flexShrink: 1 }, quiet: { color: colors.scannerMuted, textAlign: 'center' },
-  icon: { minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center' },
-  camera: { flex: 1, minHeight: 200, backgroundColor: colors.heroInk }, setup: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, gap: 16 },
-  result: { position: 'absolute', bottom: 12, left: 12, right: 12 }, status: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8, padding: 10, borderRadius: 12, backgroundColor: colors.scanner },
-  controls: { padding: 16, gap: 12 }, row: { flexDirection: 'row', gap: 12 },
+  screen: { flex: 1, backgroundColor: colors.heroInk },
+  header: { position: 'absolute', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  heading: { color: colors.white, fontWeight: '700', flexShrink: 1, textAlign: 'center' },
+  quiet: { color: colors.scannerMuted, textAlign: 'center' },
+  icon: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.scanner },
+  torch: { position: 'absolute', left: '50%', marginLeft: -24 },
+  torchOn: { backgroundColor: colors.primarySoft }, disabled: { opacity: 0.5 }, pressed: { opacity: 0.75 },
+  setup: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24, gap: 16 },
+  controls: { position: 'absolute', bottom: 0, left: 0, right: 0, gap: 12, paddingTop: 12 },
+  feedback: { alignItems: 'center', marginBottom: 4 },
+  status: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14, backgroundColor: colors.scanner, maxWidth: '100%' },
+  statusText: { color: colors.white, textAlign: 'center', flexShrink: 1 },
+  notice: { color: colors.white, textAlign: 'center', padding: 10, backgroundColor: colors.scanner, borderRadius: 12 },
   scrim: { flex: 1, backgroundColor: colors.scrim, padding: 24, justifyContent: 'center' }, dialog: { backgroundColor: colors.white, borderRadius: 20, padding: 20, gap: 16, maxHeight: '85%' },
   choice: { minHeight: 76, borderBottomWidth: 1, borderColor: colors.border, flexDirection: 'row', alignItems: 'center', padding: 8, gap: 12 },
 });

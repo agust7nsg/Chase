@@ -58,8 +58,12 @@ function candidateFor(card: Record<string, unknown>, confidenceTier: CardSightCa
   const fields = (card.fields ?? []) as { key: string; value: string }[];
   const languages = [...new Set(fields.filter(field => field.key === 'CARD_LANGUAGE').map(field => field.value.trim().toLowerCase()))];
   const language = languages.length === 1 && /^[a-z]{2}$/.test(languages[0]) ? languages[0] : 'und';
+  const finish = finishFor(card);
   return { providerId: card.id, name: card.name, setName: names[0], ...(names.length > 1 ? { setNames: names } : {}),
-    collectorNumber: card.number, language, confidenceTier, finish: finishFor(card) };
+    ...(uuid(card.setId) ? { providerSetId: card.setId } : {}), ...(uuid(card.releaseId) ? { providerReleaseId: card.releaseId } : {}),
+    collectorNumber: card.number, language, confidenceTier, finish,
+    ...(finish === 'unknown' && (card.numberedTo !== undefined || (Array.isArray(card.parallelSuggestions) && card.parallelSuggestions.length > 0))
+      ? { finishReviewRequired: true } : {}) };
 }
 
 /** Deliberately small whitelist, independent from the much larger vendor catalog schema. */

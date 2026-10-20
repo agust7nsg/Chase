@@ -154,7 +154,7 @@ try {
     await button(failure.page, 'Organize (1)').click(); await failure.page.getByText('Price unavailable', { exact: true }).filter({ visible: true }).first().waitFor();
     await button(failure.page, 'Save all to Collection').click(); await failure.page.getByText('Confirm the variant before saving.', { exact: true }).waitFor();
     assert.deepEqual((await collection(failure.page)).items, []);
-    await button(failure.page, 'Review Charizard variant').click(); await button(failure.page, 'Confirm Holo').click();
+    await button(failure.page, 'Confirm printing').click();
     await button(failure.page, 'Save all to Collection').click(); await failure.page.getByText('1 copy saved to Collection.', { exact: true }).waitFor();
   });
   await failure.context.close();

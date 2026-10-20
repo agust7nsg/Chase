@@ -4,6 +4,7 @@ import type { Card, MarketPrice, PrototypeState } from '../types/domain';
 import type { ScanSaveResult, ScanSession, ScanSessionItem } from '../types/scanner';
 import { addCard, setQuantity } from './domain';
 import { priceToUsd } from './currency';
+import { restorePendingRecognitions } from './pendingRecognition';
 
 export function createScanSession(id: string): ScanSession {
   return { version: 1, id, items: [], freeRecognitionUsed: false };
@@ -16,7 +17,8 @@ export function appendRecognition(session: ScanSession, card: Card, id: string, 
   if ((card.catalogIdentity || card.id.startsWith('tcgdex:')) && !snapshot) throw new Error('This catalog printing needs review before staging.');
   if (snapshot) registerCatalogCard(snapshot);
   const score = typeof confidence === 'number' && Number.isFinite(confidence) && confidence >= 0 && confidence <= 1 ? confidence : undefined;
-  if (!Number.isSafeInteger(session.items.reduce((sum, item) => sum + item.quantity, 0) + 1)) throw new Error('Total pending quantity is too large.');
+  if (!Number.isSafeInteger(session.items.reduce((sum, item) => sum + item.quantity, 0)
+    + (session.unresolved ?? []).reduce((sum, item) => sum + item.quantity, 0) + 1)) throw new Error('Total pending quantity is too large.');
   const existing = session.items.find(item => item.cardId === card.id && item.variant === card.variant && item.ambiguity === ambiguity);
   if (existing && !Number.isSafeInteger(existing.quantity + 1)) throw new Error('Quantity is too large.');
   const items = existing
@@ -26,9 +28,20 @@ export function appendRecognition(session: ScanSession, card: Card, id: string, 
 }
 export function editSessionQuantity(session: ScanSession, id: string, quantity: number, operationId: string): ScanSession {
   if (!Number.isSafeInteger(quantity) || quantity < 1) throw new Error('Quantity must be a positive whole number.');
-  const total = session.items.reduce((sum, item) => sum + (item.id === id ? quantity : item.quantity), 0);
+  const total = session.items.reduce((sum, item) => sum + (item.id === id ? quantity : item.quantity), 0)
+    + (session.unresolved ?? []).reduce((sum, item) => sum + item.quantity, 0);
   if (!Number.isSafeInteger(total)) throw new Error('Total pending quantity is too large.');
   return { ...session, items: session.items.map(item => item.id === id ? { ...item, quantity, operationId } : item) };
+}
+export function linkPendingRecognition(session: ScanSession, id: string, card: Card, operation: string, isFree: boolean,
+  ambiguity: 'confirmed' | 'review'): ScanSession {
+  if (isFree && session.freeRecognitionUsed) throw new Error('Your free scan has been used.');
+  const row = session.unresolved?.find(item => item.id === id);
+  if (!row) throw new Error('This pending identification has already been linked or removed.');
+  const next = appendRecognition({ ...session, unresolved: session.unresolved!.filter(item => item.id !== id) }, card,
+    operation, row.identifiedAt, isFree, ambiguity, row.recognition.candidates[0].confidence);
+  const target = next.items.find(item => item.cardId === card.id && item.ambiguity === ambiguity)!;
+  return row.quantity === 1 ? next : editSessionQuantity(next, target.id, target.quantity + row.quantity - 1, operation);
 }
 export function editSessionVariant(session: ScanSession, id: string, cardId: string, operationId: string): ScanSession {
   const item = session.items.find(row => row.id === id);
@@ -58,7 +71,8 @@ export function sessionSummary(session: ScanSession) {
   return session.items.reduce((sum, item) => {
     const usd = item.ambiguity === 'confirmed' && item.priceState === 'available' ? priceToUsd(item.price) : null;
     return { copies: sum.copies + item.quantity, value: sum.value + (usd !== null ? Math.round(usd * 100) * item.quantity / 100 : 0), unpriced: sum.unpriced + (usd === null ? item.quantity : 0) };
-  }, { copies: 0, value: 0, unpriced: 0 });
+  }, { copies: (session.unresolved ?? []).reduce((sum, item) => sum + item.quantity, 0), value: 0,
+    unpriced: (session.unresolved ?? []).reduce((sum, item) => sum + item.quantity, 0) });
 }
 /** Each row is all-or-nothing; a failed row never prevents other selected rows saving. */
 export function saveScanItems(state: PrototypeState, items: ScanSessionItem[]): { state: PrototypeState; result: ScanSaveResult } {
@@ -110,5 +124,12 @@ export function restoreScanSession(value: unknown, fallbackId: string): ScanSess
     operations.add(row.operationId);
     items.push({ ...row, cardId: card.id, name: card.name, setName: card.setName, collectorNumber: card.collectorNumber, imageKey: card.imageKey, variant: card.variant, ambiguity: row.ambiguity === 'review' ? 'review' : 'confirmed', priceState: row.ambiguity === 'review' ? 'unavailable' : 'loading', price: null, ...(snapshot ? { card: snapshot } : {}) });
   }
-  return { version: 1, id: data.id || fallbackId, items, freeRecognitionUsed: data.freeRecognitionUsed === true };
+  const unresolved = restorePendingRecognitions(data.unresolved);
+  for (const row of unresolved) {
+    if (ids.has(row.id)) throw new Error('A pending scan needs recovery.');
+    ids.add(row.id); total += row.quantity;
+  }
+  if (!Number.isSafeInteger(total)) throw new Error('Pending quantity needs recovery.');
+  return { version: 1, id: data.id || fallbackId, items, freeRecognitionUsed: data.freeRecognitionUsed === true,
+    ...(unresolved.length ? { unresolved } : {}) };
 }

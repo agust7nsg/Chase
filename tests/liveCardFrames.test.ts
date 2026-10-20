@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { analyzeCardPixels, cardSignatureDistance, LiveCardPresentationTracker, type CardPixelInput, type CardPixelObservation } from '../src/services/liveCardFrames';
+import { analyzeCardPixels, cardSignatureDistance, cardStructureDistance, LiveCardPresentationTracker, type CardPixelInput, type CardPixelObservation } from '../src/services/liveCardFrames';
 import { ScannerController } from '../src/services/scannerController';
 
 /** Small deterministic camera-like fixtures: border, title, art, rules and text. */
@@ -69,6 +69,17 @@ function blurredPixels(input: CardPixelInput): CardPixelInput {
     source = result;
   }
   return { width, height, data: source };
+}
+
+/** A warm exposure/white-balance change, using actual pixels rather than signatures. */
+function torchPixels(input: CardPixelInput): CardPixelInput {
+  const data = new Uint8Array(input.data);
+  for (let p = 0; p < data.length; p += 4) {
+    data[p] = Math.min(255, data[p] + 50);
+    data[p + 1] = Math.max(0, data[p + 1] - 15);
+    data[p + 2] = Math.max(0, data[p + 2] - 25);
+  }
+  return { ...input, data };
 }
 
 const observed = (style = 0, options?: Parameters<typeof cardPixels>[1]) => analyzeCardPixels(cardPixels(style, options));
@@ -188,4 +199,78 @@ test('tracker plus existing scanner gate recognizes once per deliberate physical
   await advance(observed(), 9750);
   assert.equal(requests, 2);
   controller.dispose();
+});
+
+test('sustained textured surroundings can prove removal without treating one uncertain frame as an empty scene', () => {
+  const tracker = new LiveCardPresentationTracker(); const original = observed();
+  tracker.observe(original, 0); const first = fingerprint(tracker.observe(original, 650));
+  const wood: CardPixelObservation = { ...original, presence: 'uncertain', boundary: 2,
+    signature: original.signature!.map((value, index) => value + (index % 2 ? 0.8 : -0.8)) };
+  assert.equal(tracker.observe(wood, 1300), undefined);
+  assert.equal(tracker.observe(wood, 1950), undefined);
+  assert.equal(tracker.observe(wood, 2600), null);
+  assert.equal(tracker.observe(original, 3250), undefined);
+  assert.notEqual(fingerprint(tracker.observe(original, 3900)), first);
+});
+
+test('similar-colour cards with sustained artwork changes rearm; a uniform tint does not', () => {
+  const tracker = new LiveCardPresentationTracker(); const original = observed();
+  tracker.observe(original, 0); const first = fingerprint(tracker.observe(original, 650));
+  const similar = { ...original, signature: original.signature!.map((value, index) => value + (index % 2 ? 0.22 : -0.22)) };
+  assert.equal(tracker.observe(similar, 1300), undefined);
+  assert.equal(tracker.observe(similar, 1950), undefined);
+  assert.equal(tracker.observe(similar, 2600), undefined);
+  assert.notEqual(fingerprint(tracker.observe(similar, 3250)), first);
+});
+
+test('torch exposure settles without treating transient darkness or a stable warm cast as a new copy', () => {
+  const tracker = new LiveCardPresentationTracker();
+  const original = observed();
+  const illuminated = analyzeCardPixels(torchPixels(cardPixels()));
+  assert.equal(illuminated.presence, 'card');
+  assert.ok(cardSignatureDistance(original.signature!, illuminated.signature!) > 0.16, 'fixture changes colour beyond the same-card threshold');
+  assert.ok(cardStructureDistance(original.signature!, illuminated.signature!) < 0.14, 'artwork structure remains comparable');
+  tracker.observe(original, 0);
+  const token = fingerprint(tracker.observe(original, 650));
+  tracker.settleLighting(1000);
+  assert.equal(tracker.observe(empty(), 1100), undefined);
+  assert.equal(tracker.observe(empty(), 1750), undefined, 'exposure darkening is not card removal');
+  assert.equal(tracker.observe(illuminated, 2300), undefined);
+  assert.equal(fingerprint(tracker.observe(illuminated, 2950)), token);
+  assert.equal(fingerprint(tracker.observe(illuminated, 3600)), token);
+  tracker.settleLighting(4000);
+  assert.equal(tracker.observe(original, 5300), undefined);
+  assert.equal(fingerprint(tracker.observe(original, 5950)), token, 'turning the torch back off also keeps the presentation');
+});
+
+test('lighting changes still allow new artwork and deliberately removed copies after settling', () => {
+  const tracker = new LiveCardPresentationTracker();
+  tracker.observe(observed(), 0);
+  const first = fingerprint(tracker.observe(observed(), 650));
+  tracker.settleLighting(1000);
+  assert.equal(tracker.observe(observed(1), 1500), undefined);
+  assert.equal(tracker.observe(observed(1), 2300), undefined);
+  const second = fingerprint(tracker.observe(observed(1), 2950));
+  assert.notEqual(second, first, 'new artwork is not swallowed as an exposure change');
+  tracker.settleLighting(3300);
+  assert.equal(tracker.observe(empty(), 3900), undefined);
+  assert.equal(tracker.observe(empty(), 4600), undefined);
+  assert.equal(tracker.observe(empty(), 5250), null, 'removal must be observed after exposure settles');
+  assert.equal(tracker.observe(observed(1), 5900), undefined);
+  assert.notEqual(fingerprint(tracker.observe(observed(1), 6550)), second);
+});
+
+test('a photo started before the torch changes cannot erase the exposure guard when it finishes late', () => {
+  const tracker = new LiveCardPresentationTracker();
+  const original = observed();
+  const illuminated = analyzeCardPixels(torchPixels(cardPixels()));
+  tracker.observe(original, 0);
+  const first = fingerprint(tracker.observe(original, 650));
+  const inFlightPhoto = tracker.captureVersion;
+  tracker.settleLighting(1000);
+  assert.equal(tracker.observe(original, 2600, inFlightPhoto), undefined, 'a slow old-lighting photo arrives after the settle interval');
+  const currentExposure = tracker.captureVersion;
+  assert.equal(tracker.observe(illuminated, 3250, currentExposure), undefined);
+  assert.equal(fingerprint(tracker.observe(illuminated, 3900, currentExposure)), first, 'new lighting still belongs to the accepted physical card');
+  assert.equal(fingerprint(tracker.observe(illuminated, 4550, currentExposure)), first);
 });

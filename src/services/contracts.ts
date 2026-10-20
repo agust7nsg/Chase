@@ -46,6 +46,8 @@ export interface CardFrame {
   cardId?: string;
   timestamp: number;
   image?: RecognitionImage;
+  /** A local multi-frame tracker has already verified presentation stability. */
+  stable?: boolean;
 }
 
 export interface CardFrameSource {

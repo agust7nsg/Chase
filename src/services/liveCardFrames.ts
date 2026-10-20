@@ -87,8 +87,7 @@ export function analyzeCardPixels(input: CardPixelInput): CardPixelObservation {
   if (empty) return { presence: 'empty', quality: 'uncertain', signature: null, boundary, detail, contrast };
   const present = boundary >= 13 && contrast >= 13;
   const quality = detail >= 3 ? 'ready' : 'blurred';
-  if (!present) return { presence: 'uncertain', quality, signature: null, boundary, detail, contrast };
-  if (quality !== 'ready') return { presence: 'card', quality, signature: null, boundary, detail, contrast };
+  if (quality !== 'ready') return { presence: present ? 'card' : 'uncertain', quality, signature: null, boundary, detail, contrast };
 
   // Cell averages tolerate small translations, sensor noise and JPEG artefacts.
   // Luminance is centered and contrast-normalized; chroma retains card/art colour
@@ -109,7 +108,16 @@ export function analyzeCardPixels(input: CardPixelInput): CardPixelObservation {
     const [r, g, b] = rgb.map(value => value / count);
     signature.push((r * 0.299 + g * 0.587 + b * 0.114 - mean) / scale, (r - g) / 128, (b - g) / 128);
   }
-  return { presence: 'card', quality: 'ready', signature, boundary, detail, contrast };
+  return { presence: present ? 'card' : 'uncertain', quality: 'ready', signature, boundary, detail, contrast };
+}
+
+/** Spatial change after removing a uniform exposure/colour shift. */
+export function cardStructureDistance(a: readonly number[], b: readonly number[]): number {
+  if (!a.length || a.length !== b.length || a.length % 3) return Infinity;
+  const shifts = [0, 0, 0];
+  for (let i = 0; i < a.length; i++) shifts[i % 3] += b[i] - a[i];
+  for (let channel = 0; channel < 3; channel++) shifts[channel] /= a.length / 3;
+  return a.reduce((total, value, index) => total + Math.abs(b[index] - value - shifts[index % 3]), 0) / a.length;
 }
 
 export function cardSignatureDistance(a: readonly number[], b: readonly number[]): number {
@@ -143,6 +151,8 @@ export class LiveCardPresentationTracker {
   private absentSince: number | null = null;
   private absentSamples = 0;
   private lastObservationAt: number | null = null;
+  private lightingUntil: number | null = null;
+  private lightingVersion = 0;
   private sequence = 0;
   private readonly options: Required<LiveCardTrackerOptions>;
 
@@ -158,19 +168,40 @@ export class LiveCardPresentationTracker {
     this.lastObservationAt = null;
   }
 
-  reset(): void { this.resetCandidates(); this.accepted = null; }
+  /**
+   * Torch/exposure changes are not a new physical presentation. Ignore their
+   * transient dark/glared frames, preserving the accepted token. Afterwards a
+   * stable colour change may update its baseline only when spatial artwork is
+   * still similar; a different card continues through ordinary stability checks.
+   */
+  settleLighting(now: number, durationMs = 1200): void {
+    if (!Number.isFinite(now) || !Number.isFinite(durationMs)) return;
+    this.lightingVersion++;
+    this.resetCandidates();
+    this.lightingUntil = Math.max(this.lightingUntil ?? now, now + Math.max(0, Math.min(5000, durationMs)));
+  }
 
-  observe(observation: CardPixelObservation | null, now: number): CardFrame | null | undefined {
-    if (!Number.isFinite(now)) return undefined;
+  /** Snapshot before awaiting capture; an old-lighting photo must not rebase the new exposure. */
+  get captureVersion(): number { return this.lightingVersion; }
+
+  reset(): void { this.resetCandidates(); this.accepted = null; this.lightingUntil = null; this.lightingVersion++; }
+
+  observe(observation: CardPixelObservation | null, now: number, captureVersion = this.lightingVersion): CardFrame | null | undefined {
+    if (!Number.isFinite(now) || captureVersion !== this.lightingVersion) return undefined;
+    if (this.lightingUntil !== null && now < this.lightingUntil) return undefined;
     if (observation === null) { this.resetCandidates(); return undefined; }
     if (this.lastObservationAt !== null && (now < this.lastObservationAt || now - this.lastObservationAt > this.options.maxObservationGapMs)) this.resetCandidates();
     this.lastObservationAt = now;
-    if (observation.presence === 'empty') {
+    const texturedAbsence = observation.presence === 'uncertain' && observation.quality === 'ready'
+      && observation.boundary < 6 && this.accepted && observation.signature
+      && cardSignatureDistance(this.accepted.signature, observation.signature) >= this.options.changeThreshold;
+    if (observation.presence === 'empty' || texturedAbsence) {
       this.candidate = null;
       this.absentSince ??= now;
       this.absentSamples++;
-      if (this.absentSamples >= 2 && now - this.absentSince >= this.options.absenceMs) {
+      if (this.absentSamples >= (texturedAbsence ? 3 : 2) && now - this.absentSince >= (texturedAbsence ? 1200 : this.options.absenceMs)) {
         this.accepted = null;
+        this.lightingUntil = null;
         return null;
       }
       return undefined;
@@ -180,15 +211,26 @@ export class LiveCardPresentationTracker {
     const signature = observation.signature;
     if (observation.presence !== 'card' || observation.quality !== 'ready' || !signature?.length
       || signature.some(value => !Number.isFinite(value))) { this.candidate = null; return undefined; }
+    let requiredStability = this.options.stableMs;
+    let rebaseLighting = false;
     if (this.accepted) {
       const distance = cardSignatureDistance(this.accepted.signature, signature);
       if (distance <= this.options.sameThreshold) {
         this.candidate = null;
-        return { fingerprint: this.accepted.fingerprint, timestamp: now };
+        if (this.lightingUntil !== null) {
+          this.accepted.signature = [...signature];
+          this.lightingUntil = null;
+        }
+        return { fingerprint: this.accepted.fingerprint, timestamp: now, stable: true };
       }
+      rebaseLighting = this.lightingUntil !== null && cardStructureDistance(this.accepted.signature, signature) < 0.14;
+      if (!rebaseLighting) this.lightingUntil = null;
       // A medium difference may be a tilt, sleeve reflection or framing change.
       // Keep the lock rather than confidently treating it as another card.
-      if (distance < this.options.changeThreshold) { this.candidate = null; return undefined; }
+      if (!rebaseLighting && distance < this.options.changeThreshold) {
+        if (cardStructureDistance(this.accepted.signature, signature) < 0.14) { this.candidate = null; return undefined; }
+        requiredStability = Math.max(1500, requiredStability);
+      }
     }
     if (!this.candidate || cardSignatureDistance(this.candidate.signature, signature) > this.options.sameThreshold) {
       this.candidate = { signature: [...signature], since: now, samples: 1 };
@@ -196,9 +238,11 @@ export class LiveCardPresentationTracker {
     }
     const candidate = this.candidate;
     candidate.samples++;
-    if (candidate.samples < 2 || now - candidate.since < this.options.stableMs) return undefined;
-    this.accepted = { signature: [...signature], fingerprint: `${this.options.tokenPrefix}-${++this.sequence}` };
+    if (candidate.samples < 2 || now - candidate.since < requiredStability) return undefined;
+    this.accepted = { signature: [...signature], fingerprint: rebaseLighting && this.accepted
+      ? this.accepted.fingerprint : `${this.options.tokenPrefix}-${++this.sequence}` };
+    this.lightingUntil = null;
     this.candidate = null;
-    return { fingerprint: this.accepted.fingerprint, timestamp: now };
+    return { fingerprint: this.accepted.fingerprint, timestamp: now, stable: true };
   }
 }

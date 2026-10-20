@@ -1,9 +1,11 @@
 import type { Card } from '../../types/domain';
 import type { RecognitionResult } from '../contracts';
 import type { TcgDexCatalogService } from '../tcgdex';
-import { CardSightError, type CardSightCandidate, type CardSightRecognitionResponse } from './types';
+import { CardSightError, CatalogResolutionError, type CatalogResolutionDiagnostics, type CardSightCandidate, type CardSightRecognitionResponse } from './types';
+import type { RecognitionLinks } from './links';
 
-export type RecognitionCatalog = Pick<TcgDexCatalogService, 'listSets' | 'getSet' | 'getVariants'>;
+export type RecognitionCatalog = Pick<TcgDexCatalogService, 'listSets' | 'getSet' | 'getVariants'>
+  & Partial<Pick<TcgDexCatalogService, 'queryCards' | 'refreshRecognitionIndex'>>;
 export type ChooseRecognitionCandidate = (cards: Card[], signal?: AbortSignal) => Promise<Card>;
 
 const nameKey = (value: string) => value.normalize('NFKC').toLowerCase().replace(/[’‘]/g, "'").replace(/\s+/g, ' ').trim();
@@ -29,78 +31,112 @@ async function catalogRequest<T>(request: Promise<T>, signal?: AbortSignal): Pro
   } finally { if (listener) signal.removeEventListener('abort', listener); }
 }
 
-function matches(candidate: CardSightCandidate, card: Card): boolean {
-  return card.catalogIdentity?.provider === 'tcgdex' && (card.catalogIdentity.language === candidate.language || (candidate.language === 'und' && card.catalogIdentity.language === 'en'))
-    && nameKey(candidate.name) === nameKey(card.name) && [candidate.setName, ...(candidate.setNames ?? [])].some(name => nameKey(name) === nameKey(card.setName))
-    && sameNumber(candidate.collectorNumber, card.collectorNumber)
+const setKey = (value: string) => nameKey(value).replace(/^pok[eé]mon(?:\s+tcg)?[ :–—-]*/, '').replace(/[–—]/g, '-').trim();
+const setNames = (candidate: CardSightCandidate) => [candidate.setName, ...(candidate.setNames ?? [])];
+function identityMatches(candidate: CardSightCandidate, card: Card): boolean {
+  return card.catalogIdentity?.provider === 'tcgdex' && card.catalogIdentity.language === 'en'
+    && (candidate.language === 'en' || candidate.language === 'und')
+    && nameKey(candidate.name) === nameKey(card.name) && sameNumber(candidate.collectorNumber, card.collectorNumber)
     && (!candidate.tcgdexId || candidate.tcgdexId === card.catalogIdentity.id);
 }
 
-function resultFor(candidate: CardSightCandidate, variants: Card[]): RecognitionResult | undefined {
-  const exact = candidate.finish && candidate.finish !== 'unknown' ? variants.find(card => card.catalogIdentity?.variant === candidate.finish) : undefined;
-  // An unavailable finish is never silently substituted with a different priced finish.
-  if (candidate.finish && candidate.finish !== 'unknown' && !exact) return undefined;
-  const card = exact ?? variants[0];
-  if (!card) return undefined;
+/** A unique catalog finish is usable only when no conflicting parallel evidence exists. */
+export function recognitionForPrinting(candidate: CardSightCandidate, variants: Card[]): RecognitionResult | undefined {
+  const requested = candidate.finish && candidate.finish !== 'unknown';
+  const exact = requested ? variants.find(card => card.catalogIdentity?.variant === candidate.finish) : undefined;
+  if (requested && !exact) return;
+  const sole = !requested && !candidate.finishReviewRequired && variants.length === 1 && variants[0].variant !== 'Unspecified' ? variants[0] : undefined;
+  const identified = candidate.finishReviewRequired ? undefined : exact ?? sole;
+  const card = identified ?? exact ?? variants[0];
+  if (!card) return;
   const confident = candidate.confidenceTier ? candidate.confidenceTier === 'High' : candidate.confidence !== undefined && candidate.confidence >= 0.85;
-  const review = !exact || !confident || candidate.language === 'und';
-  return { ...card, ...(!exact ? { marketPrice: null, prices: [] } : {}),
+  return { ...card, ...(!identified ? { marketPrice: null, prices: [] } : {}),
     ...(candidate.confidence !== undefined ? { confidence: candidate.confidence } : {}),
-    ...(candidate.confidenceTier !== undefined ? { confidenceTier: candidate.confidenceTier } : {}), ambiguity: review ? 'review' : 'confirmed' };
+    ...(candidate.confidenceTier ? { confidenceTier: candidate.confidenceTier } : {}),
+    ambiguity: identified && confident && candidate.language === 'en' ? 'confirmed' : 'review' };
 }
 
+interface Resolved { result: RecognitionResult; candidate: CardSightCandidate; finishKnown: boolean; reviewPrinting: boolean }
 const evidence = (result: RecognitionResult) => result.confidenceTier === 'High' ? 3 : result.confidenceTier === 'Medium' ? 2
   : result.confidenceTier === 'Low' ? 1 : result.confidence ?? -1;
 
-/** Resolve only exact English printing metadata. CardSight IDs never become collection/catalog IDs. */
+/** Cross-provider names may differ; every fallback still verifies identity and requires user confirmation. */
 export async function resolveCardSightCandidates(response: CardSightRecognitionResponse, catalog: RecognitionCatalog,
-  options: { signal?: AbortSignal; chooseCandidate?: ChooseRecognitionCandidate } = {}): Promise<RecognitionResult> {
+  options: { signal?: AbortSignal; chooseCandidate?: ChooseRecognitionCandidate; links?: RecognitionLinks } = {}): Promise<RecognitionResult> {
   canceled(options.signal);
-  if (!response.candidates.length) throw new CardSightError('NO_MATCH', 'No card recognized. Adjust the card and retry.');
-  const results = new Map<string, RecognitionResult>();
-  const needsPrintingReview = new Set<string>();
+  if (!response.candidates.length) throw new CardSightError('NO_MATCH', 'No card recognized. Present another card.');
+  const results = new Map<string, Resolved>();
+  const diagnostics: CatalogResolutionDiagnostics = { stage: 'language', inspectedSetIds: [] };
+  const english = response.candidates.filter(candidate => candidate.language === 'en' || candidate.language === 'und');
   let sets: Awaited<ReturnType<RecognitionCatalog['listSets']>> | undefined;
-  // Bounded by the normalized protocol's maximum 12 candidates. This resolves
-  // the set index directly, avoiding the price-ranking crawl used for browsing.
-  for (const candidate of response.candidates) {
+  const add = async (candidate: CardSightCandidate, id: string, fallback: boolean, linked = false) => {
+    const variants = (await catalogRequest(catalog.getVariants(id), options.signal)).filter(card => (linked
+      ? card.catalogIdentity?.provider === 'tcgdex' && card.catalogIdentity.language === 'en' && card.catalogIdentity.id === id
+      : identityMatches(candidate, card))
+      && (linked || fallback || setNames(candidate).some(name => setKey(name) === setKey(card.setName))));
     canceled(options.signal);
-    if (candidate.language !== 'en' && candidate.language !== 'und') continue;
-    let ids: string[] = [];
-    if (candidate.tcgdexId) ids = [candidate.tcgdexId];
-    else {
+    if (variants.length) diagnostics.stage = 'finish';
+    const result = recognitionForPrinting(candidate, variants);
+    if (!result) return;
+    const prior = results.get(result.id);
+    const finishKnown = !candidate.finishReviewRequired && (candidate.finish === result.catalogIdentity?.variant
+      || ((!candidate.finish || candidate.finish === 'unknown') && variants.length === 1 && result.variant !== 'Unspecified'));
+    const reviewPrinting = fallback || candidate.language === 'und'
+      || (candidate.confidenceTier !== undefined && candidate.confidenceTier !== 'High')
+      || (candidate.confidence !== undefined && candidate.confidence < 0.85);
+    if (!prior || evidence(result) > evidence(prior.result)) results.set(result.id, { result, candidate, finishKnown, reviewPrinting });
+  };
+  try {
+    for (const candidate of english) {
+      canceled(options.signal);
+      diagnostics.stage = 'set';
+      const linked = await catalogRequest(options.links?.lookup(candidate).catch(() => undefined) ?? Promise.resolve(undefined), options.signal);
+      if (candidate.tcgdexId || linked) { await add(candidate, candidate.tcgdexId ?? linked!, false, Boolean(linked)); continue; }
       sets ??= await catalogRequest(catalog.listSets(), options.signal);
-      canceled(options.signal);
-      for (const set of sets.filter(set => [candidate.setName, ...(candidate.setNames ?? [])].some(name => nameKey(set.name) === nameKey(name)))) {
-        const details = await catalogRequest(catalog.getSet(set.id), options.signal);
-        canceled(options.signal);
-        ids.push(...(details?.cards.filter(card => nameKey(card.name) === nameKey(candidate.name)
-          && numberKey(card.localId) === numberKey(candidate.collectorNumber).split('/')[0]).map(card => card.id) ?? []));
+      const inspect = async () => {
+        for (const set of sets!.filter(set => setNames(candidate).some(name => setKey(set.name) === setKey(name)))) {
+          if (!diagnostics.inspectedSetIds.includes(set.id)) diagnostics.inspectedSetIds.push(set.id);
+          const details = await catalogRequest(catalog.getSet(set.id), options.signal);
+          diagnostics.stage = 'printing';
+          for (const brief of details?.cards ?? []) if (nameKey(brief.name) === nameKey(candidate.name)
+            && numberKey(brief.localId) === numberKey(candidate.collectorNumber).split('/')[0]) await add(candidate, brief.id, false);
+        }
+      };
+      await inspect();
+      if (!results.size && catalog.refreshRecognitionIndex) {
+        sets = await catalogRequest(catalog.refreshRecognitionIndex(diagnostics.inspectedSetIds), options.signal);
+        await inspect();
       }
     }
-    for (const id of new Set(ids)) {
-      const variants = (await catalogRequest(catalog.getVariants(id), options.signal)).filter(card => matches(candidate, card));
-      canceled(options.signal);
-      const result = resultFor(candidate, variants);
-      if (!result) continue;
-      const prior = results.get(result.id);
-      if (!prior || evidence(result) > evidence(prior)) {
-        results.set(result.id, result);
-        if (candidate.language === 'und' || (candidate.confidenceTier !== undefined && candidate.confidenceTier !== 'High')
-          || (candidate.confidence !== undefined && candidate.confidence < 0.85)) needsPrintingReview.add(result.id);
-        else needsPrintingReview.delete(result.id);
+    // A bounded name+number search can find a new expansion under a different
+    // provider label. Never silently choose a printing just because it is alone.
+    if (!results.size && catalog.queryCards) for (const candidate of english.filter(row => !row.tcgdexId).slice(0, 3)) {
+      const localNumber = candidate.collectorNumber.split('/')[0].trim();
+      const padded = /^\d{1,2}$/.test(localNumber) ? localNumber.padStart(3, '0') : localNumber;
+      for (const number of new Set([localNumber, padded])) {
+        const page = await catalogRequest(catalog.queryCards({ query: candidate.name,
+          collectorNumber: number, page: 1, pageSize: 12, signal: options.signal }), options.signal);
+        for (const card of page.cards.filter(card => identityMatches(candidate, card)).slice(0, 12)) await add(candidate, card.catalogIdentity!.id, true);
+        if (results.size) break;
       }
     }
+  } catch (error) {
+    canceled(options.signal);
+    if (error instanceof CardSightError && error.code === 'ABORTED') throw error;
+    throw new CatalogResolutionError(response, { ...diagnostics, stage: 'network' });
   }
   canceled(options.signal);
   const choices = [...results.values()];
-  if (!choices.length) throw new CardSightError('CATALOG_UNRESOLVED', 'The printing could not be matched to the English catalog. Retry or use manual search.');
-  if (choices.length === 1 && !needsPrintingReview.has(choices[0].id)) return choices[0];
+  if (!choices.length) throw new CatalogResolutionError(response, diagnostics);
+  if (choices.length === 1 && !choices[0].reviewPrinting) return choices[0].result;
   if (!options.chooseCandidate) throw new CardSightError('AMBIGUOUS', 'Confirm the English printing before continuing.');
-  const chosen = await catalogRequest(options.chooseCandidate(choices, options.signal), options.signal);
+  const chosen = await catalogRequest(options.chooseCandidate(choices.map(choice => choice.result), options.signal), options.signal);
   canceled(options.signal);
-  const result = choices.find(card => card.id === chosen.id);
-  if (!result) throw new CardSightError('AMBIGUOUS', 'The selected printing is not one of the recognition matches.');
-  const finishWasIdentified = response.candidates.some(candidate => matches(candidate, result)
-    && candidate.finish !== undefined && candidate.finish !== 'unknown' && candidate.finish === result.catalogIdentity?.variant);
-  return { ...result, ambiguity: finishWasIdentified ? 'confirmed' : 'review' };
+  const resolved = choices.find(choice => choice.result.id === chosen.id);
+  if (!resolved) throw new CardSightError('AMBIGUOUS', 'The selected printing is not one of the recognition matches.');
+  // Links only improve later matching. A cache write failure must not lose a
+  // printing the user has already confirmed for this session.
+  if (options.links) await options.links.remember(resolved.candidate, resolved.result).catch(() => {});
+  canceled(options.signal);
+  return { ...resolved.result, ambiguity: resolved.finishKnown ? 'confirmed' : 'review' };
 }

@@ -8,10 +8,14 @@ export interface CardSightCandidate {
   collectorNumber: string;
   language: string; // ISO language or und (vendor did not verify a language).
   finish?: 'normal' | 'holo' | 'reverse' | 'unknown';
+  /** Conflicting/unsupported parallel evidence must not be inferred from catalog cardinality. */
+  finishReviewRequired?: boolean;
   confidence?: number;
   /** Vendor evidence tier; never converted to an invented exact probability. */
   confidenceTier?: 'High' | 'Medium' | 'Low';
   tcgdexId?: string;
+  providerSetId?: string;
+  providerReleaseId?: string;
 }
 
 export interface CardSightRecognitionResponse { candidates: CardSightCandidate[] }
@@ -30,21 +34,40 @@ export function parseCardSightRecognitionResponse(value: unknown): CardSightReco
       || (item.setNames !== undefined && (!Array.isArray(item.setNames) || item.setNames.length < 1 || item.setNames.length > 2 || !item.setNames.every(name => text(name, 200))))
       || (item.confidenceTier !== undefined && !['High', 'Medium', 'Low'].includes(String(item.confidenceTier)))
       || (item.finish !== undefined && !['normal', 'holo', 'reverse', 'unknown'].includes(String(item.finish)))
+      || (item.finishReviewRequired !== undefined && typeof item.finishReviewRequired !== 'boolean')
       || (item.confidence !== undefined && (typeof item.confidence !== 'number' || !Number.isFinite(item.confidence) || item.confidence < 0 || item.confidence > 1))
       || (item.tcgdexId !== undefined && (!text(item.tcgdexId, 200) || !/^[a-zA-Z0-9._-]+$/.test(item.tcgdexId)))) return undefined;
+    for (const key of ['providerSetId', 'providerReleaseId']) if (item[key] !== undefined && !text(item[key], 200)) return undefined;
     candidates.push({ providerId: item.providerId, name: item.name, setName: item.setName, collectorNumber: item.collectorNumber,
       language: item.language, ...(item.finish !== undefined ? { finish: item.finish as CardSightCandidate['finish'] } : {}),
+      ...(item.finishReviewRequired !== undefined ? { finishReviewRequired: item.finishReviewRequired as boolean } : {}),
       ...(item.setNames !== undefined ? { setNames: item.setNames as string[] } : {}),
       ...(item.confidenceTier !== undefined ? { confidenceTier: item.confidenceTier as CardSightCandidate['confidenceTier'] } : {}),
       ...(item.confidence !== undefined ? { confidence: item.confidence as number } : {}),
       ...(item.tcgdexId !== undefined ? { tcgdexId: item.tcgdexId as string } : {}) });
+    if (item.providerSetId !== undefined) candidates[candidates.length - 1].providerSetId = item.providerSetId as string;
+    if (item.providerReleaseId !== undefined) candidates[candidates.length - 1].providerReleaseId = item.providerReleaseId as string;
   }
   return { candidates };
+}
+
+export interface CatalogResolutionDiagnostics {
+  stage: 'language' | 'set' | 'printing' | 'finish' | 'network';
+  inspectedSetIds: string[];
 }
 
 export type CardSightErrorCode = 'ABORTED' | 'BUSY' | 'CONFIGURATION' | 'IMAGE_REQUIRED' | 'INVALID_RESPONSE' | 'NETWORK' | 'TIMEOUT'
   | 'NO_MATCH' | 'CATALOG_UNRESOLVED' | 'AMBIGUOUS' | 'PROVIDER_UNAVAILABLE' | 'RATE_LIMITED';
 
 export class CardSightError extends Error {
-  constructor(public readonly code: CardSightErrorCode, message: string) { super(message); this.name = 'CardSightError'; }
+  constructor(public readonly code: CardSightErrorCode, message: string, public readonly recovery: 'card-change' | 'manual' =
+    code === 'CONFIGURATION' || code === 'RATE_LIMITED' ? 'manual' : 'card-change') { super(message); this.name = 'CardSightError'; }
+}
+
+/** Valid provider metadata only. Never contains camera bytes, a URL token or credentials. */
+export class CatalogResolutionError extends CardSightError {
+  constructor(readonly recognition: CardSightRecognitionResponse, readonly diagnostics: CatalogResolutionDiagnostics) {
+    super('CATALOG_UNRESOLVED', 'Recognized · match the printing in Organize.');
+    this.name = 'CatalogResolutionError';
+  }
 }

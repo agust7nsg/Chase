@@ -106,7 +106,7 @@ test('client rejects raw vendor payloads, sanitizes proxy errors and does not au
   const service = new CardSightRecognitionService({ proxyUrl: 'http://localhost:8787', token: 'dev', catalog: source.service,
     fetch: async () => { calls++; return errors.shift()!; } });
   await assert.rejects(service.recognize({ image }), { code: 'INVALID_RESPONSE' });
-  await assert.rejects(service.recognize({ image }), (error: unknown) => error instanceof CardSightError && error.code === 'PROVIDER_UNAVAILABLE' && !error.message.includes('secret'));
+  await assert.rejects(service.recognize({ image }), (error: unknown) => error instanceof CardSightError && error.code === 'CONFIGURATION' && error.recovery === 'manual' && !error.message.includes('secret'));
   await assert.rejects(service.recognize({ image }), { code: 'RATE_LIMITED' }); assert.equal(calls, 3);
 });
 
