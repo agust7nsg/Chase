@@ -324,9 +324,18 @@ try {
 
   await scenario('account, restoration, legal, currency, and support routes describe their actual prototype state', async () => {
     const before = await stateOf(page);
+    for (const destination of ['Create Account', 'Sign In']) {
+      await button(page, destination).click();
+      const email = page.getByRole('textbox', { name: 'Email', exact: true });
+      const unconfigured = visibleText(page, 'Account connection is not configured yet. Guest mode and your saved cards are available.');
+      await email.or(unconfigured).waitFor();
+      if (await email.isVisible()) {
+        await page.getByLabel('Password', { exact: true }).waitFor();
+        await visibleText(page, 'Your collection stays on this device. Cloud backup is not connected yet.').waitFor();
+      }
+      await page.goBack();
+    }
     const destinations = [
-      ['Create Account', 'Account creation is not connected yet.'],
-      ['Sign In', 'Sign in is not connected yet.'],
       [/Restore Purchases/, 'Purchase restoration is not connected yet.'],
       [/Privacy Policy/, 'A published Privacy Policy is not available yet.'],
       [/Terms of Service/, 'Published Terms of Service are not available yet.'],

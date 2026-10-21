@@ -6,21 +6,13 @@ import { Linking, StyleSheet, View } from 'react-native';
 import { Badge, Button, Icon, Label, Screen, uiStyles, type IconName } from '@/components/ui';
 import { legalLinks } from '@/config/links';
 import { colors } from '@/theme/tokens';
+import { AccountAuthScreen, type AuthMode } from './AccountAuthScreen';
+import { useAuth } from './AuthProvider';
 
-type SectionName = 'create' | 'signin' | 'restore' | 'privacy' | 'terms' | 'support' | 'currency' | 'about' | 'delete' | 'logout';
+type SectionName = 'restore' | 'privacy' | 'terms' | 'support' | 'currency' | 'about' | 'delete';
 type Workflow = { title: string; icon: IconName; message: string; detail: string };
 
 const workflows: Record<SectionName, Workflow> = {
-  create: {
-    title: 'Create Account', icon: 'person-add-outline',
-    message: 'Account creation is not connected yet.',
-    detail: 'Continue using Chase as a guest. Your saved cards stay on this device; cloud backup and cross-device access are not available yet.',
-  },
-  signin: {
-    title: 'Sign In', icon: 'log-in-outline',
-    message: 'Sign in is not connected yet.',
-    detail: 'No credentials are collected here. You can search, scan samples, and manage your local collection as a guest.',
-  },
   restore: {
     title: 'Restore Purchases', icon: 'refresh-outline',
     message: 'Purchase restoration is not connected yet.',
@@ -53,13 +45,8 @@ const workflows: Record<SectionName, Workflow> = {
   },
   delete: {
     title: 'Delete Account', icon: 'trash-outline',
-    message: 'Account deletion will be available after real authentication is connected.',
+    message: 'Account deletion is not connected yet.',
     detail: 'You are using Chase as a guest and there is no account to delete. No collection data is deleted here. Account deletion will require confirmation when accounts become available.',
-  },
-  logout: {
-    title: 'Log Out', icon: 'log-out-outline',
-    message: 'Log out will be available after real authentication is connected.',
-    detail: 'You are currently a guest. There is no signed-in session to end, and your local collection remains on this device.',
   },
 };
 
@@ -68,15 +55,20 @@ function isSection(value: string | undefined): value is SectionName {
 }
 
 export function AccountScreen() {
+  const auth = useAuth();
   const { currency, openCurrencySelector } = useCurrency();
   const { section } = useLocalSearchParams<{ section?: string | string[] }>();
   const requestedSection = Array.isArray(section) ? section[0] : section;
   const activeSection = isSection(requestedSection) ? requestedSection : 'about';
-  const workflow = activeSection === 'currency' ? { ...workflows.currency, message: `${CURRENCY_NAMES[currency]} (${currency})` } : workflows[activeSection];
+  const workflow = activeSection === 'currency' ? { ...workflows.currency, message: `${CURRENCY_NAMES[currency]} (${currency})` }
+    : activeSection === 'delete' && auth.user ? { ...workflows.delete, message: 'Account deletion is not connected yet.', detail: 'Your account has not been deleted. An authenticated deletion service must be connected before this action becomes available.' }
+    : workflows[activeSection];
   const isExternalSection = activeSection === 'privacy' || activeSection === 'terms' || activeSection === 'support';
   const configuredUrl = isExternalSection ? legalLinks[activeSection] : null;
   const isHttpsUrl = configuredUrl !== null && /^https:\/\/[^\s/]+(?:\/[^\s]*)?$/i.test(configuredUrl);
   const [linkError, setLinkError] = useState<string | null>(null);
+
+  if (['create', 'signin', 'logout', 'forgot', 'reset'].includes(requestedSection ?? '')) return <AccountAuthScreen key={requestedSection} mode={requestedSection as AuthMode} />;
 
   const openConfiguredLink = async () => {
     if (!configuredUrl || !isHttpsUrl) return;

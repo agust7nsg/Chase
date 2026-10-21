@@ -45,7 +45,7 @@ export function EmptyState({ title, message, action, onPress, icon = 'albums-out
   return <View style={styles.empty}><View style={styles.emptyIcon}><Icon name={icon} size={30} color={colors.primary} /></View><Label kind="heading" style={{ textAlign: 'center' }}>{title}</Label><Label style={{ color: colors.muted, textAlign: 'center' }}>{message}</Label>{action && onPress ? <Button title={action} onPress={onPress} variant="secondary" /> : null}</View>;
 }
 export function SettingRow({ title, subtitle, icon, onPress, danger = false }: { title: string; subtitle?: string; icon: IconName; onPress: () => void; danger?: boolean }) {
-  return <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.setting, pressed && { backgroundColor: colors.surface }]}>
+  return <Pressable accessibilityRole="button" accessibilityLabel={`${title}${subtitle ? `, ${subtitle}` : ''}`} onPress={onPress} style={({ pressed }) => [styles.setting, pressed && { backgroundColor: colors.surface }]}>
     <Icon name={icon} color={danger ? colors.danger : colors.muted} /><View style={{ flex: 1, gap: 4 }}><Label style={{ color: danger ? colors.danger : colors.text }}>{title}</Label>{subtitle ? <Label kind="caption" style={{ color: colors.muted }}>{subtitle}</Label> : null}</View><Icon name="chevron-forward" size={18} color={colors.muted} />
   </Pressable>;
 }

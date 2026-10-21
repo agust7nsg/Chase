@@ -7,12 +7,14 @@ import { useChase } from '@/features/app/ChaseProvider';
 import { colors } from '@/theme/tokens';
 import { CardPrint } from '@/components/CardPrint';
 import { getCatalogCard } from '@/data/mocks/catalog';
+import { useAuth } from './AuthProvider';
 
 const profileCard = getCatalogCard('swsh8-269')!;
 
 export function ProfileScreen() {
   const { currency, openCurrencySelector } = useCurrency();
   const { state, setDevPro } = useChase();
+  const auth = useAuth();
   const { fontScale } = useWindowDimensions();
   const openAccount = (section: string) => router.push({ pathname: '/account', params: { section } });
 
@@ -21,15 +23,17 @@ export function ProfileScreen() {
       <View pointerEvents="none" style={styles.mewOrbit} accessible={false} />
       <View style={[styles.identityCopy, fontScale > 1.3 && { width: '100%' }]}>
         <Label kind="title" accessibilityRole="header">Profile</Label>
-        <View style={{ gap: 8 }}><Label style={styles.guestName}>Guest collector</Label><Badge tone="blue">{state.plan === 'pro' ? 'Pro · demo' : 'Chase Free'}</Badge></View>
+        <View style={{ gap: 8 }}><Label style={styles.guestName}>{auth.user?.displayName ?? 'Guest collector'}</Label><Badge tone="blue">{state.plan === 'pro' ? 'Pro · demo' : 'Chase Free'}</Badge></View>
       </View>
       <View style={styles.mew}><CardPrint card={profileCard} /></View>
     </View>
 
     <View style={{ gap: 8 }}>
       <Section title="Account" />
-      <Label kind="caption" style={uiStyles.muted}>Accounts not connected</Label>
-      <View style={styles.accountActions}><View style={{ flex: 1, minWidth: 115 }}><Button title="Create Account" variant="ghost" onPress={() => openAccount('create')} /></View><View style={{ flex: 1, minWidth: 95 }}><Button title="Sign In" variant="ghost" onPress={() => openAccount('signin')} /></View></View>
+      <Label kind="caption" style={uiStyles.muted}>{!auth.ready ? 'Checking account…' : auth.user?.email ?? 'Your collection stays on this device'}</Label>
+      {auth.error ? <><Label kind="caption" accessibilityRole="alert" style={{ color: colors.danger }}>{auth.error}</Label><Button title="Retry account connection" variant="ghost" onPress={auth.retry} /></> : null}
+      {auth.user ? <SettingRow title="Log Out" icon="log-out-outline" onPress={() => openAccount('logout')} />
+        : <View style={styles.accountActions}><View style={{ flex: 1, minWidth: 115 }}><Button title="Create Account" variant="ghost" onPress={() => openAccount('create')} /></View><View style={{ flex: 1, minWidth: 95 }}><Button title="Sign In" variant="ghost" onPress={() => openAccount('signin')} /></View></View>}
     </View>
 
     <View>

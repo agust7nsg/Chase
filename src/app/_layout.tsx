@@ -7,6 +7,7 @@ import { Button, Label, Screen } from '@/components/ui';
 import { colors } from '@/theme/tokens';
 import { CurrencyProvider } from '@/features/currency/CurrencyProvider';
 import { ScanSessionProvider } from '@/features/scanner/ScanSessionProvider';
+import { AuthProvider } from '@/features/account/AuthProvider';
 
 function Navigator() {
   const { ready, loadError, retryLoad, persistenceError } = useChase();
@@ -26,9 +27,10 @@ function Navigator() {
       <Stack.Screen name="card/[id]" options={{ title: '' }} />
       <Stack.Screen name="match-scan/[id]" options={{ title: 'Match printing' }} />
       <Stack.Screen name="account" options={{ title: 'Account & settings' }} />
+      <Stack.Screen name="auth/callback" options={{ title: 'Account' }} />
     </Stack>
   </View>;
 }
 export default function RootLayout() {
-  return <SafeAreaProvider><CurrencyProvider><ChaseProvider><ScanSessionProvider><StatusBar style="dark" /><Navigator /></ScanSessionProvider></ChaseProvider></CurrencyProvider></SafeAreaProvider>;
+  return <SafeAreaProvider><AuthProvider><CurrencyProvider><ChaseProvider><ScanSessionProvider><StatusBar style="dark" /><Navigator /></ScanSessionProvider></ChaseProvider></CurrencyProvider></AuthProvider></SafeAreaProvider>;
 }
