@@ -143,7 +143,7 @@ async function presentArtwork(page, index, scale = 1) {
   await page.evaluate(({ index, scale }) => { globalThis.cameraArtworkIndex = index; globalThis.cameraArtworkScale = scale; globalThis.syntheticCardStyle = 0; }, { index, scale });
 }
 
-async function fixture({ candidates = [charizard], plan = 'pro', permission = true, fail = false, ready = true, catalogMissing = false, reducedMotion = 'no-preference', catalogDelayMs = 0, providerDelayMs = 0, authenticated = true, access = true } = {}) {
+async function fixture({ candidates = [charizard], plan = 'pro', permission = true, fail = false, ready = true, catalogMissing = false, reducedMotion = 'no-preference', catalogDelayMs = 0, providerDelayMs = 0, authenticated = true, access = true, trialUsed = false } = {}) {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion });
   if (permission) await context.grantPermissions(['camera'], { origin: url });
   const catalogState = await installTCGdexFixtures(context);
@@ -154,18 +154,40 @@ async function fixture({ candidates = [charizard], plan = 'pro', permission = tr
     return index >= 0 ? route.fulfill({ contentType: 'image/webp', headers: { 'access-control-allow-origin': '*' }, body: artworkBytes[index] }) : route.fallback();
   });
   catalogState.offline = catalogMissing;
-  const state = { requests: [], fail, candidates, ready, healthRequests: 0, catalogState, catalogDelayMs, providerDelayMs, console: [] };
+  const state = { requests: [], fail, candidates, ready, healthRequests: 0, guestSignUps: 0, catalogState, catalogDelayMs, providerDelayMs, console: [] };
   await context.route('https://api.tcgdex.net/**', async route => {
     if (state.catalogDelayMs) await new Promise(resolve => setTimeout(resolve, state.catalogDelayMs));
     await route.fallback();
   });
   activeState = state;
   if (hosted) {
+    let guestUser = { ...hostedUser, is_anonymous:true, email:undefined, email_confirmed_at:undefined };
     await context.route(`${hostedRoot}/auth/v1/**`, async route => {
       const headers = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-expose-headers': 'x-supabase-api-version', 'x-supabase-api-version': '2024-01-01' };
       if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
+      const user = authenticated ? hostedUser : guestUser;
+      if (new URL(route.request().url()).pathname === '/auth/v1/signup') {
+        state.guestSignUps++;
+        return route.fulfill({ status:200, headers, json: { access_token:hostedToken(), refresh_token:'fixture-guest-refresh', expires_in:3600, token_type:'bearer', user } });
+      }
+      if (new URL(route.request().url()).pathname === '/auth/v1/token') {
+        guestUser = { ...hostedUser,user_metadata:{ chase_password_setup:true } };
+        return route.fulfill({ status:200,headers,json:{ access_token:hostedToken(),refresh_token:'fixture-guest-refresh',expires_in:3600,token_type:'bearer',user:guestUser } });
+      }
       assert.equal(new URL(route.request().url()).pathname, '/auth/v1/user');
-      return route.fulfill({ status: 200, headers, json: hostedUser });
+      if (!authenticated && route.request().method() === 'PUT') {
+        const body = route.request().postDataJSON();
+        if (body.email) {
+          assert.equal(body.password,undefined,'Supabase guest passwords require email verification first.');
+          state.guestRedirect = new URL(route.request().url()).searchParams.get('redirect_to');
+          guestUser = { ...guestUser, user_metadata:{ chase_password_setup:true } };
+        } else if (body.password) {
+          assert.equal(guestUser.is_anonymous,false);
+          guestUser = { ...guestUser,user_metadata:{ chase_password_setup:false } };
+        }
+        return route.fulfill({ status:200,headers,json:guestUser });
+      }
+      return route.fulfill({ status: 200, headers, json: user });
     });
     if (authenticated) await context.addInitScript(({ token, user }) => {
       localStorage.setItem('chase.auth.vzjekkgyrdxzlhaupnrw.v1', JSON.stringify({ access_token: token, refresh_token: 'fixture-refresh-token', expires_at: Math.floor(Date.now() / 1000) + 3600, expires_in: 3600, token_type: 'bearer', user }));
@@ -182,7 +204,7 @@ async function fixture({ candidates = [charizard], plan = 'pro', permission = tr
     if (hosted) { assert.match(request.headers().authorization ?? '', /^Bearer ey/); assert.match(request.headers().apikey ?? '', /^sb_publishable_/); }
     if (new URL(request.url()).pathname.endsWith('/health')) {
       state.healthRequests++;
-      return route.fulfill({ status: access ? 200 : 403, headers, json: access ? { ready: state.ready, mode: hosted ? 'supabase-hosted' : 'local-development' } : { error: { code: 'access_required' } } });
+      return route.fulfill({ status: trialUsed ? 429 : access ? 200 : 403, headers, json: trialUsed ? { error: { code:'trial_used' } } : access ? { ready: state.ready, mode: hosted ? 'supabase-hosted' : 'local-development' } : { error: { code: 'access_required' } } });
     }
     assert.ok(new URL(request.url()).pathname.endsWith('/recognize'));
     assert.equal(request.method(), 'POST');
@@ -283,7 +305,7 @@ async function fixture({ candidates = [charizard], plan = 'pro', permission = tr
   page.on('pageerror', error => errors.push(error.stack ?? error.message));
   page.on('console', message => { if (['warning', 'error'].includes(message.type())) state.console.push(message.text()); });
   await page.goto(`${url}/scanner`);
-  await button(page, hosted && !authenticated ? 'Sign In' : ready && access ? 'Enable card scanning' : 'Retry connection').waitFor({ timeout: 60_000 });
+  await button(page, trialUsed ? 'Explore Chase Pro' : ready && access ? 'Enable card scanning' : 'Retry connection').waitFor({ timeout: 60_000 });
   await button(page, 'Organize (0)').waitFor();
   return { page, context, state };
 }
@@ -295,18 +317,50 @@ async function enable(page) {
 
 try {
   if (hosted) {
-    const guest = await fixture({ authenticated: false });
-    await check('hosted scanner requires sign-in before camera activation or photo upload while keeping demo access', async () => {
-      await button(guest.page, 'Sign In').waitFor();
-      assert.equal(guest.state.requests.length, 0); assert.equal(guest.state.healthRequests, 0);
+    const guest = await fixture({ authenticated: false, plan: 'free' });
+    await check('guest scanner connects automatically without registration and still waits for camera upload consent', async () => {
+      await button(guest.page, 'Enable card scanning').waitFor();
+      assert.equal(guest.state.requests.length, 0); assert.ok(guest.state.healthRequests >= 1);
+      assert.equal(guest.state.guestSignUps,1);
       assert.equal(await guest.page.evaluate(() => globalThis.chaseMediaRequests), 0);
-      await button(guest.page, 'Use demo scanner').first().click(); await button(guest.page, 'Organize (0)').waitFor();
-      assert.equal(copies(await collection(guest.page)), 0);
+      await enable(guest.page); await button(guest.page, 'Organize (1)').waitFor({ timeout:30_000 });
+      assert.equal(guest.state.requests.length,1); assert.equal(copies(await collection(guest.page)),0);
+      await guest.page.goto(`${url}/scanner`); await button(guest.page, 'Organize (1)').waitFor();
+      assert.equal(guest.state.guestSignUps,1, 'Reopening scanner must reuse its persisted guest.');
+      assert.equal(guest.state.requests.length,1, 'Free scan is not refilled by navigation.');
+      await guest.page.goto(`${url}/profile`); await guest.page.getByText('Guest collector',{ exact:true }).waitFor();
+      await button(guest.page,'Create Account').waitFor();
+    });
+    await check('guest registration verifies email before password setup and preserves the UUID, pending scan and Free usage', async () => {
+      const before = await stored(guest.page,'chase.auth.vzjekkgyrdxzlhaupnrw.v1');
+      await button(guest.page,'Create Account').click();
+      assert.equal(await guest.page.getByLabel('Password',{ exact:true }).count(),0);
+      await guest.page.getByLabel('Email',{ exact:true }).fill(hostedUser.email);
+      await button(guest.page,'Create Account').click();
+      await guest.page.getByText('Check your email to verify your account and choose a password.',{ exact:true }).waitFor();
+      assert.ok(guest.state.guestRedirect);
+      const callback = new URL(guest.state.guestRedirect); callback.searchParams.set('code','valid-guest-upgrade-code');
+      await guest.page.goto(callback.href);
+      await button(guest.page,'Update password').waitFor();
+      await guest.page.getByLabel('Password',{ exact:true }).fill('verified-guest-password');
+      await button(guest.page,'Update password').click();
+      await guest.page.getByText('Password updated.',{ exact:true }).waitFor();
+      const after = await stored(guest.page,'chase.auth.vzjekkgyrdxzlhaupnrw.v1');
+      assert.equal(after.user.id,before.user.id); assert.equal(after.user.is_anonymous,false);
+      assert.equal(guest.state.guestSignUps,1); assert.equal(guest.state.requests.length,1);
+      assert.equal(copies(await pending(guest.page)),1); assert.equal(copies(await collection(guest.page)),0);
+      assert.equal((await collection(guest.page)).trial.successfulRecognitions,1);
     });
     await guest.context.close();
+    const exhausted = await fixture({ trialUsed:true });
+    await check('server Free limit cannot be bypassed by local development Pro simulation', async () => {
+      await exhausted.page.getByText('Your free scan has been used. Your pending cards are still in Organize.',{ exact:true }).waitFor();
+      assert.equal(exhausted.state.requests.length,0); assert.equal(await exhausted.page.evaluate(() => globalThis.chaseMediaRequests),0);
+    });
+    await exhausted.context.close();
     const ungranted = await fixture({ access: false });
-    await check('verified sign-in and local Pro simulation alone cannot enable hosted recognition without server access', async () => {
-      await ungranted.page.getByText('Online scanning access has not been enabled for this account.', { exact: true }).waitFor();
+    await check('server revocation remains effective despite local Pro simulation', async () => {
+      await ungranted.page.getByText('Scanning is unavailable for this session. Contact support.', { exact: true }).waitFor();
       assert.equal(ungranted.state.requests.length, 0); assert.equal(await ungranted.page.evaluate(() => globalThis.chaseMediaRequests), 0);
       assert.equal(copies(await collection(ungranted.page)), 0);
     });

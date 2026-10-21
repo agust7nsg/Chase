@@ -49,9 +49,13 @@ jobs:
       - uses: supabase/setup-cli@v1
         with:
           version: latest
+      - name: Configure automatic Free and guest access
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: node scripts/configure-hosted-scanner.mjs
       - name: Deploy function
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: supabase functions deploy cardsight-scanner --project-ref "$SUPABASE_PROJECT_ID"
-      # Schema, beta access grants and vendor secrets require separate project
-      # administration. See HOSTED_SCANNER.md before running this workflow.
+      # CardSight's vendor key must already exist in Edge Function secrets.
+      # No per-user beta grant is needed for the automatic Free scan.

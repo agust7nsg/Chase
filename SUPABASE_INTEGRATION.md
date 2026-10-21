@@ -76,3 +76,7 @@ Validation on October 21, 2026: TypeScript and lint passed; all 232 unit tests p
 3. Deploy and validate the hosted CardSight beta function and its scanner-only SQL, secrets and account grants. This implementation is now prepared in [HOSTED_SCANNER.md](HOSTED_SCANNER.md); it is not automatically deployed. Verified product entitlements and public Free trial enforcement remain a later phase.
 4. Connect RevenueCat/native purchases, verified webhooks and backend entitlement enforcement before charging for scans.
 5. Implement authenticated account deletion and its retention/cascade policy; then finalize Privacy Policy and Terms against the actual deployed data flows and providers. Existing legal placeholders do not become reviewed legal documents through this change.
+
+## Automatic scanner guests
+
+The hosted scanner now creates a persisted anonymous Supabase Auth session on scanner entry, without a registration screen. This technical identity remains hidden from Profile (Guest collector); email/password creation upgrades that same UUID via updateUser and uses the configured confirmation policy. It does not refill scanner usage or upload local ownership. The deployment workflow enables `external_anonymous_users_enabled` and `security_manual_linking_enabled`, and applies additive scanner access SQL. No manual account grant is needed for the Free scan. See HOSTED_SCANNER.md for server limits and the still-pending verified RevenueCat boundary.

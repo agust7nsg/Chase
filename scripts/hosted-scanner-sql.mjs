@@ -22,15 +22,17 @@ try {
   await db.exec(`create role anon; create role authenticated; create role service_role bypassrls;
     create schema auth; create table auth.users(id uuid primary key); insert into auth.users values ('${a}'),('${b}');`);
   await db.exec(await readFile(new URL('../supabase/migrations/202610210001_hosted_scanner.sql', import.meta.url), 'utf8'));
-  await check('migration executes in PostgreSQL; ungranted, disabled and expired accounts have no access', async () => {
+  const automaticMigration = await readFile(new URL('../supabase/migrations/202610210002_automatic_scanner_access.sql', import.meta.url), 'utf8');
+  await db.exec(automaticMigration);
+  await check('migration automatically provisions Free while preserving expired beta restrictions', async () => {
     assert.equal((await status()).status,200);
-    await db.exec(`delete from public.scanner_access_grants where user_id='${a}'`); assert.equal((await claim()).body.error.code,'access_required');
+    await db.exec(`delete from public.scanner_access_grants where user_id='${a}'`); assert.ok((await claim()).lease);
     await db.exec(`update public.scanner_access_grants set expires_at=now()-interval '1 second' where user_id='${b}'`); assert.equal((await claim(b)).status,403);
   });
   await check('authenticated and anon cannot read scanner tables, grant themselves access or execute privileged RPCs', async () => {
     for (const role of ['authenticated','anon']) {
       await db.exec(`set role ${role}`);
-      for (const sql of ['select * from public.scanner_access_grants', 'update public.scanner_service_limits set daily_request_limit=9999', `select public.scanner_claim('${a}','request-0001','${digest}')`, `select public.scanner_status('${a}')`]) await assert.rejects(db.exec(sql), error => error.code === '42501');
+      for (const sql of ['select * from public.scanner_access_grants', 'update public.scanner_service_limits set daily_request_limit=9999', `select public.scanner_claim('${a}','request-0001','${digest}')`, `select public.scanner_status('${a}')`, `select public.scanner_ensure_access('${a}')`]) await assert.rejects(db.exec(sql), error => error.code === '42501');
       await db.exec('reset role');
     }
     await db.exec('set role service_role'); assert.equal((await status()).status,200); await db.exec('reset role');
@@ -74,6 +76,50 @@ try {
     const first = await claim(); await complete(first.lease);
     await db.exec(`update public.scanner_access_grants set enabled=false where user_id='${a}'`); assert.equal((await claim()).status,403);
     assert.equal((await db.query('select count(*)::integer as n from public.scanner_request_receipts')).rows[0].n,1);
+  });
+  await check('new guest or registered identity gets Free access automatically without a manual grant', async () => {
+    await db.exec(`delete from public.scanner_access_grants where user_id='${a}'`);
+    assert.equal((await status()).status,200);
+    assert.equal((await status()).status,200);
+    const row = (await db.query('select * from public.scanner_access_grants where user_id=$1',[a])).rows[0];
+    assert.equal(row.recognition_limit,1); assert.equal(row.successful_recognitions,0); assert.equal(row.remaining_requests,20);
+    assert.ok((await claim()).lease);
+  });
+  await check('Free successful recognition is charged once; health and new requests cannot bypass it, replay still works', async () => {
+    await db.exec(`delete from public.scanner_access_grants where user_id='${a}'`);
+    const first = await claim();
+    await complete(first.lease,a,'request-0001',200,{ candidates:[{ name:'Pikachu' }] });
+    await complete(first.lease,a,'request-0001',200,{ candidates:[{ name:'Pikachu' }] });
+    assert.equal((await status()).body.error.code,'trial_used');
+    assert.equal((await claim(a,'request-0002')).body.error.code,'trial_used');
+    assert.equal((await claim()).status,200);
+    const row = (await db.query('select * from public.scanner_access_grants where user_id=$1',[a])).rows[0];
+    assert.equal(row.successful_recognitions,1); assert.equal(row.remaining_requests,19);
+  });
+  await check('provider errors and empty detections retain Free eligibility within attempt budgets', async () => {
+    await db.exec(`delete from public.scanner_access_grants where user_id='${a}'`);
+    const first = await claim(); await complete(first.lease,a,'request-0001',502,{ error:{ code:'provider_response' } });
+    await db.exec(`update public.scanner_request_receipts set created_at=created_at-interval '2 seconds'`);
+    const second = await claim(a,'request-0002'); await complete(second.lease,a,'request-0002',200,{ candidates:[] });
+    assert.equal((await status()).status,200);
+    const row = (await db.query('select * from public.scanner_access_grants where user_id=$1',[a])).rows[0];
+    assert.equal(row.successful_recognitions,0); assert.equal(row.remaining_requests,18);
+  });
+  await check('guest account upgrade, reconnect, repeated deployment and health never refill Free or beta usage', async () => {
+    await db.exec(`delete from public.scanner_access_grants where user_id='${a}'`);
+    const first = await claim(); await complete(first.lease,a,'request-0001',200,{ candidates:[{ name:'Pikachu' }] });
+    // Guest linking keeps the same Auth UUID; the scanner never uses editable email/plan metadata.
+    await db.exec(automaticMigration); await db.exec(automaticMigration);
+    assert.equal((await status()).body.error.code,'trial_used');
+    assert.equal((await claim(a,'request-0002')).body.error.code,'trial_used');
+    assert.equal((await db.query('select remaining_requests from public.scanner_access_grants where user_id=$1',[a])).rows[0].remaining_requests,19);
+    assert.equal((await db.query('select remaining_requests from public.scanner_access_grants where user_id=$1',[b])).rows[0].remaining_requests,10);
+  });
+  await check('automatic enrollment cannot recreate a disabled identity or accept a nonexistent Auth UUID', async () => {
+    await db.exec(`delete from public.scanner_access_grants where user_id='${a}'`); await status();
+    await db.exec(`update public.scanner_access_grants set enabled=false where user_id='${a}'`);
+    assert.equal((await status()).status,403); assert.equal((await claim()).status,403);
+    await assert.rejects(status('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'), error => error.code === '23503');
   });
   console.log(`Hosted scanner SQL passed: ${passed} scenarios on embedded PostgreSQL. No remote schema or real user was changed.`);
 } finally { await db.close(); }

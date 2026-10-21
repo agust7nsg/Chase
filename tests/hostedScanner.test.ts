@@ -121,7 +121,9 @@ test('the server gets identity from Auth, not decoded claims or supplied user me
     return Response.json({ id: userId, role: 'authenticated', is_anonymous: false, email_confirmed_at: '2026-10-21T00:00:00Z', user_metadata: { plan: 'pro' } });
   });
   assert.equal(await dependency.authenticate(jwt), userId); assert.deepEqual(seen, ['https://abcdefghijklmnopqrst.supabase.co/auth/v1/user']);
-  for (const user of [{ id: userId, role: 'authenticated', is_anonymous: true }, { id: userId, role: 'authenticated' }, { id: otherUser, role: 'anon', email_confirmed_at: '2026-10-21T00:00:00Z' }]) {
+  const guest = supabaseScannerDependencies('https://abcdefghijklmnopqrst.supabase.co', 'server-key', async () => Response.json({ id: userId, role: 'authenticated', is_anonymous: true }));
+  assert.equal(await guest.authenticate(jwt), userId, 'Verified guest sessions get automatic Free access.');
+  for (const user of [{ id: userId, role: 'authenticated' }, { id: otherUser, role: 'anon', email_confirmed_at: '2026-10-21T00:00:00Z' }, { id: userId, role: 'anon', is_anonymous: true }]) {
     const invalid = supabaseScannerDependencies('https://abcdefghijklmnopqrst.supabase.co', 'server-key', async () => Response.json(user)); assert.equal(await invalid.authenticate(jwt), null);
   }
 });

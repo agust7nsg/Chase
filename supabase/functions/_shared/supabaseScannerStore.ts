@@ -24,8 +24,8 @@ export function supabaseScannerDependencies(url: string, serviceKey: string, fet
     if (response.status === 401 || response.status === 403) { void response.body?.cancel().catch(() => {}); return null; }
     if (!response.ok) { void response.body?.cancel().catch(() => {}); throw new Error('Authentication unavailable.'); }
     const user = await boundedJson(response.body, 65536, signal);
-    return isRecord(user) && isUserId(user.id) && user.role === 'authenticated' && user.is_anonymous !== true
-      && typeof user.email_confirmed_at === 'string' && Number.isFinite(Date.parse(user.email_confirmed_at)) ? user.id : null;
+    return isRecord(user) && isUserId(user.id) && user.role === 'authenticated'
+      && (user.is_anonymous === true || (typeof user.email_confirmed_at === 'string' && Number.isFinite(Date.parse(user.email_confirmed_at)))) ? user.id : null;
   }, 5000);
   const store: HostedScannerStore = {
     status: async userId => outcome(await rpc('scanner_status', { p_user_id: userId })),

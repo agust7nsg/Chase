@@ -1,16 +1,18 @@
 import { supabase } from '../auth/client';
 import { accountFetch } from '../auth/fetch';
+import { createScannerSession } from '../auth/scannerSession';
 import { CardSightRecognitionService } from './client';
 import { isHostedScanner, liveScannerConfig } from './config';
 import { CardSightError } from './types';
 import type { RecognitionCatalog } from './resolve';
 import type { RecognitionLinks } from './links';
 
+const session = supabase ? createScannerSession(supabase) : null;
+
 export async function scannerCredentials(): Promise<{ token: string; apiKey: string }> {
-  if (!isHostedScanner(liveScannerConfig) || !supabase) throw new CardSightError('CONFIGURATION', 'Online scanning is not configured.');
-  const result = await supabase.auth.getSession();
-  if (result.error || !result.data.session || result.data.session.user.is_anonymous) throw new CardSightError('CONFIGURATION', 'Sign in with a confirmed account to use the online scanner.');
-  return { token: result.data.session.access_token, apiKey: liveScannerConfig.publishableKey };
+  if (!isHostedScanner(liveScannerConfig) || !session) throw new CardSightError('CONFIGURATION', 'Online scanning is not configured.');
+  const current = await session();
+  return { token: current.access_token, apiKey: liveScannerConfig.publishableKey };
 }
 
 export function createLiveRecognition(catalog: RecognitionCatalog, links: RecognitionLinks): CardSightRecognitionService {

@@ -7,7 +7,7 @@ import type { UserProfile } from '@/types/domain';
 
 const service = supabase ? new AccountService(supabase) : null;
 type AuthContextValue = {
-  configured: boolean; ready: boolean; busy: boolean; user: UserProfile | null; error: string | null;
+  configured: boolean; ready: boolean; busy: boolean; user: UserProfile | null; scannerIdentity: string | null; error: string | null;
   retry: () => void; signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, redirect: string) => Promise<boolean>;
   signOut: () => Promise<void>; sendReset: (email: string, redirect: string) => Promise<void>;
@@ -16,6 +16,7 @@ type AuthContextValue = {
 const Context = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null);
+  const [scannerIdentity, setScannerIdentity] = useState<string | null>(null);
   const [ready, setReady] = useState(!service);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,11 +26,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const version = invalidate();
     if (!service) return null;
     try {
-      const account = await service.current();
-      if (mounted.current && version === generation.current) { setUser(account); setError(null); }
-      return account;
+      const identity = await service.identity();
+      if (mounted.current && version === generation.current) { setUser(identity?.profile ?? null); setScannerIdentity(identity?.id ?? null); setError(null); }
+      return identity?.profile ?? null;
     } catch (cause) {
-      if (mounted.current && version === generation.current) { setUser(null); setError(accountError(cause)); }
+      if (mounted.current && version === generation.current) { setUser(null); setScannerIdentity(null); setError(accountError(cause)); }
       return null;
     } finally { if (mounted.current && version === generation.current) setReady(true); }
   }, [invalidate]);
@@ -37,7 +38,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     mounted.current = true;
     const subscription = supabase?.auth.onAuthStateChange(event => {
       if (event === 'INITIAL_SESSION') return;
-      if (event === 'SIGNED_OUT') { invalidate(); setUser(null); setError(null); setReady(true); }
+      if (event === 'SIGNED_OUT') { invalidate(); setUser(null); setScannerIdentity(null); setError(null); setReady(true); }
       // Never await another Supabase auth method inside its locked event callback.
       else void Promise.resolve().then(refresh);
     });
@@ -59,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     catch (cause) { throw new Error(accountError(cause)); }
     finally { working.current = false; if (mounted.current) setBusy(false); }
   };
-  return <Context.Provider value={{ configured: Boolean(service), ready, busy, user, error,
+  return <Context.Provider value={{ configured: Boolean(service), ready, busy, user, scannerIdentity, error,
     retry: () => { void refresh(); },
     signIn: (email, password) => perform(async account => { await account.signIn(email, password); if (!await refresh()) throw new Error('Account could not be verified.'); }),
     signUp: (email, password, redirect) => perform(async account => { const confirm = await account.signUp(email, password, redirect); if (!confirm && !await refresh()) throw new Error('Account could not be verified.'); return confirm; }),

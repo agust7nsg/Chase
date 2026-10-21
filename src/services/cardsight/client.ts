@@ -18,10 +18,11 @@ export interface ClientOptions {
 }
 
 const messages: Record<string, string> = {
-  login_required: 'Sign in with a confirmed account to use the online scanner.',
-  access_required: 'Online scanning access has not been enabled for this account.',
-  account_limit: 'Your online scanner test allowance has been reached.',
-  service_limit: 'The online scanner has reached its daily test limit.',
+  login_required: 'Your scanning session could not be verified. Reopen the scanner to reconnect.',
+  access_required: 'Scanning is unavailable for this session. Contact support.',
+  trial_used: 'Your free scan has been used. Your pending cards are still in Organize.',
+  account_limit: 'Your scanner request allowance has been reached.',
+  service_limit: 'The scanner has reached its daily service limit. Please try again later.',
   scanner_disabled: 'Online scanning is temporarily unavailable.',
   storage_unavailable: 'The online scanner could not verify usage. Please try again later.',
   receipt_pending: 'The scan is still being recorded. Wait briefly before scanning another card.',

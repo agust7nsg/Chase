@@ -28,6 +28,7 @@ export function accountError(error: unknown): string {
   if (code === 'invalid_credentials') return 'Email or password is incorrect.';
   if (code === 'email_not_confirmed') return 'Confirm your email before signing in.';
   if (code === 'weak_password') return 'Choose a stronger password.';
+  if (code === 'email_exists' || code === 'identity_already_exists') return 'An account already uses this email. Choose Sign In.';
   if (code === 'over_email_send_rate_limit' || code === 'over_request_rate_limit') return 'Too many attempts. Please try again later.';
   if (code === 'signup_disabled') return 'Account registration is currently unavailable.';
   if (code === 'otp_expired' || code === 'flow_state_not_found' || code === 'bad_code_verifier') return 'This email link has expired or belongs to another device. Request a new link on this device.';

@@ -14,25 +14,26 @@ export function AccountAuthScreen({ mode }: { mode: AuthMode }) {
   const [email, setEmail] = useState(''); const [password, setPassword] = useState('');
   const [visiblePassword, setVisiblePassword] = useState(false);
   const [error, setError] = useState<string | null>(null); const [notice, setNotice] = useState<string | null>(null);
+  const guestCreate = mode === 'create' && Boolean(auth.scannerIdentity) && !auth.user;
   const navigate = (section: AuthMode) => router.replace({ pathname: '/account', params: { section } });
   const returnToProfile = () => router.dismissTo('/(tabs)/profile');
   const submit = async () => {
     if (auth.busy) return;
     const invalid = mode === 'reset' ? validateCredentials('valid@example.com', password, true)
-      : mode === 'logout' ? null : validateCredentials(email, mode === 'forgot' ? 'valid' : password, mode === 'create');
+      : mode === 'logout' ? null : validateCredentials(email, mode === 'forgot' || guestCreate ? 'guest-upgrade' : password, mode === 'create');
     setError(invalid); setNotice(null); if (invalid) return;
     try {
       if (mode === 'signin') { await auth.signIn(email, password); setPassword(''); returnToProfile(); }
       else if (mode === 'create') {
         const confirm = await auth.signUp(email, password, Linking.createURL('/auth/callback'));
-        setPassword(''); if (confirm) setNotice('Check your email to confirm your account, then sign in.'); else returnToProfile();
+        setPassword(''); if (confirm) setNotice(guestCreate ? 'Check your email to verify your account and choose a password.' : 'Check your email to confirm your account, then sign in.'); else returnToProfile();
       } else if (mode === 'forgot') { await auth.sendReset(email, Linking.createURL('/auth/callback')); setNotice('If an account exists for this email, you will receive a reset link. Open it on this device.'); }
       else if (mode === 'reset') { await auth.updatePassword(password); setPassword(''); setNotice('Password updated.'); }
       else { await auth.signOut(); returnToProfile(); }
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Account request failed. Please try again.'); }
   };
   const showEmail = mode === 'signin' || mode === 'create' || mode === 'forgot';
-  const showPassword = mode === 'signin' || mode === 'create' || mode === 'reset';
+  const showPassword = mode === 'signin' || (mode === 'create' && !guestCreate) || mode === 'reset';
   return <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
     <Screen safeTop={false}>
       <View style={{ paddingTop: 16, gap: 20 }}><Icon name={mode === 'logout' ? 'log-out-outline' : 'person-circle-outline'} color={colors.primary} size={32} /><Label kind="title" accessibilityRole="header">{titles[mode]}</Label></View>

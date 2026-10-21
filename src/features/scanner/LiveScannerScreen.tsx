@@ -23,7 +23,7 @@ import { ScannedCardReveal } from './ScannedCardReveal';
 export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
   const scan = useScanSession();
   const auth = useAuth();
-  const userId = auth.user?.id;
+  const userId = auth.scannerIdentity ?? undefined;
   const hosted = isHostedScanner(liveScannerConfig);
   const focused = useIsFocused();
   const insets = useSafeAreaInsets();
@@ -70,7 +70,6 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
   useEffect(() => { const subscription = AppState.addEventListener('change', value => setAppActive(value === 'active')); return () => subscription.remove(); }, []);
   useEffect(() => {
     if (!liveScannerConfig || !focused || !appActive) return;
-    if (hosted && !userId) return;
     const abort = new AbortController();
     let stopped = false;
     const timer = setTimeout(() => { abort.abort(); if (!stopped) setConnection('unavailable'); }, 8000);
@@ -79,8 +78,7 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
     }).catch(() => { if (!stopped) { setConnectionCode(undefined); setConnection('unavailable'); } }).finally(() => clearTimeout(timer));
     return () => { stopped = true; clearTimeout(timer); abort.abort(); };
   }, [focused, appActive, connectionAttempt, hosted, userId]);
-  const connected = connection === 'ready' && (!hosted || Boolean(userId && userId === checkedUser));
-  const needsSignIn = hosted && auth.ready && (!userId || (checkedUser === userId && connectionCode === 'login_required'));
+  const connected = connection === 'ready' && (!hosted || userId === checkedUser);
   const active = focused && appActive && scan.ready && !scan.loadError && connected && Boolean(liveScannerConfig);
   useEffect(() => {
     if (!active) return;
@@ -142,20 +140,20 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
   const closeDiagnostics = () => { diagnosticsOpen.current = false; setDiagnosticReport(null); };
   const scanningMessage = captureError ?? (status.phase === 'ERROR' ? status.error : !scan.allowed ? 'Free scan used' : title);
   const connectionMessage = !hosted ? (!liveScannerConfig ? 'Configure the local scanner URL and pairing token, then restart Expo.' : 'The local server must be online with CardSight recognition configured.')
-    : needsSignIn ? 'Sign in to use the online scanner. Your pending cards stay on this device.'
-      : connectionCode === 'access_required' ? 'Online scanning access has not been enabled for this account.'
-        : connectionCode === 'account_limit' ? 'Your online scanner test allowance has been reached.'
-          : connectionCode === 'service_limit' ? 'The online scanner has reached its daily test limit.'
+    : connectionCode === 'trial_used' ? 'Your free scan has been used. Your pending cards are still in Organize.'
+      : connectionCode === 'access_required' ? 'Scanning is unavailable for this session. Contact support.'
+        : connectionCode === 'account_limit' ? 'Your scanner request allowance has been reached.'
+          : connectionCode === 'service_limit' ? 'The scanner has reached its daily service limit. Please try again later.'
             : connection === 'loading' ? 'Checking your online scanner access.' : 'The online scanner is unavailable. Try connecting again.';
   return <View style={styles.screen}>
     {focused ? <StatusBar style="light" /> : null}
     <View style={StyleSheet.absoluteFill} testID="live-scanner-preview">
       {liveScannerConfig && connected ? <LiveScannerCamera ref={camera} active={focused && appActive && scan.ready && !scan.loadError}
         torch={torch && focused && appActive} onReadyChange={onCameraReadyChange} onError={onCameraError} /> : <View style={[styles.setup, { paddingTop: insets.top + 72, paddingBottom: insets.bottom + 96 }]}>
-        {liveScannerConfig && connection === 'loading' && !needsSignIn ? <ActivityIndicator color={colors.white} /> : <Icon name="server-outline" color={colors.scannerFrame} size={36} />}<Label kind="heading" style={styles.heading}>{needsSignIn ? 'Sign in to scan' : !liveScannerConfig ? 'Connect scanner server' : connection === 'loading' ? 'Connecting scanner…' : 'Scanner unavailable'}</Label>
+        {liveScannerConfig && connection === 'loading' ? <ActivityIndicator color={colors.white} /> : <Icon name="server-outline" color={colors.scannerFrame} size={36} />}<Label kind="heading" style={styles.heading}>{!liveScannerConfig ? 'Connect scanner server' : connectionCode === 'trial_used' ? 'Free scan used' : connection === 'loading' ? 'Connecting scanner…' : 'Scanner unavailable'}</Label>
         <Label style={styles.quiet}>{connectionMessage}</Label>
-        {needsSignIn ? <Button title="Sign In" variant="inverse" onPress={() => router.push({ pathname: '/account', params: { section: 'signin' } })} /> : null}
-        {liveScannerConfig && connection === 'unavailable' && !needsSignIn ? <Button title="Retry connection" variant="inverse" onPress={() => { setConnection('loading'); setConnectionAttempt(value => value + 1); }} /> : null}
+        {liveScannerConfig && connection === 'unavailable' && connectionCode !== 'trial_used' ? <Button title="Retry connection" variant="inverse" onPress={() => { setConnection('loading'); setConnectionAttempt(value => value + 1); }} /> : null}
+        {connectionCode === 'trial_used' && scan.allowed ? <Button title="Explore Chase Pro" variant="inverse" onPress={paywall} /> : null}
         <Button title="Use demo scanner" variant="inverse" onPress={onDemo} />
       </View>}
     </View>
