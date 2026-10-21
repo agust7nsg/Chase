@@ -14,12 +14,16 @@ import { fixtureCards, installTCGdexFixtures } from './fixtures/tcgdex.mjs';
 // It never supplies a vendor credential or calls CardSight. Real capture, JPEG
 // manipulation, local pixel analysis and session/save logic still execute.
 const url = process.env.CHASE_SMOKE_URL ?? 'http://localhost:8083';
-const proxy = process.env.CHASE_SCANNER_PROXY_URL ?? 'http://localhost:8787';
+const hosted = process.env.CHASE_HOSTED_SCANNER === '1';
+const hostedRoot = 'https://vzjekkgyrdxzlhaupnrw.supabase.co';
+const proxy = process.env.CHASE_SCANNER_PROXY_URL ?? (hosted ? `${hostedRoot}/functions/v1/cardsight-scanner` : 'http://localhost:8787');
 const pairingToken = 'chase-browser-fixture-pairing-only-1234';
+const hostedUser = { id: '12345678-1234-1234-1234-123456789abc', email: 'scanner-fixture@example.com', aud: 'authenticated', role: 'authenticated', is_anonymous: false, email_confirmed_at: '2026-10-21T00:00:00Z', created_at: '2026-10-21T00:00:00Z', app_metadata: {}, user_metadata: {} };
+const hostedToken = () => ['eyJhbGciOiJIUzI1NiJ9', Buffer.from(JSON.stringify({ sub: hostedUser.id, exp: Math.floor(Date.now() / 1000) + 3600, aud: 'authenticated' })).toString('base64url'), 'fixture-signature'].join('.');
 const focus = process.env.CHASE_LIVE_FOCUS;
 assert.ok(!focus || ['catalog', 'slow', 'during', 'art', 'appearance', 'diagnostics'].includes(focus), 'Unknown live-scanner focus.');
 assert.ok(['localhost', '127.0.0.1'].includes(new URL(url).hostname), 'Live smoke must use a local test server.');
-assert.ok(['localhost', '127.0.0.1'].includes(new URL(proxy).hostname), 'Proxy fixtures must use a local origin.');
+assert.ok(hosted ? proxy === `${hostedRoot}/functions/v1/cardsight-scanner` : ['localhost', '127.0.0.1'].includes(new URL(proxy).hostname), 'Only the explicit intercepted hosted project or a local proxy is supported.');
 const directory = await mkdtemp(join(tmpdir(), 'chase-live-camera-'));
 const capturePath = join(directory, 'synthetic-card.y4m');
 
@@ -139,7 +143,7 @@ async function presentArtwork(page, index, scale = 1) {
   await page.evaluate(({ index, scale }) => { globalThis.cameraArtworkIndex = index; globalThis.cameraArtworkScale = scale; globalThis.syntheticCardStyle = 0; }, { index, scale });
 }
 
-async function fixture({ candidates = [charizard], plan = 'pro', permission = true, fail = false, ready = true, catalogMissing = false, reducedMotion = 'no-preference', catalogDelayMs = 0, providerDelayMs = 0 } = {}) {
+async function fixture({ candidates = [charizard], plan = 'pro', permission = true, fail = false, ready = true, catalogMissing = false, reducedMotion = 'no-preference', catalogDelayMs = 0, providerDelayMs = 0, authenticated = true, access = true } = {}) {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion });
   if (permission) await context.grantPermissions(['camera'], { origin: url });
   const catalogState = await installTCGdexFixtures(context);
@@ -156,21 +160,33 @@ async function fixture({ candidates = [charizard], plan = 'pro', permission = tr
     await route.fallback();
   });
   activeState = state;
+  if (hosted) {
+    await context.route(`${hostedRoot}/auth/v1/**`, async route => {
+      const headers = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-expose-headers': 'x-supabase-api-version', 'x-supabase-api-version': '2024-01-01' };
+      if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
+      assert.equal(new URL(route.request().url()).pathname, '/auth/v1/user');
+      return route.fulfill({ status: 200, headers, json: hostedUser });
+    });
+    if (authenticated) await context.addInitScript(({ token, user }) => {
+      localStorage.setItem('chase.auth.vzjekkgyrdxzlhaupnrw.v1', JSON.stringify({ access_token: token, refresh_token: 'fixture-refresh-token', expires_at: Math.floor(Date.now() / 1000) + 3600, expires_in: 3600, token_type: 'bearer', user }));
+    }, { token: hostedToken(), user: hostedUser });
+  }
   await context.route(/https?:\/\/[^/]*cardsight\.ai\//, route => {
     forbiddenRequests.push(route.request().url());
     return route.abort('blockedbyclient');
   });
   await context.route(`${proxy}/**`, async route => {
     const request = route.request();
-    const headers = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization,content-type', 'access-control-allow-methods': 'GET,POST,OPTIONS' };
+    const headers = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization,content-type,apikey', 'access-control-allow-methods': 'GET,POST,OPTIONS' };
     if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
-    if (new URL(request.url()).pathname === '/health') {
+    if (hosted) { assert.match(request.headers().authorization ?? '', /^Bearer ey/); assert.match(request.headers().apikey ?? '', /^sb_publishable_/); }
+    if (new URL(request.url()).pathname.endsWith('/health')) {
       state.healthRequests++;
-      return route.fulfill({ status: 200, headers, json: { ready: state.ready, mode: 'local-development' } });
+      return route.fulfill({ status: access ? 200 : 403, headers, json: access ? { ready: state.ready, mode: hosted ? 'supabase-hosted' : 'local-development' } : { error: { code: 'access_required' } } });
     }
-    assert.equal(new URL(request.url()).pathname, '/recognize');
+    assert.ok(new URL(request.url()).pathname.endsWith('/recognize'));
     assert.equal(request.method(), 'POST');
-    assert.equal(request.headers().authorization, `Bearer ${pairingToken}`);
+    if (!hosted) assert.equal(request.headers().authorization, `Bearer ${pairingToken}`);
     assert.equal(request.headers()['x-api-key'], undefined, 'Vendor authentication must not reach the app.');
     const payload = request.postDataJSON();
     assert.equal(payload.image.mimeType, 'image/jpeg');
@@ -267,7 +283,7 @@ async function fixture({ candidates = [charizard], plan = 'pro', permission = tr
   page.on('pageerror', error => errors.push(error.stack ?? error.message));
   page.on('console', message => { if (['warning', 'error'].includes(message.type())) state.console.push(message.text()); });
   await page.goto(`${url}/scanner`);
-  await button(page, ready ? 'Enable card scanning' : 'Retry connection').waitFor({ timeout: 60_000 });
+  await button(page, hosted && !authenticated ? 'Sign In' : ready && access ? 'Enable card scanning' : 'Retry connection').waitFor({ timeout: 60_000 });
   await button(page, 'Organize (0)').waitFor();
   return { page, context, state };
 }
@@ -278,6 +294,24 @@ async function enable(page) {
 }
 
 try {
+  if (hosted) {
+    const guest = await fixture({ authenticated: false });
+    await check('hosted scanner requires sign-in before camera activation or photo upload while keeping demo access', async () => {
+      await button(guest.page, 'Sign In').waitFor();
+      assert.equal(guest.state.requests.length, 0); assert.equal(guest.state.healthRequests, 0);
+      assert.equal(await guest.page.evaluate(() => globalThis.chaseMediaRequests), 0);
+      await button(guest.page, 'Use demo scanner').first().click(); await button(guest.page, 'Organize (0)').waitFor();
+      assert.equal(copies(await collection(guest.page)), 0);
+    });
+    await guest.context.close();
+    const ungranted = await fixture({ access: false });
+    await check('verified sign-in and local Pro simulation alone cannot enable hosted recognition without server access', async () => {
+      await ungranted.page.getByText('Online scanning access has not been enabled for this account.', { exact: true }).waitFor();
+      assert.equal(ungranted.state.requests.length, 0); assert.equal(await ungranted.page.evaluate(() => globalThis.chaseMediaRequests), 0);
+      assert.equal(copies(await collection(ungranted.page)), 0);
+    });
+    await ungranted.context.close();
+  }
   if (!focus) {
   const normal = await fixture();
   const { page, state } = normal;
@@ -755,7 +789,7 @@ try {
   assert.ok(passed > 0);
   assert.deepEqual(errors, []);
   assert.deepEqual(forbiddenRequests, []);
-  console.log(`Live scanner passed: ${passed} browser scenarios, no runtime errors or vendor calls. Recognition responses are Chase protocol fixtures, not real CardSight validation. Focus: ${focus ?? 'all'}.`);
+  console.log(`Live scanner passed: ${passed} browser scenarios, no runtime errors or vendor calls. Recognition responses are Chase protocol fixtures, not real CardSight validation. Backend: ${hosted ? 'hosted fixture' : 'local fixture'}. Focus: ${focus ?? 'all'}.`);
 } catch (error) {
   if (activePage && !activePage.isClosed()) {
     await activePage.screenshot({ path: '/tmp/chase-live-scanner-failure.png' }).catch(() => {});

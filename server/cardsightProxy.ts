@@ -1,5 +1,6 @@
 /** Development-only HTTP boundary. This module is never imported by the mobile app. */
-import { parseCardSightRecognitionResponse, type CardSightRecognitionResponse } from '../src/services/cardsight/types';
+import { parseCardSightRecognitionResponse } from '../src/services/cardsight/types';
+import { ScannerTransportError, type ScannerTransport } from '../supabase/functions/_shared/transportTypes';
 
 export const SCANNER_MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 export const SCANNER_MAX_BODY_BYTES = Math.ceil(SCANNER_MAX_IMAGE_BYTES / 3) * 4 + 1024;
@@ -8,15 +9,8 @@ type JsonObject = Record<string, unknown>;
 type Outcome = { status: number; body: JsonObject };
 type Receipt = { digest: string; result: Promise<Outcome> };
 
-export type ScannerTransport = (jpeg: Uint8Array, context: {
-  apiKey: string; fetch: typeof fetch; signal: AbortSignal;
-}) => Promise<CardSightRecognitionResponse>;
-
-type TransportErrorCode = 'provider_auth' | 'provider_rate_limited' | 'provider_rejected' | 'provider_unavailable' | 'provider_response' | 'multiple_cards';
-/** Only a reviewed provider adapter may classify failures. Raw provider messages never leave this boundary. */
-export class ScannerTransportError extends Error {
-  constructor(readonly code: TransportErrorCode) { super(code); this.name = 'ScannerTransportError'; }
-}
+export { ScannerTransportError } from '../supabase/functions/_shared/transportTypes';
+export type { ScannerTransport } from '../supabase/functions/_shared/transportTypes';
 
 export interface ScannerProxyOptions {
   apiKey?: string;

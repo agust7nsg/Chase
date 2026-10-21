@@ -10,7 +10,9 @@ import { LiveCardPresentationTracker } from '@/services/liveCardFrames';
 import { LiveScannerPipeline } from '@/services/liveScannerPipeline';
 import { ScannerDiagnostics } from '@/services/scannerDiagnostics';
 import { CameraCaptureTimeout, CameraSampleError } from '@/services/cameraCapture';
-import { liveScannerConfig } from '@/services/cardsight/config';
+import { isHostedScanner, liveScannerConfig } from '@/services/cardsight/config';
+import { scannerHealth } from '@/services/cardsight/gateway';
+import { useAuth } from '@/features/account/AuthProvider';
 import { colors } from '@/theme/tokens';
 import type { Card } from '@/types/domain';
 import type { ScannerStatus } from '@/types/scanner';
@@ -20,6 +22,9 @@ import { ScannedCardReveal } from './ScannedCardReveal';
 
 export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
   const scan = useScanSession();
+  const auth = useAuth();
+  const userId = auth.user?.id;
+  const hosted = isHostedScanner(liveScannerConfig);
   const focused = useIsFocused();
   const insets = useSafeAreaInsets();
   const { onboarding } = useLocalSearchParams<{ onboarding?: string }>();
@@ -30,6 +35,8 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
   const [captureError, setCaptureError] = useState<string | null>(null);
   const [connection, setConnection] = useState<'loading' | 'ready' | 'unavailable'>('loading');
   const [connectionAttempt, setConnectionAttempt] = useState(0);
+  const [connectionCode, setConnectionCode] = useState<string | undefined>();
+  const [checkedUser, setCheckedUser] = useState<string | undefined>();
   const [status, setStatus] = useState<ScannerStatus>({ phase: 'SEARCHING', cardId: null, error: null });
   const [review, setReview] = useState<Card[] | null>(null);
   const [activity, setActivity] = useState('recognizing');
@@ -63,18 +70,18 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
   useEffect(() => { const subscription = AppState.addEventListener('change', value => setAppActive(value === 'active')); return () => subscription.remove(); }, []);
   useEffect(() => {
     if (!liveScannerConfig || !focused || !appActive) return;
+    if (hosted && !userId) return;
     const abort = new AbortController();
     let stopped = false;
-    const timer = setTimeout(() => abort.abort(), 5000);
-    void fetch(`${liveScannerConfig.proxyUrl}/health`, { signal: abort.signal }).then(async response => {
-      const value: unknown = await response.json();
-      const ready = response.ok && value && typeof value === 'object' && 'ready' in value && value.ready === true
-        && 'mode' in value && value.mode === 'local-development';
-      if (!stopped) setConnection(ready ? 'ready' : 'unavailable');
-    }).catch(() => { if (!stopped) setConnection('unavailable'); }).finally(() => clearTimeout(timer));
+    const timer = setTimeout(() => { abort.abort(); if (!stopped) setConnection('unavailable'); }, 8000);
+    void scannerHealth(abort.signal).then(value => {
+      if (!stopped) { setCheckedUser(userId); setConnectionCode(value.code); setConnection(value.ready ? 'ready' : 'unavailable'); }
+    }).catch(() => { if (!stopped) { setConnectionCode(undefined); setConnection('unavailable'); } }).finally(() => clearTimeout(timer));
     return () => { stopped = true; clearTimeout(timer); abort.abort(); };
-  }, [focused, appActive, connectionAttempt]);
-  const active = focused && appActive && scan.ready && !scan.loadError && connection === 'ready' && Boolean(liveScannerConfig);
+  }, [focused, appActive, connectionAttempt, hosted, userId]);
+  const connected = connection === 'ready' && (!hosted || Boolean(userId && userId === checkedUser));
+  const needsSignIn = hosted && auth.ready && (!userId || (checkedUser === userId && connectionCode === 'login_required'));
+  const active = focused && appActive && scan.ready && !scan.loadError && connected && Boolean(liveScannerConfig);
   useEffect(() => {
     if (!active) return;
     let stopped = false;
@@ -134,14 +141,21 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
   const openDiagnostics = () => { diagnosticsOpen.current = true; setDiagnosticReport(diagnostics.report()); };
   const closeDiagnostics = () => { diagnosticsOpen.current = false; setDiagnosticReport(null); };
   const scanningMessage = captureError ?? (status.phase === 'ERROR' ? status.error : !scan.allowed ? 'Free scan used' : title);
+  const connectionMessage = !hosted ? (!liveScannerConfig ? 'Configure the local scanner URL and pairing token, then restart Expo.' : 'The local server must be online with CardSight recognition configured.')
+    : needsSignIn ? 'Sign in to use the online scanner. Your pending cards stay on this device.'
+      : connectionCode === 'access_required' ? 'Online scanning access has not been enabled for this account.'
+        : connectionCode === 'account_limit' ? 'Your online scanner test allowance has been reached.'
+          : connectionCode === 'service_limit' ? 'The online scanner has reached its daily test limit.'
+            : connection === 'loading' ? 'Checking your online scanner access.' : 'The online scanner is unavailable. Try connecting again.';
   return <View style={styles.screen}>
     {focused ? <StatusBar style="light" /> : null}
     <View style={StyleSheet.absoluteFill} testID="live-scanner-preview">
-      {liveScannerConfig && connection === 'ready' ? <LiveScannerCamera ref={camera} active={focused && appActive && scan.ready && !scan.loadError}
+      {liveScannerConfig && connected ? <LiveScannerCamera ref={camera} active={focused && appActive && scan.ready && !scan.loadError}
         torch={torch && focused && appActive} onReadyChange={onCameraReadyChange} onError={onCameraError} /> : <View style={[styles.setup, { paddingTop: insets.top + 72, paddingBottom: insets.bottom + 96 }]}>
-        {liveScannerConfig && connection === 'loading' ? <ActivityIndicator color={colors.white} /> : <Icon name="server-outline" color={colors.scannerFrame} size={36} />}<Label kind="heading" style={styles.heading}>{!liveScannerConfig ? 'Connect scanner server' : connection === 'loading' ? 'Connecting scanner…' : 'Scanner unavailable'}</Label>
-        <Label style={styles.quiet}>{!liveScannerConfig ? 'Configure the local scanner URL and pairing token, then restart Expo.' : 'The local server must be online with CardSight recognition configured.'}</Label>
-        {liveScannerConfig && connection === 'unavailable' ? <Button title="Retry connection" variant="inverse" onPress={() => { setConnection('loading'); setConnectionAttempt(value => value + 1); }} /> : null}
+        {liveScannerConfig && connection === 'loading' && !needsSignIn ? <ActivityIndicator color={colors.white} /> : <Icon name="server-outline" color={colors.scannerFrame} size={36} />}<Label kind="heading" style={styles.heading}>{needsSignIn ? 'Sign in to scan' : !liveScannerConfig ? 'Connect scanner server' : connection === 'loading' ? 'Connecting scanner…' : 'Scanner unavailable'}</Label>
+        <Label style={styles.quiet}>{connectionMessage}</Label>
+        {needsSignIn ? <Button title="Sign In" variant="inverse" onPress={() => router.push({ pathname: '/account', params: { section: 'signin' } })} /> : null}
+        {liveScannerConfig && connection === 'unavailable' && !needsSignIn ? <Button title="Retry connection" variant="inverse" onPress={() => { setConnection('loading'); setConnectionAttempt(value => value + 1); }} /> : null}
         <Button title="Use demo scanner" variant="inverse" onPress={onDemo} />
       </View>}
     </View>
@@ -155,7 +169,7 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
       <Pressable accessibilityRole="button" accessibilityLabel="Use demo scanner" onPress={onDemo} style={({ pressed }) => [styles.icon, pressed && styles.pressed]}><Icon name="flask-outline" color={colors.scannerFrame} /></Pressable>
     </View>
     <View pointerEvents="box-none" style={[styles.controls, { paddingBottom: Math.max(insets.bottom, 16), paddingLeft: insets.left + 16, paddingRight: insets.right + 16 }]}>
-      {liveScannerConfig && connection === 'ready' ? <View pointerEvents="box-none" style={styles.feedback}>
+      {liveScannerConfig && connected ? <View pointerEvents="box-none" style={styles.feedback}>
         {status.phase === 'RESULT_READY' && result ? <ScannedCardReveal key={status.cardId} item={result} count={scan.summary.copies} />
           : <Pressable style={styles.status} accessibilityRole={__DEV__ ? 'button' : undefined} accessibilityLabel={__DEV__ ? `${scanningMessage}. Show scanner diagnostics` : undefined} onPress={__DEV__ ? openDiagnostics : undefined} accessibilityLiveRegion="polite">
             {status.phase === 'IDENTIFYING' ? <ActivityIndicator color={colors.white} /> : <Icon name={status.phase === 'ERROR' || captureError ? 'alert-circle-outline' : 'scan-outline'} color={colors.white} size={18} />}

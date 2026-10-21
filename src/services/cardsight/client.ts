@@ -3,10 +3,12 @@ import { resolveCardSightCandidates, type ChooseRecognitionCandidate, type Recog
 import { CardSightError, parseCardSightRecognitionResponse } from './types';
 import type { RecognitionLinks } from './links';
 
-interface ClientOptions {
+export interface ClientOptions {
   proxyUrl: string;
   /** Short-lived local development proxy credential, never a CardSight API key. */
-  token: string;
+  token?: string;
+  /** Resolves the CURRENT account session on every request; never closes over an old JWT. */
+  credentials?: () => Promise<{ token: string; apiKey: string }>;
   catalog: RecognitionCatalog;
   fetch?: typeof globalThis.fetch;
   timeoutMs?: number;
@@ -16,6 +18,15 @@ interface ClientOptions {
 }
 
 const messages: Record<string, string> = {
+  login_required: 'Sign in with a confirmed account to use the online scanner.',
+  access_required: 'Online scanning access has not been enabled for this account.',
+  account_limit: 'Your online scanner test allowance has been reached.',
+  service_limit: 'The online scanner has reached its daily test limit.',
+  scanner_disabled: 'Online scanning is temporarily unavailable.',
+  storage_unavailable: 'The online scanner could not verify usage. Please try again later.',
+  receipt_pending: 'The scan is still being recorded. Wait briefly before scanning another card.',
+  previous_attempt_unknown: 'That scan could not be recovered. Present another card.',
+  authentication_unavailable: 'The online scanner could not verify your session. Try again later.',
   provider_contract_pending: 'Update and restart the local scanner server to enable CardSight.',
   provider_adapter_missing: 'The local scanner server needs its CardSight adapter configured.',
   not_configured: 'The development scanner proxy is not configured.',
@@ -24,7 +35,7 @@ const messages: Record<string, string> = {
   provider_response: 'The recognition service returned an unsupported response.',
   multiple_cards: 'Present one card at a time.',
   provider_rejected: 'CardSight could not read this photo. Present another card.',
-  provider_auth: 'Check the CardSight key on the local server, then reopen the scanner.',
+  provider_auth: 'The recognition service needs attention. Try again later.',
   provider_rate_limited: 'CardSight limit reached. Check provider usage before reopening the scanner.',
   run_limit: 'Local scan limit reached. Review usage, restart the server and reopen the scanner.',
 };
@@ -37,11 +48,13 @@ export class CardSightRecognitionService {
     let url: URL;
     try { url = new URL(options.proxyUrl); } catch { throw new CardSightError('CONFIGURATION', 'Invalid development scanner URL.'); }
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash
-      || !options.token.trim() || options.token.length > 1024) throw new CardSightError('CONFIGURATION', 'Invalid development scanner configuration.');
+      || (!options.credentials && (!options.token?.trim() || options.token.length > 1024))
+      || (options.credentials && (url.protocol !== 'https:' || !/^[a-z0-9]{20}\.supabase\.co$/.test(url.hostname)
+        || url.pathname !== '/functions/v1/cardsight-scanner'))) throw new CardSightError('CONFIGURATION', 'Invalid scanner configuration.');
     this.endpoint = `${options.proxyUrl.replace(/\/+$/, '')}/recognize`;
   }
 
-  async recognize(options: RecognitionOptions & { chooseCandidate?: ChooseRecognitionCandidate } = {}): Promise<RecognitionResult> {
+  async recognize(options: RecognitionOptions & { chooseCandidate?: ChooseRecognitionCandidate; requestId?: string } = {}): Promise<RecognitionResult> {
     if (options.signal?.aborted) throw new CardSightError('ABORTED', 'Recognition canceled.');
     if (this.busy) throw new CardSightError('BUSY', 'A recognition request is already running.');
     const image = options.image;
@@ -62,9 +75,13 @@ export class CardSightRecognitionService {
         removeAbort = () => options.signal?.removeEventListener('abort', aborted);
         timer = setTimeout(() => { timedOut = true; controller.abort(); reject(new CardSightError('TIMEOUT', 'Recognition timed out. Present another card.')); }, this.options.timeoutMs ?? 25000);
       });
-      const requestId = `scan-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 14)}`;
+      const requestId = options.requestId ?? `scan-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 14)}`;
+      if (!/^[A-Za-z0-9_-]{8,96}$/.test(requestId)) throw new CardSightError('CONFIGURATION', 'Invalid scanner request ID.');
+      const credential = this.options.credentials ? await Promise.race([this.options.credentials(), interrupted]) : { token: this.options.token! };
+      if (!credential.token || credential.token.length > 8192) throw new CardSightError('CONFIGURATION', messages.login_required);
       const response = await Promise.race([(this.options.fetch ?? globalThis.fetch)(this.endpoint, {
-        method: 'POST', signal: controller.signal, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.options.token}` },
+        method: 'POST', signal: controller.signal, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${credential.token}`,
+          ...('apiKey' in credential ? { apikey: credential.apiKey } : {}) },
         body: JSON.stringify({ requestId, image: { base64: image.base64, mimeType: image.mimeType } }),
       }), interrupted]);
       const text = await Promise.race([response.text(), interrupted]);
@@ -74,8 +91,8 @@ export class CardSightRecognitionService {
       if (!response.ok) {
         const code = value && typeof value === 'object' && 'error' in value && value.error && typeof value.error === 'object'
           && 'code' in value.error && typeof value.error.code === 'string' ? value.error.code : '';
-        const configuration = response.status === 401 || ['provider_auth', 'not_configured', 'provider_adapter_missing', 'provider_contract_pending'].includes(code);
-        const localThrottle = response.status === 429 && ['busy', 'rate_limited'].includes(code);
+        const configuration = response.status === 401 || response.status === 403 || ['provider_auth', 'not_configured', 'provider_adapter_missing', 'provider_contract_pending'].includes(code);
+        const localThrottle = response.status === 429 && ['busy', 'rate_limited', 'in_progress'].includes(code);
         throw new CardSightError(response.status === 429 ? 'RATE_LIMITED' : configuration ? 'CONFIGURATION' : 'PROVIDER_UNAVAILABLE',
           messages[code] ?? (localThrottle ? 'Scanner busy. Present another card shortly.' : response.status === 429 ? 'Recognition limit reached. Check usage before reopening the scanner.' : 'The recognition service is unavailable.'),
           localThrottle ? 'card-change' : undefined);

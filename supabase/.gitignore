@@ -1,0 +1,3 @@
+# Supabase CLI connection and branch state is local, never application source.
+.temp/
+.branches/

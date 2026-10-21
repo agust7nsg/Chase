@@ -1,5 +1,7 @@
 # Supabase authentication
 
+The hosted scanner was subsequently implemented as a separate deployment in [HOSTED_SCANNER.md](HOSTED_SCANNER.md). This document describes the authentication stage; its validation counts are the results at that stage.
+
 ## Implemented boundary
 
 Chase now has a real Supabase Auth adapter and account UI: email/password registration, confirmation-required state, sign-in, persistent sessions, password recovery/update, PKCE email callbacks and logout. Profile displays a server-verified account. Guest access remains available throughout onboarding, catalog browsing and scanning.
@@ -71,6 +73,6 @@ Validation on October 21, 2026: TypeScript and lint passed; all 232 unit tests p
 
 1. Verify the real Auth project, dashboard redirects and device email flows.
 2. Add versioned SQL migrations, per-user RLS and collection sync with explicit guest import, conflict handling and offline replay receipts. Preserve pending scans independently.
-3. Move the development CardSight proxy behind authenticated server functions with server-only keys, durable recognition quotas and cancellation/idempotency semantics. The current local proxy remains required until that deployment is implemented.
+3. Deploy and validate the hosted CardSight beta function and its scanner-only SQL, secrets and account grants. This implementation is now prepared in [HOSTED_SCANNER.md](HOSTED_SCANNER.md); it is not automatically deployed. Verified product entitlements and public Free trial enforcement remain a later phase.
 4. Connect RevenueCat/native purchases, verified webhooks and backend entitlement enforcement before charging for scans.
 5. Implement authenticated account deletion and its retention/cascade policy; then finalize Privacy Policy and Terms against the actual deployed data flows and providers. Existing legal placeholders do not become reviewed legal documents through this change.

@@ -1,0 +1,8 @@
+project_id = "chase"
+
+[functions.cardsight-scanner]
+# Modern project signing keys may not be accepted by the legacy gateway JWT check.
+# The handler MUST validate every bearer with this project's Auth /user endpoint.
+# Neither a publishable key nor an unverified decoded JWT authorizes a scan.
+verify_jwt = false
+entrypoint = "./functions/cardsight-scanner/index.ts"

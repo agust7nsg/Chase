@@ -1,0 +1,57 @@
+name: Deploy hosted CardSight scanner
+
+# Deliberate deployment only. Pushing app changes does not publish a paid endpoint.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chase-hosted-scanner-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_PROJECT_ID: vzjekkgyrdxzlhaupnrw
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - name: Install isolated PostgreSQL test engine
+        run: npm install --prefix "$RUNNER_TEMP/chase-sql-tools" --no-package-lock --no-audit --no-fund --ignore-scripts @electric-sql/pglite@0.3.15
+      - name: Validate scanner migration and role isolation
+        run: CHASE_PGLITE_MODULE="$RUNNER_TEMP/chase-sql-tools/node_modules/@electric-sql/pglite/dist/index.js" npm run test:hosted-sql
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Check Supabase runtime imports
+        run: deno check supabase/functions/cardsight-scanner/index.ts
+      - name: Test portable Edge runtime
+        run: deno test --no-remote supabase/tests/hosted_scanner_test.ts
+      - name: Check deployment credentials
+        shell: bash
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ]; then
+            echo 'Add SUPABASE_ACCESS_TOKEN as a repository Actions secret, never in source.'
+            exit 1
+          fi
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Deploy function
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: supabase functions deploy cardsight-scanner --project-ref "$SUPABASE_PROJECT_ID"
+      # Schema, beta access grants and vendor secrets require separate project
+      # administration. See HOSTED_SCANNER.md before running this workflow.

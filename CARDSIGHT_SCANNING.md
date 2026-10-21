@@ -1,5 +1,7 @@
 # CardSight scanning integration
 
+This document covers the original local development proxy. An authenticated Supabase-hosted beta alternative is now implemented; see [HOSTED_SCANNER.md](HOSTED_SCANNER.md) for deployment, secrets and server-side access grants. It is not enabled by a repository push alone.
+
 The local development server now uses the real CardSight HTTP transport. The adapter was implemented from the official OpenAPI JSON supplied by the user on October 19, 2026 (OpenAPI 3.1.0, API version 1.0.0). It posts direct binary JPEGs to `https://api.cardsight.ai/v1/identify/card` with server-only `X-API-Key` authentication. There are no automatic billable retries, catalog-enrichment calls or commercial dependencies added by this change.
 
 Schema source: https://api.cardsight.ai/documentation/json. SHA-256 of the supplied file: `a14b6efa11e1619c6771d73a4fc6bde617125b866866153e985c191a210d4a58`. Automated vendor payloads are synthetic fixtures following that schema, not recorded successful CardSight responses.

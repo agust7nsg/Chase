@@ -10,6 +10,7 @@ import type { Card, MarketPrice } from '@/types/domain';
 import type { ScanSession } from '@/types/scanner';
 import { CardSightRecognitionService } from '@/services/cardsight/client';
 import { liveScannerConfig } from '@/services/cardsight/config';
+import { createLiveRecognition } from '@/services/cardsight/gateway';
 import { CatalogResolutionError } from '@/services/cardsight/types';
 import { RecognitionLinks } from '@/services/cardsight/links';
 import { resolveCardSightCandidates } from '@/services/cardsight/resolve';
@@ -106,8 +107,8 @@ export function ScanSessionProvider({ children }: { children: ReactNode }) {
     if (!canScan(current.state) || (current.state.plan === 'free' && store.session.freeRecognitionUsed)) throw new Error('Your free scan has been used. Explore Chase Pro to continue.');
     identifying.current = true;
     try {
-      if (source?.mode === 'live' && (!liveScannerConfig || !frame.image)) throw new Error('Connect the development scanner server before using CardSight.');
-      if (source?.mode === 'live' && !liveRecognition.current) liveRecognition.current = new CardSightRecognitionService({ ...liveScannerConfig!, catalog: catalogService, links: recognitionLinks });
+      if (source?.mode === 'live' && (!liveScannerConfig || !frame.image)) throw new Error('Connect the scanner server before using CardSight.');
+      if (source?.mode === 'live' && !liveRecognition.current) liveRecognition.current = createLiveRecognition(catalogService, recognitionLinks);
       const result = source?.mode === 'live'
         ? await liveRecognition.current!.recognize({ image: frame.image, signal, chooseCandidate: source.chooseCandidate, onStage: source.onStage })
         : await recognitionService.recognize({ cardId: frame.cardId, simulateFailure: optionsRef.current.fail, signal });
