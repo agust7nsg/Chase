@@ -46,6 +46,8 @@ export interface TcgDexOptions {
   storage?: CatalogStorage;
   now?: () => number;
   timeoutMs?: number;
+  /** Optional device-cache I/O is best effort and must never hold catalog requests indefinitely. */
+  cacheIoTimeoutMs?: number;
   cacheTtlMs?: number;
   onCards?: (cards: Card[]) => void;
   language?: string;

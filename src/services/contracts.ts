@@ -17,6 +17,7 @@ export interface RecognitionOptions {
   cardId?: string;
   signal?: AbortSignal;
   image?: RecognitionImage;
+  onStage?: (stage: 'recognizing' | 'catalog' | 'review') => void;
 }
 
 /** Ephemeral camera input. Never persisted with a ScanSession or Collection row. */
@@ -48,6 +49,8 @@ export interface CardFrame {
   image?: RecognitionImage;
   /** A local multi-frame tracker has already verified presentation stability. */
   stable?: boolean;
+  /** False for an appearance change without confirmed removal: verify identity before counting another copy. */
+  newPresentation?: boolean;
 }
 
 export interface CardFrameSource {

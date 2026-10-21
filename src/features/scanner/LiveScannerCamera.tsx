@@ -8,12 +8,14 @@ import { Button, Label } from '@/components/ui';
 import { colors } from '@/theme/tokens';
 import { analyzeCardPixels, type CardPixelObservation } from '@/services/liveCardFrames';
 import { scannerCrop, scannerGuide, thumbnailBytes } from '@/services/scannerImages';
-import { CameraCaptureGate, CameraCaptureTimeout, cameraDeadline, scannerPictureSize } from '@/services/cameraCapture';
+import { CameraCaptureGate, CameraCaptureTimeout, CameraSampleDeadline, CameraSampleError, cameraDeadline, scannerPictureSize, selectiveCameraSample } from '@/services/cameraCapture';
 import type { RecognitionImage } from '@/services/contracts';
 
-type Capture = { image: RecognitionImage; observation: CardPixelObservation };
-export interface LiveCameraHandle { capture(): Promise<Capture | undefined>; restart(): void }
-interface SurfaceHandle { capture(): Promise<Capture | undefined> }
+export type LiveCameraCapture = { image?: RecognitionImage; observation: CardPixelObservation;
+  timings: { captureMs: number; analysisMs: number; uploadMs: number; totalMs: number } };
+type ShouldUpload = (observation: CardPixelObservation) => boolean;
+export interface LiveCameraHandle { capture(shouldUpload: ShouldUpload): Promise<LiveCameraCapture | undefined>; restart(): void }
+interface SurfaceHandle { capture(shouldUpload: ShouldUpload): Promise<LiveCameraCapture | undefined> }
 // Reuse only the back-camera configuration, never its native view/ref/busy state.
 let preferredSize: string | undefined;
 let configurationKnown = false;
@@ -43,7 +45,7 @@ export const LiveScannerCamera = forwardRef<LiveCameraHandle, { active: boolean;
     const timer = setTimeout(() => setConfiguration(value => ({ ...value, phase: 'ready' })), 100);
     return () => clearTimeout(timer);
   }, [configuration.phase]);
-  useImperativeHandle(ref, () => ({ capture: async () => surface.current?.capture(), restart: () => setEpoch(value => value + 1) }), []);
+  useImperativeHandle(ref, () => ({ capture: async shouldUpload => surface.current?.capture(shouldUpload), restart: () => setEpoch(value => value + 1) }), []);
   const enable = async () => {
     try {
       if (!permission?.granted && !(await requestPermission()).granted) { onError('Camera permission is required for real scanning.'); return; }
@@ -78,37 +80,65 @@ const CameraSurface = forwardRef<SurfaceHandle, { bounds: { width: number; heigh
   const alive = useRef(true);
   const discovering = useRef(false);
   useEffect(() => { alive.current = true; return () => { alive.current = false; gate.retire(); onReadyChange(false); }; }, [gate, onReadyChange]);
-  useImperativeHandle(ref, () => ({ capture: async () => {
+  useImperativeHandle(ref, () => ({ capture: async shouldUpload => {
     const native = camera.current;
     if (!native) return;
     const lease = gate.begin();
     if (lease === undefined) return;
-    const operation = async (): Promise<Capture | undefined> => {
+    const started = Date.now();
+    const deadline = new CameraSampleDeadline();
+    const operation = async (): Promise<LiveCameraCapture | undefined> => {
       const files: string[] = [];
       const contexts: { release(): void }[] = [];
+      let result: LiveCameraCapture | undefined;
+      let stage: 'capture' | 'analysis' | 'upload' = 'capture';
       try {
         const photo = await native.takePictureAsync({ quality: 0.8, exif: false, skipProcessing: false });
         files.push(photo.uri);
         if (!alive.current || !gate.current(lease)) return;
-        const context = ImageManipulator.manipulate(photo.uri); contexts.push(context);
-        context.crop(scannerCrop(photo, bounds)).resize({ width: 768 });
-        const image = await context.renderAsync(); contexts.push(image);
-        if (!alive.current || !gate.current(lease)) return;
-        const upload = await image.saveAsync({ format: SaveFormat.JPEG, compress: 0.8, base64: true }); files.push(upload.uri);
-        const smallContext = ImageManipulator.manipulate(image); contexts.push(smallContext);
-        smallContext.resize({ width: 64, height: 88 });
-        const small = await smallContext.renderAsync(); contexts.push(small);
-        const thumb = await small.saveAsync({ format: SaveFormat.JPEG, compress: 0.9, base64: true }); files.push(thumb.uri);
-        if (!alive.current || !gate.current(lease)) return;
-        if (!upload.base64 || !thumb.base64) throw new Error('Camera image unavailable.');
-        const pixels = decode(thumbnailBytes(thumb.base64), { useTArray: true, formatAsRGBA: true, maxResolutionInMP: 0.01, maxMemoryUsageInMB: 8 });
-        return { image: { base64: upload.base64, mimeType: 'image/jpeg', width: upload.width, height: upload.height }, observation: analyzeCardPixels(pixels) };
+        const captureMs = Date.now() - started;
+        const crop = scannerCrop(photo, bounds);
+        const current = () => alive.current && gate.current(lease);
+        const sample = await selectiveCameraSample({
+          current, shouldUpload, onUpload: () => deadline.allowUpload(),
+          analyze: async () => {
+            stage = 'analysis';
+            // Keep ordinary sampling small. A held card/background must not create
+            // a 768px JPEG and base64 string just to decide that no request is due.
+            const context = ImageManipulator.manipulate(photo.uri); contexts.push(context);
+            context.crop(crop).resize({ width: 64, height: 88 });
+            const small = await context.renderAsync(); contexts.push(small);
+            if (!current()) throw new Error('Camera sample canceled.');
+            const thumb = await small.saveAsync({ format: SaveFormat.JPEG, compress: 0.9, base64: true }); files.push(thumb.uri);
+            if (!thumb.base64) throw new Error('Camera thumbnail unavailable.');
+            const pixels = decode(thumbnailBytes(thumb.base64), { useTArray: true, formatAsRGBA: true, maxResolutionInMP: 0.01, maxMemoryUsageInMB: 8 });
+            return analyzeCardPixels(pixels);
+          },
+          encode: async (): Promise<RecognitionImage> => {
+            stage = 'upload';
+            const context = ImageManipulator.manipulate(photo.uri); contexts.push(context);
+            context.crop(crop).resize({ width: 768 });
+            const image = await context.renderAsync(); contexts.push(image);
+            if (!current()) throw new Error('Camera sample canceled.');
+            const upload = await image.saveAsync({ format: SaveFormat.JPEG, compress: 0.8, base64: true }); files.push(upload.uri);
+            if (!upload.base64) throw new Error('Camera image unavailable.');
+            return { base64: upload.base64, mimeType: 'image/jpeg', width: upload.width, height: upload.height };
+          },
+        });
+        if (!sample) return;
+        result = { observation: sample.observation, ...(sample.image ? { image: sample.image } : {}),
+          timings: { captureMs, analysisMs: sample.analysisMs, uploadMs: sample.uploadMs, totalMs: 0 } };
+      } catch (cause) {
+        if (cause instanceof CameraCaptureTimeout) throw cause;
+        throw new CameraSampleError(stage);
       } finally {
         for (const context of contexts.reverse()) { try { context.release(); } catch { /* Already released. */ } }
         for (const uri of files) if (uri.startsWith('file://')) { try { const file = new File(uri); if (file.exists) file.delete(); } catch { /* OS cache cleanup can finish later. */ } }
       }
+      result.timings.totalMs = Date.now() - started;
+      return result;
     };
-    try { return await cameraDeadline(operation()); }
+    try { return await deadline.run(operation()); }
     catch (cause) { if (cause instanceof CameraCaptureTimeout) gate.retire(); if (alive.current) throw cause; }
     finally { gate.end(lease); }
   } }), [bounds, gate]);

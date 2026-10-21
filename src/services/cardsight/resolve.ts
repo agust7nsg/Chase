@@ -31,6 +31,16 @@ async function catalogRequest<T>(request: Promise<T>, signal?: AbortSignal): Pro
   } finally { if (listener) signal.removeEventListener('abort', listener); }
 }
 
+/** Optional local link persistence must never monopolize the scanner. */
+async function optionalLink<T>(work: () => Promise<T>, signal?: AbortSignal): Promise<T | undefined> {
+  canceled(signal);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await catalogRequest(Promise.race([Promise.resolve().then(() => { canceled(signal); return work(); }).catch(() => undefined),
+      new Promise<undefined>(resolve => { timer = setTimeout(() => resolve(undefined), 250); })]), signal);
+  } finally { if (timer) clearTimeout(timer); }
+}
+
 const setKey = (value: string) => nameKey(value).replace(/^pok[eé]mon(?:\s+tcg)?[ :–—-]*/, '').replace(/[–—]/g, '-').trim();
 const setNames = (candidate: CardSightCandidate) => [candidate.setName, ...(candidate.setNames ?? [])];
 function identityMatches(candidate: CardSightCandidate, card: Card): boolean {
@@ -62,19 +72,32 @@ const evidence = (result: RecognitionResult) => result.confidenceTier === 'High'
 
 /** Cross-provider names may differ; every fallback still verifies identity and requires user confirmation. */
 export async function resolveCardSightCandidates(response: CardSightRecognitionResponse, catalog: RecognitionCatalog,
-  options: { signal?: AbortSignal; chooseCandidate?: ChooseRecognitionCandidate; links?: RecognitionLinks } = {}): Promise<RecognitionResult> {
+  options: { signal?: AbortSignal; chooseCandidate?: ChooseRecognitionCandidate; links?: RecognitionLinks; catalogTimeoutMs?: number } = {}): Promise<RecognitionResult> {
   canceled(options.signal);
   if (!response.candidates.length) throw new CardSightError('NO_MATCH', 'No card recognized. Present another card.');
   const results = new Map<string, Resolved>();
   const diagnostics: CatalogResolutionDiagnostics = { stage: 'language', inspectedSetIds: [] };
   const english = response.candidates.filter(candidate => candidate.language === 'en' || candidate.language === 'und');
   let sets: Awaited<ReturnType<RecognitionCatalog['listSets']>> | undefined;
+  // A per-HTTP deadline does not bound a sequence of catalog/cache operations.
+  // Cancel the complete automatic search, retain provider metadata for Organize,
+  // and leave deliberate user review outside this deadline.
+  const search = new AbortController();
+  const abortSearch = () => search.abort();
+  options.signal?.addEventListener('abort', abortSearch, { once: true });
+  if (options.signal?.aborted) search.abort();
+  let expired = false;
+  const configuredBudget = options.catalogTimeoutMs;
+  const budget = typeof configuredBudget === 'number' && Number.isFinite(configuredBudget) && configuredBudget > 0
+    ? Math.min(30_000, configuredBudget) : 5000;
+  const timer = setTimeout(() => { expired = true; search.abort(); }, budget);
+  const request = <T,>(operation: Promise<T>) => catalogRequest(operation, search.signal);
   const add = async (candidate: CardSightCandidate, id: string, fallback: boolean, linked = false) => {
-    const variants = (await catalogRequest(catalog.getVariants(id), options.signal)).filter(card => (linked
+    const variants = (await request(catalog.getVariants(id))).filter(card => (linked
       ? card.catalogIdentity?.provider === 'tcgdex' && card.catalogIdentity.language === 'en' && card.catalogIdentity.id === id
       : identityMatches(candidate, card))
       && (linked || fallback || setNames(candidate).some(name => setKey(name) === setKey(card.setName))));
-    canceled(options.signal);
+    canceled(search.signal);
     if (variants.length) diagnostics.stage = 'finish';
     const result = recognitionForPrinting(candidate, variants);
     if (!result) return;
@@ -88,15 +111,15 @@ export async function resolveCardSightCandidates(response: CardSightRecognitionR
   };
   try {
     for (const candidate of english) {
-      canceled(options.signal);
+      canceled(search.signal);
       diagnostics.stage = 'set';
-      const linked = await catalogRequest(options.links?.lookup(candidate).catch(() => undefined) ?? Promise.resolve(undefined), options.signal);
+      const linked = !candidate.tcgdexId && options.links ? await optionalLink(() => options.links!.lookup(candidate), search.signal) : undefined;
       if (candidate.tcgdexId || linked) { await add(candidate, candidate.tcgdexId ?? linked!, false, Boolean(linked)); continue; }
-      sets ??= await catalogRequest(catalog.listSets(), options.signal);
+      sets ??= await request(catalog.listSets());
       const inspect = async () => {
         for (const set of sets!.filter(set => setNames(candidate).some(name => setKey(set.name) === setKey(name)))) {
           if (!diagnostics.inspectedSetIds.includes(set.id)) diagnostics.inspectedSetIds.push(set.id);
-          const details = await catalogRequest(catalog.getSet(set.id), options.signal);
+          const details = await request(catalog.getSet(set.id));
           diagnostics.stage = 'printing';
           for (const brief of details?.cards ?? []) if (nameKey(brief.name) === nameKey(candidate.name)
             && numberKey(brief.localId) === numberKey(candidate.collectorNumber).split('/')[0]) await add(candidate, brief.id, false);
@@ -104,7 +127,7 @@ export async function resolveCardSightCandidates(response: CardSightRecognitionR
       };
       await inspect();
       if (!results.size && catalog.refreshRecognitionIndex) {
-        sets = await catalogRequest(catalog.refreshRecognitionIndex(diagnostics.inspectedSetIds), options.signal);
+        sets = await request(catalog.refreshRecognitionIndex(diagnostics.inspectedSetIds));
         await inspect();
       }
     }
@@ -114,16 +137,19 @@ export async function resolveCardSightCandidates(response: CardSightRecognitionR
       const localNumber = candidate.collectorNumber.split('/')[0].trim();
       const padded = /^\d{1,2}$/.test(localNumber) ? localNumber.padStart(3, '0') : localNumber;
       for (const number of new Set([localNumber, padded])) {
-        const page = await catalogRequest(catalog.queryCards({ query: candidate.name,
-          collectorNumber: number, page: 1, pageSize: 12, signal: options.signal }), options.signal);
+        const page = await request(catalog.queryCards({ query: candidate.name,
+          collectorNumber: number, page: 1, pageSize: 12, signal: search.signal }));
         for (const card of page.cards.filter(card => identityMatches(candidate, card)).slice(0, 12)) await add(candidate, card.catalogIdentity!.id, true);
         if (results.size) break;
       }
     }
   } catch (error) {
     canceled(options.signal);
-    if (error instanceof CardSightError && error.code === 'ABORTED') throw error;
+    if (!expired && error instanceof CardSightError && error.code === 'ABORTED') throw error;
     throw new CatalogResolutionError(response, { ...diagnostics, stage: 'network' });
+  } finally {
+    clearTimeout(timer);
+    options.signal?.removeEventListener('abort', abortSearch);
   }
   canceled(options.signal);
   const choices = [...results.values()];
@@ -136,7 +162,7 @@ export async function resolveCardSightCandidates(response: CardSightRecognitionR
   if (!resolved) throw new CardSightError('AMBIGUOUS', 'The selected printing is not one of the recognition matches.');
   // Links only improve later matching. A cache write failure must not lose a
   // printing the user has already confirmed for this session.
-  if (options.links) await options.links.remember(resolved.candidate, resolved.result).catch(() => {});
+  if (options.links) await optionalLink(() => options.links!.remember(resolved.candidate, resolved.result), options.signal);
   canceled(options.signal);
   return { ...resolved.result, ambiguity: resolved.finishKnown ? 'confirmed' : 'review' };
 }

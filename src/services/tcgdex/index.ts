@@ -23,6 +23,9 @@ export class TcgDexCatalogService implements CardCatalogService {
   private readonly ttl: number;
   private readonly maxCacheEntries: number;
   private persistence: Promise<void> = Promise.resolve();
+  private queuedPersistence = 0;
+  private storageUnavailable = false;
+  private readonly cacheIoTimeoutMs: number;
   private recognitionRefreshAt = -Infinity;
 
   constructor(options: TcgDexOptions = {}) {
@@ -34,6 +37,7 @@ export class TcgDexCatalogService implements CardCatalogService {
     this.now = options.now ?? Date.now;
     this.ttl = options.cacheTtlMs ?? 24 * 60 * 60 * 1000;
     this.maxCacheEntries = Math.max(1, Math.floor(options.maxCacheEntries ?? 250));
+    this.cacheIoTimeoutMs = Number.isFinite(options.cacheIoTimeoutMs) ? Math.max(1, Math.min(1000, options.cacheIoTimeoutMs!)) : 250;
   }
 
   private key(path: string): string { return `chase.tcgdex.v1:${this.language}:${path}`; }
@@ -44,24 +48,46 @@ export class TcgDexCatalogService implements CardCatalogService {
     while (this.cache.size > this.maxCacheEntries) this.cache.delete(this.cache.keys().next().value!);
   }
 
+  /** AsyncStorage cannot cancel a started write. Quarantine it after a timeout:
+   * never overlap newer writes or deletions with an older native call finishing late. */
+  private async cacheIO<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.storageUnavailable) throw new Error('Device catalog cache is unavailable.');
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([Promise.resolve().then(operation), new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => { this.storageUnavailable = true; reject(new Error('Device catalog cache timed out.')); }, this.cacheIoTimeoutMs);
+      })]);
+    } finally { if (timer) clearTimeout(timer); }
+  }
+
   private async persist(path: string, entry: Cached): Promise<void> {
     const storage = this.options.storage;
-    if (!storage) return;
+    // Cache writes are optional; bound the backlog as well as native I/O. Memory
+    // still retains the fetched printing when persistence is slow/full/unavailable.
+    if (!storage || this.storageUnavailable || this.queuedPersistence >= 16) return;
+    this.queuedPersistence++;
     const next = this.persistence.then(async () => {
+      if (this.storageUnavailable) return;
       const indexKey = this.key('cache-index');
       let paths: string[] = [];
       try {
-        const value: unknown = JSON.parse(await storage.getItem(indexKey) ?? '[]');
+        const value: unknown = JSON.parse(await this.cacheIO(() => storage.getItem(indexKey)) ?? '[]');
         if (Array.isArray(value)) paths = value.filter((item): item is string => typeof item === 'string' && item !== path);
       } catch { /* A corrupt index does not prevent saving a new cache entry. */ }
+      if (this.storageUnavailable) return;
       paths.push(path);
       const evicted = paths.splice(0, Math.max(0, paths.length - this.maxCacheEntries));
-      await storage.setItem(this.key(path), JSON.stringify({ version: 1, ...entry }));
-      await storage.setItem(indexKey, JSON.stringify(paths));
-      if (storage.removeItem) await Promise.all(evicted.map(old => storage.removeItem!(this.key(old))));
-    });
+      await this.cacheIO(() => storage.setItem(this.key(path), JSON.stringify({ version: 1, ...entry })));
+      await this.cacheIO(() => storage.setItem(indexKey, JSON.stringify(paths)));
+      if (storage.removeItem) for (const old of evicted) await this.cacheIO(() => storage.removeItem!(this.key(old)));
+    }).finally(() => { this.queuedPersistence--; });
     this.persistence = next.catch(() => {});
-    await next;
+    // Return fresh API data promptly; the one ordered writer may finish in the
+    // background. A short grace keeps immediate/fast cache storage deterministic.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([next, new Promise<void>(resolve => { timer = setTimeout(resolve, 50); })]);
+    } finally { if (timer) clearTimeout(timer); }
   }
 
   private validate(path: string, value: unknown): void {
@@ -94,13 +120,16 @@ export class TcgDexCatalogService implements CardCatalogService {
     const memory = this.cache.get(path);
     if (memory) return memory;
     try {
-      const saved = await this.options.storage?.getItem(this.key(path));
+      if (!this.options.storage || this.storageUnavailable) return undefined;
+      const saved = await this.cacheIO(() => this.options.storage!.getItem(this.key(path)));
       if (!saved) return undefined;
       const parsed: unknown = JSON.parse(saved);
       if (!record(parsed) || parsed.version !== 1 || typeof parsed.savedAt !== 'number' || !Number.isFinite(parsed.savedAt)
         || parsed.savedAt > this.now() || !('value' in parsed)) return undefined;
       this.validate(path, parsed.value);
       const entry = { savedAt: parsed.savedAt, value: parsed.value };
+      const current = this.cache.get(path);
+      if (current && current.savedAt >= entry.savedAt) return current;
       this.remember(path, entry);
       return entry;
     } catch { return undefined; }
@@ -149,6 +178,7 @@ export class TcgDexCatalogService implements CardCatalogService {
       return await Promise.race([this.request(path), new Promise<never>((_, reject) => {
         listener = () => reject(abortError());
         signal.addEventListener('abort', listener, { once: true });
+        if (signal.aborted) listener();
       })]);
     } finally { if (listener) signal.removeEventListener('abort', listener); }
   }

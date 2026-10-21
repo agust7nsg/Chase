@@ -72,12 +72,12 @@ export function analyzeCardPixels(input: CardPixelInput): CardPixelObservation {
   };
   let vertical = 0;
   let horizontal = 0;
-  for (let inset = 0.05; inset <= 0.181; inset += 0.015) {
+  for (let inset = 0.05; inset <= 0.281; inset += 0.015) {
     const a = Math.max(2, Math.round(width * inset));
     const b = Math.min(width - 3, width - 1 - a);
     vertical = Math.max(vertical, Math.min(line(true, a), line(true, b)));
   }
-  for (let inset = 0.03; inset <= 0.141; inset += 0.012) {
+  for (let inset = 0.03; inset <= 0.281; inset += 0.012) {
     const a = Math.max(2, Math.round(height * inset));
     const b = Math.min(height - 3, height - 1 - a);
     horizontal = Math.max(horizontal, Math.min(line(false, a), line(false, b)));
@@ -130,6 +130,19 @@ export function cardSignatureDistance(a: readonly number[], b: readonly number[]
   return difference / a.length;
 }
 
+/** Compare the illustration region separately from shared text boxes and frame colours. */
+export function cardArtworkDistance(a: readonly number[], b: readonly number[]): number {
+  if (a.length !== 240 || b.length !== 240) return Infinity;
+  const regionA: number[] = []; const regionB: number[] = [];
+  // The descriptor covers x18–82%/y14–86% of the crop. Its upper five rows
+  // and inner six columns emphasize artwork on ordinary common-card layouts.
+  for (let row = 0; row < 5; row++) for (let column = 1; column < 7; column++) {
+    const start = (row * 8 + column) * 3;
+    regionA.push(...a.slice(start, start + 3)); regionB.push(...b.slice(start, start + 3));
+  }
+  return cardStructureDistance(regionA, regionB);
+}
+
 export interface LiveCardTrackerOptions {
   stableMs?: number;
   absenceMs?: number;
@@ -139,6 +152,19 @@ export interface LiveCardTrackerOptions {
   tokenPrefix?: string;
 }
 
+/** Ephemeral scalar diagnostics only: never include pixels, signatures or image data. */
+export interface LiveCardTrackerDiagnostic {
+  reason: string;
+  presence?: CardPixelObservation['presence'];
+  quality?: CardPixelObservation['quality'];
+  boundary?: number;
+  detail?: number;
+  contrast?: number;
+  distance?: number;
+  artworkDistance?: number;
+  samples?: number;
+}
+
 /**
  * Turns similar images into one physical-presentation token. `undefined` means
  * skip the controller observation; `null` means positively confirmed absence.
@@ -146,7 +172,7 @@ export interface LiveCardTrackerOptions {
  * reset is available, but navigation should call resetCandidates() instead.
  */
 export class LiveCardPresentationTracker {
-  private accepted: { signature: number[]; fingerprint: string } | null = null;
+  private accepted: { signature: number[]; fingerprint: string; newPresentation: boolean } | null = null;
   private candidate: { signature: number[]; since: number; samples: number } | null = null;
   private absentSince: number | null = null;
   private absentSamples = 0;
@@ -154,6 +180,7 @@ export class LiveCardPresentationTracker {
   private lightingUntil: number | null = null;
   private lightingVersion = 0;
   private sequence = 0;
+  private latestDiagnostic: LiveCardTrackerDiagnostic = { reason: 'waiting-for-camera' };
   private readonly options: Required<LiveCardTrackerOptions>;
 
   constructor(options: LiveCardTrackerOptions = {}) {
@@ -166,6 +193,7 @@ export class LiveCardPresentationTracker {
     this.absentSince = null;
     this.absentSamples = 0;
     this.lastObservationAt = null;
+    this.latestDiagnostic = { reason: 'waiting-for-stable-frame' };
   }
 
   /**
@@ -184,13 +212,24 @@ export class LiveCardPresentationTracker {
   /** Snapshot before awaiting capture; an old-lighting photo must not rebase the new exposure. */
   get captureVersion(): number { return this.lightingVersion; }
 
+  get diagnostic(): Readonly<LiveCardTrackerDiagnostic> { return { ...this.latestDiagnostic }; }
+
+  private note(reason: string, observation: CardPixelObservation | null, extra: Partial<LiveCardTrackerDiagnostic> = {}): void {
+    this.latestDiagnostic = { reason, ...(observation ? { presence: observation.presence, quality: observation.quality,
+      boundary: observation.boundary, detail: observation.detail, contrast: observation.contrast } : {}), ...extra };
+  }
+
   reset(): void { this.resetCandidates(); this.accepted = null; this.lightingUntil = null; this.lightingVersion++; }
 
-  observe(observation: CardPixelObservation | null, now: number, captureVersion = this.lightingVersion): CardFrame | null | undefined {
-    if (!Number.isFinite(now) || captureVersion !== this.lightingVersion) return undefined;
-    if (this.lightingUntil !== null && now < this.lightingUntil) return undefined;
-    if (observation === null) { this.resetCandidates(); return undefined; }
-    if (this.lastObservationAt !== null && (now < this.lastObservationAt || now - this.lastObservationAt > this.options.maxObservationGapMs)) this.resetCandidates();
+  observe(observation: CardPixelObservation | null, now: number, captureVersion = this.lightingVersion, captureStartedAt = now): CardFrame | null | undefined {
+    if (!Number.isFinite(now) || !Number.isFinite(captureStartedAt) || captureStartedAt > now) { this.note('invalid-frame-timing', observation); return undefined; }
+    if (captureVersion !== this.lightingVersion) { this.note('stale-lighting-frame', observation); return undefined; }
+    if (this.lightingUntil !== null && now < this.lightingUntil) { this.note('exposure-settling', observation); return undefined; }
+    if (observation === null) { this.resetCandidates(); this.note('capture-unavailable', null); return undefined; }
+    // A slow native photo/manipulation operation is still one continuous camera
+    // observation. Only idle time BEFORE that capture breaks continuity. Comparing
+    // completion times reset every candidate forever on slower/warmer phones.
+    if (this.lastObservationAt !== null && (now < this.lastObservationAt || captureStartedAt - this.lastObservationAt > this.options.maxObservationGapMs)) this.resetCandidates();
     this.lastObservationAt = now;
     const texturedAbsence = observation.presence === 'uncertain' && observation.quality === 'ready'
       && observation.boundary < 6 && this.accepted && observation.signature
@@ -202,47 +241,72 @@ export class LiveCardPresentationTracker {
       if (this.absentSamples >= (texturedAbsence ? 3 : 2) && now - this.absentSince >= (texturedAbsence ? 1200 : this.options.absenceMs)) {
         this.accepted = null;
         this.lightingUntil = null;
+        this.note('card-removed', observation, { samples: this.absentSamples });
         return null;
       }
+      this.note('checking-card-removal', observation, { samples: this.absentSamples });
       return undefined;
     }
     this.absentSince = null;
     this.absentSamples = 0;
     const signature = observation.signature;
-    if (observation.presence !== 'card' || observation.quality !== 'ready' || !signature?.length
-      || signature.some(value => !Number.isFinite(value))) { this.candidate = null; return undefined; }
-    let requiredStability = this.options.stableMs;
+    // Border confidence is advisory, not identity. Cropped/full-art printings can
+    // have a weaker but usable outline; require extra stable evidence for these
+    // instead of silently rejecting them forever. Texture with no outline stays
+    // uncertain and never becomes a request merely by waiting.
+    const weakOutline = observation.presence === 'uncertain' && observation.boundary >= 6
+      && observation.contrast >= 18 && observation.detail >= 5;
+    if ((observation.presence !== 'card' && !weakOutline) || observation.quality !== 'ready' || !signature?.length
+      || signature.some(value => !Number.isFinite(value))) {
+      this.candidate = null; this.note(observation.quality === 'blurred' ? 'frame-blurred' : 'outline-not-found', observation); return undefined;
+    }
+    let requiredStability = weakOutline ? Math.max(1300, this.options.stableMs) : this.options.stableMs;
+    let requiredSamples = weakOutline ? 3 : 2;
     let rebaseLighting = false;
     if (this.accepted) {
       const distance = cardSignatureDistance(this.accepted.signature, signature);
-      if (distance <= this.options.sameThreshold) {
+      const artworkDistance = cardArtworkDistance(this.accepted.signature, signature);
+      const artworkChanged = artworkDistance >= this.options.sameThreshold;
+      this.note('checking-card-change', observation, { distance, artworkDistance });
+      if (distance <= this.options.sameThreshold && !artworkChanged) {
         this.candidate = null;
         if (this.lightingUntil !== null) {
           this.accepted.signature = [...signature];
           this.lightingUntil = null;
         }
-        return { fingerprint: this.accepted.fingerprint, timestamp: now, stable: true };
+        this.note('holding-current-presentation', observation, { distance, artworkDistance });
+        return { fingerprint: this.accepted.fingerprint, timestamp: now, stable: true, newPresentation: this.accepted.newPresentation };
       }
       rebaseLighting = this.lightingUntil !== null && cardStructureDistance(this.accepted.signature, signature) < 0.14;
       if (!rebaseLighting) this.lightingUntil = null;
       // A medium difference may be a tilt, sleeve reflection or framing change.
       // Keep the lock rather than confidently treating it as another card.
       if (!rebaseLighting && distance < this.options.changeThreshold) {
-        if (cardStructureDistance(this.accepted.signature, signature) < 0.14) { this.candidate = null; return undefined; }
-        requiredStability = Math.max(1500, requiredStability);
+        if (!artworkChanged && cardStructureDistance(this.accepted.signature, signature) < 0.14) { this.candidate = null; this.note('exposure-or-small-movement', observation, { distance, artworkDistance }); return undefined; }
+        requiredStability = Math.max(artworkChanged ? 1300 : 1500, requiredStability);
+      }
+      if (!rebaseLighting && artworkChanged && distance < this.options.changeThreshold) {
+        requiredSamples = Math.max(3, requiredSamples);
+        requiredStability = Math.max(1300, requiredStability);
       }
     }
-    if (!this.candidate || cardSignatureDistance(this.candidate.signature, signature) > this.options.sameThreshold) {
+    if (!this.candidate || cardSignatureDistance(this.candidate.signature, signature) > this.options.sameThreshold
+      || cardArtworkDistance(this.candidate.signature, signature) > this.options.sameThreshold) {
       this.candidate = { signature: [...signature], since: now, samples: 1 };
+      this.note(weakOutline ? 'checking-weak-outline' : 'candidate-stabilizing', observation, { samples: 1 });
       return undefined;
     }
     const candidate = this.candidate;
     candidate.samples++;
-    if (candidate.samples < 2 || now - candidate.since < requiredStability) return undefined;
+    if (candidate.samples < requiredSamples || now - candidate.since < requiredStability) {
+      this.note(weakOutline ? 'checking-weak-outline' : 'candidate-stabilizing', observation, { samples: candidate.samples }); return undefined;
+    }
+    const newPresentation = rebaseLighting && this.accepted ? this.accepted.newPresentation : !this.accepted;
     this.accepted = { signature: [...signature], fingerprint: rebaseLighting && this.accepted
-      ? this.accepted.fingerprint : `${this.options.tokenPrefix}-${++this.sequence}` };
+      ? this.accepted.fingerprint : `${this.options.tokenPrefix}-${++this.sequence}`, newPresentation };
     this.lightingUntil = null;
     this.candidate = null;
-    return { fingerprint: this.accepted.fingerprint, timestamp: now, stable: true };
+    this.note(rebaseLighting ? 'exposure-rebased' : 'new-presentation-ready', observation, { samples: candidate.samples });
+    return { fingerprint: this.accepted.fingerprint, timestamp: now, stable: true, newPresentation };
   }
 }

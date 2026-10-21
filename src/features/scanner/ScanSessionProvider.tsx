@@ -14,11 +14,14 @@ import { CatalogResolutionError } from '@/services/cardsight/types';
 import { RecognitionLinks } from '@/services/cardsight/links';
 import { resolveCardSightCandidates } from '@/services/cardsight/resolve';
 import { editPendingQuantity, pendingRecognitionKey, stagePendingRecognition } from '@/services/pendingRecognition';
+import { reviewHeldFinish } from '@/services/scannerIdentity';
 
 let sequence = 0;
 const uniqueId = () => `scan-${Date.now().toString(36)}-${(++sequence).toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 type DemoOptions = { fail: boolean; missingPrice: boolean; ambiguous: boolean };
-export type IdentifyMode = { mode: 'live'; chooseCandidate?: (cards: Card[], signal?: AbortSignal) => Promise<Card> };
+export type IdentifyMode = { mode: 'live'; chooseCandidate?: (cards: Card[], signal?: AbortSignal) => Promise<Card>;
+  shouldStage?: (cardId: string) => boolean; heldCardId?: () => string | null;
+  onCommitted?: (cardId: string) => void; onStage?: (stage: string) => void };
 type SessionContext = {
   session: ScanSession; summary: ReturnType<typeof sessionSummary>; ready: boolean; loadError: string | null;
   error: string | null; busy: boolean; allowed: boolean; options: DemoOptions;
@@ -106,32 +109,47 @@ export function ScanSessionProvider({ children }: { children: ReactNode }) {
       if (source?.mode === 'live' && (!liveScannerConfig || !frame.image)) throw new Error('Connect the development scanner server before using CardSight.');
       if (source?.mode === 'live' && !liveRecognition.current) liveRecognition.current = new CardSightRecognitionService({ ...liveScannerConfig!, catalog: catalogService, links: recognitionLinks });
       const result = source?.mode === 'live'
-        ? await liveRecognition.current!.recognize({ image: frame.image, signal, chooseCandidate: source.chooseCandidate })
+        ? await liveRecognition.current!.recognize({ image: frame.image, signal, chooseCandidate: source.chooseCandidate, onStage: source.onStage })
         : await recognitionService.recognize({ cardId: frame.cardId, simulateFailure: optionsRef.current.fail, signal });
       const card = source?.mode === 'live' ? result : getLegacyCard(result.id);
       if (signal.aborted) throw new Error('Recognition canceled.');
       if (!card) throw new Error('Printing not found. Try again.');
       // Recheck after the asynchronous adapter; development access may have changed.
       if (!canScan(chaseRef.current.state) || (chaseRef.current.state.plan === 'free' && store.session.freeRecognitionUsed)) throw new Error('Your free scan has been used.');
+      if (source?.shouldStage && !source.shouldStage(card.id)) {
+        const held = source.heldCardId?.() ?? card.id;
+        await store.update(value => {
+          if (signal.aborted) throw new Error('Recognition canceled.');
+          return reviewHeldFinish(value, held, card.id);
+        });
+        source.onCommitted?.(held);
+        return held;
+      }
       const isFree = chaseRef.current.state.plan === 'free';
+      source?.onStage?.('saving');
       await store.update(value => {
         if (signal.aborted) throw new Error('Recognition canceled.');
         const receipts = new Set(chaseRef.current.state.savedScanOperations ?? []);
         const pending = { ...value, items: value.items.filter(item => !receipts.has(item.operationId)) };
         return appendRecognition(pending, card, uniqueId(), new Date().toISOString(), isFree, source?.mode !== 'live' && optionsRef.current.ambiguous ? 'review' : result.ambiguity ?? 'confirmed', result.confidence);
       });
+      source?.onCommitted?.(card.id);
       chaseRef.current.recordRecognition(isFree);
       if (result.ambiguity !== 'review' && !(source?.mode !== 'live' && optionsRef.current.ambiguous)) resolvePrice(card.id, source?.mode === 'live' ? false : optionsRef.current.missingPrice);
       return card.id;
     } catch (cause) {
       if (source?.mode !== 'live' || !(cause instanceof CatalogResolutionError)) throw cause;
       if (signal.aborted) throw new Error('Recognition canceled.');
+      const existing = store.session.unresolved?.find(row => pendingRecognitionKey(row.recognition) === pendingRecognitionKey(cause.recognition));
+      if (existing && source.shouldStage && !source.shouldStage(`pending:${existing.id}`)) return `pending:${existing.id}`;
+      source.onStage?.('saving');
       const next = await store.update(value => {
         if (signal.aborted) throw new Error('Recognition canceled.');
         if (!canScan(chaseRef.current.state) || (chaseRef.current.state.plan === 'free' && value.freeRecognitionUsed)) throw new Error('Your free scan has been used.');
         return stagePendingRecognition(value, cause.recognition, cause.diagnostics, uniqueId(), new Date().toISOString());
       });
       const pending = next.unresolved!.find(row => pendingRecognitionKey(row.recognition) === pendingRecognitionKey(cause.recognition))!;
+      source.onCommitted?.(`pending:${pending.id}`);
       // A catalog/network failure is not charged as the successful Free scan.
       return `pending:${pending.id}`;
     } finally { identifying.current = false; }

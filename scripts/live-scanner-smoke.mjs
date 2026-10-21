@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
-import { installTCGdexFixtures } from './fixtures/tcgdex.mjs';
+import { fixtureCards, installTCGdexFixtures } from './fixtures/tcgdex.mjs';
 
 // Run against an independent Expo web process with these DEVELOPMENT settings:
 // EXPO_PUBLIC_SCANNER_URL=http://localhost:8787
@@ -16,11 +16,12 @@ import { installTCGdexFixtures } from './fixtures/tcgdex.mjs';
 const url = process.env.CHASE_SMOKE_URL ?? 'http://localhost:8083';
 const proxy = process.env.CHASE_SCANNER_PROXY_URL ?? 'http://localhost:8787';
 const pairingToken = 'chase-browser-fixture-pairing-only-1234';
+const focus = process.env.CHASE_LIVE_FOCUS;
+assert.ok(!focus || ['catalog', 'slow', 'during', 'art', 'appearance', 'diagnostics'].includes(focus), 'Unknown live-scanner focus.');
 assert.ok(['localhost', '127.0.0.1'].includes(new URL(url).hostname), 'Live smoke must use a local test server.');
 assert.ok(['localhost', '127.0.0.1'].includes(new URL(proxy).hostname), 'Proxy fixtures must use a local origin.');
 const directory = await mkdtemp(join(tmpdir(), 'chase-live-camera-'));
 const capturePath = join(directory, 'synthetic-card.y4m');
-const charizardArtwork = await readFile(new URL('../assets/chases/base1-4.webp', import.meta.url));
 
 /** One static YUV420 frame loops in Chromium's fake camera without native tooling. */
 async function createCameraFixture(path) {
@@ -87,28 +88,73 @@ const collection = page => stored(page, 'chase.prototype.v1');
 const copies = value => (value?.items ?? []).reduce((sum, item) => sum + item.quantity, 0);
 const check = async (name, action) => { await action(); console.log(`PASS ${++passed}: ${name}`); };
 const reveal = page => page.getByTestId('scan-card-reveal');
+async function recordedReveal(page, count) {
+  // Feedback deliberately lasts 1.8s. Observe its actual DOM lifetime in-page,
+  // rather than missing it between several slow automation round trips.
+  await page.waitForFunction(count => globalThis.chaseReveals?.some(row => row.label.includes(`${count} pending cards.`) && row.bounds), count);
+  return page.evaluate(count => globalThis.chaseReveals.find(row => row.label.includes(`${count} pending cards.`) && row.bounds), count);
+}
 async function assertCleanLiveControls(page) {
   for (const name of ['Pause scanning', 'Resume scanning', 'Retry']) assert.equal(await button(page, name).count(), 0, `${name} must not interrupt the live scanner UI.`);
 }
 async function assertFullCamera(page) {
+  // A bounded capture timeout can release/reopen the preview between checks.
+  // Verify the recovered surface rather than taking a one-frame snapshot of
+  // that intentional release interval; permanent recovery failure still fails.
+  await page.waitForFunction(() => [...document.querySelectorAll('video')].some(video => {
+    const bounds = video.getBoundingClientRect();
+    return video.readyState >= 2 && bounds.x <= 1 && bounds.y <= 1
+      && bounds.width >= innerWidth - 1 && bounds.height >= innerHeight - 1;
+  }), undefined, { timeout: 10_000 });
   const bounds = await page.locator('video').first().boundingBox();
   const viewport = page.viewportSize();
   assert.ok(bounds && viewport && bounds.x <= 1 && bounds.y <= 1 && bounds.width >= viewport.width - 1 && bounds.height >= viewport.height - 1,
     'Camera must cover the screen behind the floating controls, including the former header.');
 }
-const charizard = { providerId: 'fixture-charizard', name: 'Charizard', setName: 'Base Set', collectorNumber: '4/102', language: 'en', finish: 'holo', confidenceTier: 'High', tcgdexId: 'base1-4' };
-const pikachu = { providerId: 'fixture-pikachu', name: 'Pikachu', setName: 'Evolutions', collectorNumber: '35/108', language: 'en', finish: 'unknown', confidenceTier: 'High', tcgdexId: 'xy12-35' };
-const greninja = { providerId: 'fixture-greninja', name: 'Greninja ex', setName: 'Twilight Masquerade', collectorNumber: '214/167', language: 'en', finish: 'holo', confidenceTier: 'High', tcgdexId: 'sv6-214' };
+const charizard = { providerId: 'fixture-charizard', name: 'Charizard', setName: 'Base Set', collectorNumber: '4/102', language: 'en', finish: 'holo', confidenceTier: 'High' };
+const pikachu = { providerId: 'fixture-pikachu', name: 'Pikachu', setName: 'Evolutions', collectorNumber: '35/108', language: 'en', finish: 'unknown', confidenceTier: 'High' };
+const greninja = { providerId: 'fixture-greninja', name: 'Greninja ex', setName: 'Twilight Masquerade', collectorNumber: '214/167', language: 'en', finish: 'holo', confidenceTier: 'High' };
+// Real CardSight supplies its own opaque identity. Canonical TCGdex IDs are not
+// handed to the app by these normal fixtures: set/name/number resolution runs.
+const artworkPool = [
+  ['base1-4', charizard], ['sv6-214', greninja],
+  ['swsh7-215', { ...charizard, providerId: 'fixture-umbreon', name: 'Umbreon VMAX', setName: 'Evolving Skies', collectorNumber: '215/203' }],
+  ['swsh7-192', { ...charizard, providerId: 'fixture-dragonite', name: 'Dragonite V', setName: 'Evolving Skies', collectorNumber: '192/203' }],
+  ['swsh7-218', { ...charizard, providerId: 'fixture-rayquaza', name: 'Rayquaza VMAX', setName: 'Evolving Skies', collectorNumber: '218/203' }],
+  ['swsh11-186', { ...charizard, providerId: 'fixture-giratina', name: 'Giratina V', setName: 'Lost Origin', collectorNumber: '186/196' }],
+  ['swsh8-271', { ...charizard, providerId: 'fixture-gengar', name: 'Gengar VMAX', setName: 'Fusion Strike', collectorNumber: '271/264' }],
+  ['swsh12-186', { ...charizard, providerId: 'fixture-lugia', name: 'Lugia V', setName: 'Silver Tempest', collectorNumber: '186/195' }],
+  ['swsh8-269', { ...charizard, providerId: 'fixture-mew', name: 'Mew VMAX', setName: 'Fusion Strike', collectorNumber: '269/264' }],
+];
+const artworkBytes = await Promise.all(artworkPool.map(([id]) => readFile(new URL(`../assets/chases/${id}.webp`, import.meta.url))));
+const cameraArtwork = artworkBytes.map(bytes => `data:image/webp;base64,${bytes.toString('base64')}`);
+async function loadCameraArtwork(page) {
+  await page.evaluate(async sources => {
+    globalThis.chaseCameraArt = await Promise.all(sources.map(src => new Promise((resolve, reject) => {
+      const image = new Image(); image.onload = () => resolve(image); image.onerror = reject; image.src = src;
+    })));
+  }, cameraArtwork);
+}
+async function presentArtwork(page, index, scale = 1) {
+  await page.evaluate(({ index, scale }) => { globalThis.cameraArtworkIndex = index; globalThis.cameraArtworkScale = scale; globalThis.syntheticCardStyle = 0; }, { index, scale });
+}
 
-async function fixture({ candidates = [charizard], plan = 'pro', permission = true, fail = false, ready = true, catalogMissing = false, reducedMotion = 'no-preference' } = {}) {
+async function fixture({ candidates = [charizard], plan = 'pro', permission = true, fail = false, ready = true, catalogMissing = false, reducedMotion = 'no-preference', catalogDelayMs = 0, providerDelayMs = 0 } = {}) {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion });
   if (permission) await context.grantPermissions(['camera'], { origin: url });
   const catalogState = await installTCGdexFixtures(context);
   // Render a real catalog illustration in scanner screenshots while keeping all
   // artwork/network requests local and independent of provider availability.
-  await context.route('https://assets.tcgdex.net/en/base/base1/4/**', route => route.fulfill({ contentType: 'image/webp', body: charizardArtwork }));
+  await context.route('https://assets.tcgdex.net/**', route => {
+    const index = artworkPool.findIndex(([id]) => route.request().url().startsWith(`${fixtureCards.get(id)?.image}/`));
+    return index >= 0 ? route.fulfill({ contentType: 'image/webp', headers: { 'access-control-allow-origin': '*' }, body: artworkBytes[index] }) : route.fallback();
+  });
   catalogState.offline = catalogMissing;
-  const state = { requests: [], fail, candidates, ready, healthRequests: 0, catalogState, console: [] };
+  const state = { requests: [], fail, candidates, ready, healthRequests: 0, catalogState, catalogDelayMs, providerDelayMs, console: [] };
+  await context.route('https://api.tcgdex.net/**', async route => {
+    if (state.catalogDelayMs) await new Promise(resolve => setTimeout(resolve, state.catalogDelayMs));
+    await route.fallback();
+  });
   activeState = state;
   await context.route(/https?:\/\/[^/]*cardsight\.ai\//, route => {
     forbiddenRequests.push(route.request().url());
@@ -131,15 +177,50 @@ async function fixture({ candidates = [charizard], plan = 'pro', permission = tr
     assert.ok(payload.image.base64.startsWith('/9j/'), 'Real capture must produce JPEG bytes.');
     assert.ok(payload.image.base64.length < 8 * 1024 * 1024);
     assert.ok(typeof payload.requestId === 'string' && payload.requestId.length > 0);
-    state.requests.push({ requestId: payload.requestId, bytes: Buffer.from(payload.image.base64, 'base64').length });
-    if (state.fail) return route.abort('failed');
-    return route.fulfill({ status: 200, headers, contentType: 'application/json', body: JSON.stringify({ candidates: state.candidates }) });
+    state.requests.push({ requestId: payload.requestId, bytes: Buffer.from(payload.image.base64, 'base64').length, at: Date.now() });
+    const candidates = state.candidates; const failed = state.fail;
+    if (state.providerDelayMs) await new Promise(resolve => setTimeout(resolve, state.providerDelayMs));
+    if (failed) return route.abort('failed');
+    return route.fulfill({ status: 200, headers, contentType: 'application/json', body: JSON.stringify({ candidates }) });
   });
   await context.addInitScript(plan => {
     if (!localStorage.getItem('chase.prototype.v1')) localStorage.setItem('chase.prototype.v1', JSON.stringify({ onboardingComplete: true, plan, trial: { successfulRecognitions: 0 }, items: [] }));
     globalThis.chaseMediaRequests = 0;
     globalThis.chaseMediaErrors = [];
     globalThis.syntheticCardStyle = 0;
+    globalThis.cameraArtworkIndex = null;
+    globalThis.cameraArtworkScale = 1;
+    globalThis.chaseThumbnailDelayMs = 0;
+    globalThis.chaseDelayedThumbnailCallbacks = 0;
+    globalThis.chaseUploadEncodes = 0;
+    globalThis.chaseReveals = [];
+    const seenReveals = new WeakSet();
+    new MutationObserver(() => {
+      const element = document.querySelector('[data-testid="scan-card-reveal"]');
+      if (!element || seenReveals.has(element)) return;
+      seenReveals.add(element);
+      const row = { label: element.getAttribute('aria-label') ?? '', bounds: null, artwork: null };
+      globalThis.chaseReveals.push(row);
+      setTimeout(() => {
+        if (!element.isConnected) return;
+        const bounds = element.getBoundingClientRect();
+        row.bounds = { y: bounds.y, height: bounds.height };
+        const artwork = element.querySelector('[role="img"], img[alt]');
+        row.artwork = artwork?.getAttribute('aria-label') ?? artwork?.getAttribute('alt');
+      }, 450);
+    }).observe(document, { childList: true, subtree: true });
+    // Delay asynchronous thumbnail processing rather than blocking JS. This
+    // exercises the same slow-capture cadence seen on a warm physical device.
+    const toBlob = HTMLCanvasElement.prototype.toBlob;
+    HTMLCanvasElement.prototype.toBlob = function(callback, ...args) {
+      if (this.width === 768) globalThis.chaseUploadEncodes++;
+      const delay = this.width === 64 && this.height === 88 ? globalThis.chaseThumbnailDelayMs : 0;
+      return toBlob.call(this, blob => {
+        if (!delay) { callback(blob); return; }
+        globalThis.chaseDelayedThumbnailCallbacks++;
+        setTimeout(() => callback(blob), delay);
+      }, ...args);
+    };
     // Controlled captured pixels exercise the real JPEG/manipulator/detector path.
     // The provider remains a fixture; these are not photographed/identified cards.
     const draw = CanvasRenderingContext2D.prototype.drawImage;
@@ -148,8 +229,15 @@ async function fixture({ candidates = [charizard], plan = 'pro', permission = tr
       if (source?.tagName !== 'VIDEO') return result;
       if (globalThis.chaseFailCaptureOnce) { globalThis.chaseFailCaptureOnce = false; throw new Error('Synthetic camera failure'); }
       const style = globalThis.syntheticCardStyle;
-      if (!style) return result;
       const w = this.canvas.width; const h = this.canvas.height;
+      if (style !== -1 && globalThis.cameraArtworkIndex !== null && globalThis.chaseCameraArt?.[globalThis.cameraArtworkIndex]) {
+        this.fillStyle = 'rgb(185,179,170)'; this.fillRect(0, 0, w, h);
+        const cardWidth = w * 300 / 640 * globalThis.cameraArtworkScale;
+        const cardHeight = h * 412 / 960 * globalThis.cameraArtworkScale;
+        draw.call(this, globalThis.chaseCameraArt[globalThis.cameraArtworkIndex], (w - cardWidth) / 2, (h - cardHeight) / 2, cardWidth, cardHeight);
+        return result;
+      }
+      if (!style) return result;
       if (style === -1) { this.fillStyle = '#a0a0a0'; this.fillRect(0, 0, w, h); return result; }
       this.fillStyle = style === 1 ? 'rgb(30,85,165)' : 'rgb(20,160,80)';
       this.fillRect(w * 0.295, h * 0.357, w * 0.41, h * 0.202);
@@ -175,7 +263,7 @@ async function fixture({ candidates = [charizard], plan = 'pro', permission = tr
   }, plan);
   const page = await context.newPage();
   activePage = page;
-  page.setDefaultTimeout(15_000);
+  page.setDefaultTimeout(30_000);
   page.on('pageerror', error => errors.push(error.stack ?? error.message));
   page.on('console', message => { if (['warning', 'error'].includes(message.type())) state.console.push(message.text()); });
   await page.goto(`${url}/scanner`);
@@ -190,6 +278,7 @@ async function enable(page) {
 }
 
 try {
+  if (!focus) {
   const normal = await fixture();
   const { page, state } = normal;
   await check('configured scanner starts in real mode with an explicit image-upload opt-in', async () => {
@@ -207,19 +296,21 @@ try {
   await check('capture stages the card and reveals its catalog artwork above the live camera', async () => {
     await enable(page);
     await button(page, 'Organize (1)').waitFor();
-    await reveal(page).waitFor();
-    assert.match(await reveal(page).getAttribute('aria-label'), /Recognized Charizard\. 1 pending cards\./);
-    await reveal(page).getByRole('img', { name: 'Charizard, Base Set, 4/102, Pokémon TCG card', exact: true }).waitFor();
+    const feedback = await recordedReveal(page, 1);
+    assert.match(feedback.label, /Recognized Charizard\. 1 pending cards\./);
+    assert.equal(feedback.artwork, 'Charizard, Base Set, 4/102, Pokémon TCG card');
     assert.equal(await page.getByText('Added to session', { exact: true }).count(), 0, 'The old recognition popup must be replaced.');
     await assertFullCamera(page);
     await assertCleanLiveControls(page);
     // The card enters from below with pointerEvents=none. Check its settled
     // placement above the action, rather than its intentional entrance path.
-    await page.waitForTimeout(450);
     const organize = await button(page, 'Organize (1)').boundingBox();
-    const art = await reveal(page).boundingBox();
+    const art = feedback.bounds;
     assert.ok(organize && art && art.y + art.height <= organize.y + 1, 'The animated card must leave Organize unobstructed.');
     assert.equal(state.requests.length, 1);
+    assert.ok(state.candidates.every(candidate => !candidate.tcgdexId), 'Ordinary CardSight fixtures must not inject canonical catalog identity.');
+    assert.ok(state.catalogState.requests.some(value => new URL(value).pathname.endsWith('/sets')));
+    assert.ok(state.catalogState.requests.some(value => new URL(value).pathname.endsWith('/sets/base1')));
     assert.equal(new URL(page.url()).pathname, '/scanner');
     assert.equal((await pending(page)).items[0].cardId, 'tcgdex:en:base1-4:holo');
     assert.equal(copies(await collection(page)), 0);
@@ -229,7 +320,10 @@ try {
     await button(page, 'Turn flashlight on').click();
     await page.getByText('Flashlight is available in the Android and iOS app.', { exact: true }).waitFor();
     assert.equal(await button(page, 'Turn flashlight off').count(), 0, 'Browser feedback must not claim to have switched on a hardware torch.');
+    const uploadEncodes = await page.evaluate(() => globalThis.chaseUploadEncodes);
+    assert.ok(uploadEncodes >= 2, 'Useful identification must exercise full upload-image encoding.');
     await page.waitForTimeout(3500);
+    assert.equal(await page.evaluate(() => globalThis.chaseUploadEncodes), uploadEncodes, 'Held-card observations must not repeatedly resize and encode full upload images.');
     assert.equal(state.requests.length, 1);
     assert.equal(copies(await pending(page)), 1);
     assert.ok(await page.evaluate(() => [...document.querySelectorAll('video')].some(video => video.readyState >= 2)));
@@ -384,14 +478,14 @@ try {
   const reduced = await fixture({ reducedMotion: 'reduce' });
   await check('reduced-motion recognition still exposes artwork and a deliberate second copy gets a fresh reveal', async () => {
     const { page, state } = reduced;
-    await enable(page); await button(page, 'Organize (1)').waitFor(); await reveal(page).waitFor();
-    assert.match(await reveal(page).getAttribute('aria-label'), /Recognized Charizard\. 1 pending cards\./);
+    await enable(page); await button(page, 'Organize (1)').waitFor();
+    assert.match((await recordedReveal(page, 1)).label, /Recognized Charizard\. 1 pending cards\./);
     await page.waitForTimeout(2200);
     assert.equal(await reveal(page).count(), 0, 'The reveal must not remain over the live guides indefinitely.');
     await page.evaluate(() => { globalThis.syntheticCardStyle = -1; }); await page.waitForTimeout(2200);
     await page.evaluate(() => { globalThis.syntheticCardStyle = 0; });
-    await button(page, 'Organize (2)').waitFor(); await reveal(page).waitFor();
-    assert.match(await reveal(page).getAttribute('aria-label'), /Recognized Charizard\. 2 pending cards\./);
+    await button(page, 'Organize (2)').waitFor();
+    assert.match((await recordedReveal(page, 2)).label, /Recognized Charizard\. 2 pending cards\./);
     assert.equal(state.requests.length, 2);
     assert.equal((await pending(page)).items.length, 1, 'A deliberate second physical copy merges into the same printing row.');
     assert.equal((await pending(page)).items[0].quantity, 2);
@@ -470,29 +564,170 @@ try {
     assert.equal(state.requests.length, 1, 'Recovering the preview must preserve the held card lock.');
     assert.equal(copies(await pending(page)), 1);
     await assertFullCamera(page); await assertCleanLiveControls(page);
+    state.candidates = [greninja];
     await page.evaluate(() => { globalThis.syntheticCardStyle = 1; });
     await button(page, 'Organize (2)').waitFor();
     assert.equal(state.requests.length, 2);
   });
   await mountRecovery.context.close();
+  }
 
-  const continuous = await fixture();
-  await check('twenty captured presentations remain continuous across a failure and repeated Organize returns', async () => {
+  if (!focus || focus === 'appearance') {
+  const verification = await fixture();
+  await check('a changed appearance of the same provider printing is verified once without adding a duplicate copy', async () => {
+    const { page, state } = verification;
+    await loadCameraArtwork(page); await presentArtwork(page, 0); await enable(page);
+    await button(page, 'Organize (1)').waitFor();
+    // The local pixels change substantially, but CardSight still says Charizard:
+    // this simulates a sleeve/reflection/crop change rather than another copy.
+    await presentArtwork(page, 1);
+    const verificationDeadline = Date.now() + 10_000;
+    while (state.requests.length < 2 && Date.now() < verificationDeadline) await page.waitForTimeout(100);
+    assert.equal(state.requests.length, 2, 'A clearly changed stable image gets a bounded verification attempt.');
+    await page.waitForTimeout(2500);
+    assert.equal(copies(await pending(page)), 1, 'Verification of the same printing must not stage before the guard runs.');
+    assert.equal((await pending(page)).items[0].quantity, 1);
+    assert.equal(state.requests.length, 2, 'The verified appearance must then remain locked.');
+    await page.evaluate(() => { globalThis.syntheticCardStyle = -1; });
+    await page.waitForTimeout(2200);
+    await presentArtwork(page, 0);
+    await button(page, 'Organize (2)').waitFor({ timeout: 10_000 });
+    assert.equal(state.requests.length, 3, 'Confirmed removal allows a deliberate second physical copy of the same printing.');
+    assert.equal((await pending(page)).items.length, 1);
+    assert.equal((await pending(page)).items[0].quantity, 2);
+    assert.equal(copies(await collection(page)), 0);
+  });
+  await verification.context.close();
+
+  const finishVerification = await fixture({ candidates: [{ ...pikachu, finish: 'normal' }] });
+  await check('changing finish evidence on one held printing reviews its original row instead of adding another copy', async () => {
+    const { page, state } = finishVerification;
+    await loadCameraArtwork(page); await presentArtwork(page, 0); await enable(page);
+    await button(page, 'Organize (1)').waitFor();
+    assert.equal((await pending(page)).items[0].cardId, 'tcgdex:en:xy12-35:normal');
+    state.candidates = [{ ...pikachu, finish: 'reverse' }];
+    await presentArtwork(page, 1);
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('chase.scan-session.v1')).items[0].ambiguity === 'review');
+    const reviewed = await pending(page);
+    assert.equal(copies(reviewed), 1); assert.equal(reviewed.items.length, 1);
+    assert.equal(reviewed.items[0].cardId, 'tcgdex:en:xy12-35:normal');
+    assert.equal(reviewed.items[0].price, null); assert.equal(state.requests.length, 2);
+    await button(page, 'Organize (1)').click();
+    await button(page, 'Review Pikachu variant').waitFor();
+    assert.equal(copies(await collection(page)), 0);
+  });
+  await finishVerification.context.close();
+  }
+
+  if (!focus || focus === 'diagnostics') {
+  const diagnostic = await fixture();
+  await check('scanner diagnostics expose bounded scalar capture reasons without photos, credentials or changing the session', async () => {
+    const { page, state } = diagnostic;
+    await enable(page); await button(page, 'Organize (1)').waitFor();
+    await button(page, /Show scanner diagnostics$/).click();
+    await page.getByText('Scanner diagnostics', { exact: true }).waitFor();
+    const report = await page.getByText(/^Chase scanner diagnostics v2/).innerText();
+    assert.match(report, /"captureMs":/);
+    assert.match(report, /"analysisMs":/);
+    assert.match(report, /"reason":/);
+    assert.doesNotMatch(report, /data:image|\/9j\/|https?:\/\/|Authorization|Bearer|EXPO_PUBLIC|signature/i);
+    assert.ok(!report.includes(pairingToken));
+    await button(page, 'Refresh diagnostics').click();
+    await button(page, 'Close diagnostics').click();
+    await button(page, 'Organize (1)').waitFor();
+    await page.waitForTimeout(1500);
+    assert.equal(state.requests.length, 1);
+    assert.equal(copies(await pending(page)), 1);
+    assert.equal(copies(await collection(page)), 0);
+    await assertFullCamera(page);
+  });
+  await diagnostic.context.close();
+  }
+
+  if (!focus || focus === 'catalog') {
+  const boundedCatalog = await fixture({ catalogDelayMs: 6000 });
+  await check('catalog deadline retains recognized metadata and releases the scanner for another printing', async () => {
+    const { page, state } = boundedCatalog;
+    await enable(page); await button(page, 'Organize (1)').waitFor({ timeout: 15_000 });
+    assert.equal((await pending(page)).items.length, 0);
+    assert.equal((await pending(page)).unresolved.length, 1);
+    state.catalogDelayMs = 0; state.candidates = [greninja];
+    await page.evaluate(() => { globalThis.syntheticCardStyle = 1; });
+    await button(page, 'Organize (2)').waitFor({ timeout: 20_000 });
+    assert.equal(state.requests.length, 2);
+    assert.equal((await pending(page)).items[0].cardId, 'tcgdex:en:sv6-214:holo');
+    assert.equal((await pending(page)).unresolved.length, 1, 'The late first lookup must not silently save or discard the unmatched identification.');
+    assert.equal(copies(await collection(page)), 0);
+  });
+  await boundedCatalog.context.close();
+  }
+
+  if (!focus || focus === 'slow') {
+  const slowCapture = await fixture({ catalogDelayMs: 120 });
+  await check('slower than2.2s thumbnail captures continue past the first card and preserve held-card deduplication', async () => {
+    const { page, state } = slowCapture;
+    await loadCameraArtwork(page); await presentArtwork(page, 0); await enable(page);
+    await button(page, 'Organize (1)').waitFor();
+    await page.evaluate(() => { globalThis.chaseThumbnailDelayMs = 1150; });
+    for (let index = 1; index <= 3; index++) {
+      state.candidates = [artworkPool[index][1]];
+      await presentArtwork(page, index);
+      await button(page, `Organize (${index + 1})`).waitFor({ timeout: 25_000 });
+    }
+    await page.waitForTimeout(4000);
+    assert.equal(state.requests.length, 4, 'Slow processing must neither reset every stability sample nor repeatedly upload held art.');
+    assert.ok(await page.evaluate(() => globalThis.chaseDelayedThumbnailCallbacks >= 8), 'The real asynchronous thumbnail path must have been delayed.');
+    assert.equal(copies(await pending(page)), 4);
+    assert.equal(copies(await collection(page)), 0);
+    await assertFullCamera(page);
+  });
+  await slowCapture.context.close();
+  }
+
+  if (!focus || focus === 'during') {
+  const duringIdentification = await fixture({ providerDelayMs: 6000 });
+  await check('local analysis sees removal during a provider request and accepts a second physical copy automatically', async () => {
+    const { page, state } = duringIdentification;
+    await enable(page);
+    await page.waitForFunction(() => document.querySelector('[data-testid="live-scanner-preview"] video')?.readyState >= 2);
+    const firstRequestDeadline = Date.now() + 15_000;
+    while (!state.requests.length && Date.now() < firstRequestDeadline) await page.waitForTimeout(100);
+    assert.equal(state.requests.length, 1, 'The first recognition must start before testing in-flight removal.');
+    await page.evaluate(() => { globalThis.syntheticCardStyle = -1; });
+    await page.waitForTimeout(2200);
+    await page.evaluate(() => { globalThis.syntheticCardStyle = 0; });
+    await button(page, 'Organize (2)').waitFor({ timeout: 25_000 });
+    assert.equal(state.requests.length, 2);
+    assert.equal((await pending(page)).items.length, 1);
+    assert.equal((await pending(page)).items[0].quantity, 2);
+    await page.waitForTimeout(2500);
+    assert.equal(state.requests.length, 2, 'The re-presented physical copy remains locked after its result.');
+  });
+  await duringIdentification.context.close();
+  }
+
+  if (!focus || focus === 'art') {
+  const continuous = await fixture({ catalogDelayMs: 120 });
+  await check('twenty actual-art presentations resolve opaque provider identities through cold sets and stay continuous across failures and Organize', async () => {
     const { page, state } = continuous;
-    const pool = [charizard, greninja, { ...charizard, providerId: 'fixture-umbreon', name: 'Umbreon VMAX', setName: 'Evolving Skies', collectorNumber: '215/203', tcgdexId: 'swsh7-215' }];
+    const pool = artworkPool.map(([, candidate]) => candidate);
+    await loadCameraArtwork(page); await presentArtwork(page, 0);
     await enable(page);
     let good = 0;
+    const responseTimes = [];
     for (let index = 0; index < 20; index++) {
       if (process.env.CHASE_LIVE_PROGRESS) console.log(`Presentation ${index + 1}/20; pending ${good}; proxy requests ${state.requests.length}`);
-      state.candidates = [pool[index % 3]]; state.fail = index === 4;
-      await page.evaluate(style => { globalThis.syntheticCardStyle = style; }, index % 3);
+      state.candidates = [pool[index % pool.length]]; state.fail = index === 4;
+      const presentedAt = Date.now();
+      await presentArtwork(page, index % pool.length, index % 3 === 0 ? 0.75 : index % 3 === 1 ? 1.27 : 1);
       if (state.fail) {
         await page.getByText(/Could not reach the scanner or catalog/).waitFor();
         const count = state.requests.length;
         await page.waitForTimeout(2600); assert.equal(state.requests.length, count, 'Holding a failed card must not retry automatically.');
         await assertCleanLiveControls(page);
       } else {
-        good++; await button(page, `Organize (${good})`).waitFor({ timeout: 25_000 });
+        good++; await button(page, `Organize (${good})`).waitFor({ timeout: 8000 });
+        responseTimes.push(Date.now() - presentedAt);
         if (good % 5 === 0) {
           await button(page, `Organize (${good})`).click(); await button(page, 'Return to Scanner').first().click();
           await page.waitForFunction(() => [...document.querySelectorAll('video')].some(video => video.readyState >= 2));
@@ -504,25 +739,35 @@ try {
     }
     state.fail = false;
     await page.evaluate(() => { globalThis.syntheticCardStyle = -1; }); await page.waitForTimeout(2200);
-    await page.evaluate(() => { globalThis.syntheticCardStyle = 1; });
+    await page.evaluate(() => { globalThis.syntheticCardStyle = 0; });
+    await presentArtwork(page, 1);
     await button(page, 'Organize (20)').waitFor({ timeout: 25_000 });
     assert.equal(state.requests.length, 21); assert.equal(copies(await pending(page)), 20);
+    console.log(`Actual-art recognition feedback times (ms): ${JSON.stringify(responseTimes)}`);
     assert.equal((await collection(page)).items.length, 0);
     await button(page, 'Organize (20)').click(); await button(page, 'Save all to Collection').click();
     await page.waitForFunction(() => JSON.parse(localStorage.getItem('chase.prototype.v1')).items.reduce((sum, item) => sum + item.quantity, 0) === 20);
     await page.screenshot({ path: '/tmp/chase-continuous-session-verified.png' });
   });
   await continuous.context.close();
+  }
 
+  assert.ok(passed > 0);
   assert.deepEqual(errors, []);
   assert.deepEqual(forbiddenRequests, []);
-  console.log(`Live scanner passed: ${passed} browser scenarios, no runtime errors or vendor calls. Recognition responses are Chase protocol fixtures, not real CardSight validation.`);
+  console.log(`Live scanner passed: ${passed} browser scenarios, no runtime errors or vendor calls. Recognition responses are Chase protocol fixtures, not real CardSight validation. Focus: ${focus ?? 'all'}.`);
 } catch (error) {
   if (activePage && !activePage.isClosed()) {
     await activePage.screenshot({ path: '/tmp/chase-live-scanner-failure.png' }).catch(() => {});
     console.error((await activePage.locator('body').innerText()).slice(-2500));
+    const diagnosticControl = button(activePage, /Show scanner diagnostics$/).first();
+    if (await diagnosticControl.isVisible().catch(() => false)) {
+      await diagnosticControl.click({ timeout: 2000 }).catch(() => {});
+      const trace = await activePage.getByText(/^Chase scanner diagnostics v2/).innerText({ timeout: 2000 }).catch(() => null);
+      if (trace) console.error('Scanner scalar trace:', trace);
+    }
     console.error('Fixture diagnostics:', JSON.stringify({ proxyRequests: activeState?.requests.length, console: activeState?.console.slice(-8),
-      camera: await activePage.evaluate(() => ({ requests: globalThis.chaseMediaRequests, failures: globalThis.chaseMediaErrors, videos: document.querySelectorAll('video').length })).catch(() => null) }));
+      camera: await activePage.evaluate(() => ({ requests: globalThis.chaseMediaRequests, failures: globalThis.chaseMediaErrors, videos: document.querySelectorAll('video').length, uploadEncodes: globalThis.chaseUploadEncodes, slowThumbnailCallbacks: globalThis.chaseDelayedThumbnailCallbacks })).catch(() => null) }));
   }
   console.error(error);
   process.exitCode = 1;

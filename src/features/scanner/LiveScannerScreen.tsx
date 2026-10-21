@@ -7,6 +7,9 @@ import { Button, Icon, Label } from '@/components/ui';
 import { CardPrint } from '@/components/CardPrint';
 import { ScannerController } from '@/services/scannerController';
 import { LiveCardPresentationTracker } from '@/services/liveCardFrames';
+import { LiveScannerPipeline } from '@/services/liveScannerPipeline';
+import { ScannerDiagnostics } from '@/services/scannerDiagnostics';
+import { CameraCaptureTimeout, CameraSampleError } from '@/services/cameraCapture';
 import { liveScannerConfig } from '@/services/cardsight/config';
 import { colors } from '@/theme/tokens';
 import type { Card } from '@/types/domain';
@@ -29,6 +32,10 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
   const [connectionAttempt, setConnectionAttempt] = useState(0);
   const [status, setStatus] = useState<ScannerStatus>({ phase: 'SEARCHING', cardId: null, error: null });
   const [review, setReview] = useState<Card[] | null>(null);
+  const [activity, setActivity] = useState('recognizing');
+  const [diagnosticReport, setDiagnosticReport] = useState<string | null>(null);
+  const diagnosticsOpen = useRef(false);
+  const [diagnostics] = useState(() => new ScannerDiagnostics());
   const chooser = useRef<{ finish: (card?: Card) => void } | null>(null);
   const camera = useRef<LiveCameraHandle>(null);
   const captureFailures = useRef(0);
@@ -36,7 +43,12 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
   const allowed = useRef(scan.allowed);
   useEffect(() => { allowed.current = scan.allowed; }, [scan.allowed]);
   const [tracker] = useState(() => new LiveCardPresentationTracker());
-  const [controller] = useState(() => new ScannerController(async () => { throw new Error('Scanner is loading.'); }, setStatus));
+  const [controller] = useState(() => new ScannerController(async () => { throw new Error('Scanner is loading.'); }, status => {
+    diagnostics.record('state', { phase: status.phase }); setStatus(status);
+  }));
+  const [pipeline] = useState(() => new LiveScannerPipeline(controller, tracker, () => false));
+  useEffect(() => { pipeline.setAllowed(() => allowed.current && !chooser.current && !diagnosticsOpen.current); }, [pipeline]);
+  const onStage = useCallback((stage: string) => { diagnostics.record(stage); setActivity(stage); }, [diagnostics]);
   const chooseCandidate = useCallback((cards: Card[], signal?: AbortSignal) => new Promise<Card>((resolve, reject) => {
     if (signal?.aborted) { reject(new Error('Recognition canceled.')); return; }
     const cancel = () => finish();
@@ -44,7 +56,10 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
     chooser.current = { finish }; setReview(cards);
     signal?.addEventListener('abort', cancel, { once: true });
   }), []);
-  useEffect(() => { controller.setRecognizer((frame, signal) => scan.identify(frame, signal, { mode: 'live', chooseCandidate })); });
+  useEffect(() => { controller.setRecognizer((frame, signal) => scan.identify(frame, signal, {
+    mode: 'live', chooseCandidate, onStage, shouldStage: id => controller.shouldStageResult(frame, id),
+    heldCardId: () => controller.heldCardId, onCommitted: id => controller.acknowledgeCommitted(frame, id),
+  })); });
   useEffect(() => { const subscription = AppState.addEventListener('change', value => setAppActive(value === 'active')); return () => subscription.remove(); }, []);
   useEffect(() => {
     if (!liveScannerConfig || !focused || !appActive) return;
@@ -64,45 +79,48 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
     if (!active) return;
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    controller.resume(); tracker.resetCandidates();
+    diagnostics.record('sampling-start');
+    pipeline.start();
+    const clock = setInterval(() => controller.tick(Date.now()), 200);
     captureFailures.current = 0; captureRetryAt.current = 0;
     const tick = async () => {
       if (stopped) return;
-      controller.tick(Date.now());
-      if (allowed.current && !chooser.current && controller.status.phase !== 'IDENTIFYING' && Date.now() >= captureRetryAt.current) {
+      const sampleStarted = Date.now();
+      if (Date.now() >= captureRetryAt.current) {
         try {
-          const captureVersion = tracker.captureVersion;
-          const captured = await camera.current?.capture();
+          const captured = await pipeline.sample(async shouldUpload => camera.current?.capture(shouldUpload));
           if (stopped) return;
           if (captured) {
             captureFailures.current = 0;
             setCaptureError(null);
-            const frame = tracker.observe(captured.observation, Date.now(), captureVersion);
-            if (frame !== undefined) controller.observe(frame ? { ...frame, image: captured.image } : null, Date.now(), frame === null);
+            diagnostics.record('sample', { ...captured.timings, uploaded: Boolean(captured.image), ...tracker.diagnostic });
           }
-        } catch { if (!stopped) {
+        } catch (cause) { if (!stopped) {
           tracker.resetCandidates(); captureFailures.current++;
+          diagnostics.record('capture-recovery', { failures: captureFailures.current,
+            reason: cause instanceof CameraCaptureTimeout ? 'timeout' : cause instanceof CameraSampleError ? cause.stage : 'unknown' });
           captureRetryAt.current = Date.now() + Math.min(8000, 1000 * 2 ** Math.min(captureFailures.current, 3));
           tracker.settleLighting(Date.now()); setTorch(false); camera.current?.restart();
           setCaptureError('Reconnecting camera…');
         } }
       }
-      if (!stopped) timer = setTimeout(() => { void tick(); }, 650);
+      if (!stopped) timer = setTimeout(() => { void tick(); }, Math.max(150, 650 - (Date.now() - sampleStarted)));
     };
     void tick();
-    return () => { stopped = true; if (timer) clearTimeout(timer); controller.pause(); tracker.resetCandidates(); };
-  }, [active, controller, tracker]);
+    return () => { stopped = true; if (timer) clearTimeout(timer); clearInterval(clock); pipeline.stop(); diagnostics.record('sampling-stop'); };
+  }, [active, controller, tracker, pipeline, diagnostics]);
   useEffect(() => () => { controller.dispose(); chooser.current?.finish(); }, [controller]);
   const paywall = () => router.push({ pathname: '/paywall', params: { returnTo: 'scanner' } });
   const exit = () => { if (onboarding === '1') router.replace({ pathname: '/paywall', params: { onboarding } }); else if (router.canGoBack()) router.back(); else router.replace('/(tabs)'); };
   const result = scan.session.items.find(item => item.cardId === status.cardId);
   const pendingResult = scan.session.unresolved?.find(item => `pending:${item.id}` === status.cardId);
-  const title = status.phase === 'IDENTIFYING' ? 'Identifying…' : status.phase === 'CARD_CANDIDATE' ? 'Hold steady' : status.phase === 'WAITING_FOR_CARD_CHANGE' ? 'Present the next card' : 'Center a card';
-  const onCameraError = useCallback((message: string) => { tracker.settleLighting(Date.now()); setTorch(false); setCaptureError(message); }, [tracker]);
+  const title = status.phase === 'IDENTIFYING' ? activity === 'catalog' ? 'Matching printing…' : activity === 'saving' ? 'Saving scan…' : 'Identifying…' : status.phase === 'CARD_CANDIDATE' ? 'Hold steady' : status.phase === 'WAITING_FOR_CARD_CHANGE' ? 'Present the next card' : 'Center a card';
+  const onCameraError = useCallback((message: string) => { diagnostics.record('camera-error'); tracker.settleLighting(Date.now()); setTorch(false); setCaptureError(message); }, [tracker, diagnostics]);
   const onCameraReadyChange = useCallback((ready: boolean) => {
+    diagnostics.record('camera-ready', { ready });
     setCameraReady(ready);
     if (!ready) { tracker.settleLighting(Date.now()); setTorch(false); }
-  }, [tracker]);
+  }, [tracker, diagnostics]);
   useEffect(() => {
     if (!torchNotice) return;
     const timer = setTimeout(() => setTorchNotice(null), 2400);
@@ -113,6 +131,8 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
     tracker.settleLighting(Date.now());
     setTorch(value => !value);
   };
+  const openDiagnostics = () => { diagnosticsOpen.current = true; setDiagnosticReport(diagnostics.report()); };
+  const closeDiagnostics = () => { diagnosticsOpen.current = false; setDiagnosticReport(null); };
   const scanningMessage = captureError ?? (status.phase === 'ERROR' ? status.error : !scan.allowed ? 'Free scan used' : title);
   return <View style={styles.screen}>
     {focused ? <StatusBar style="light" /> : null}
@@ -135,12 +155,13 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
       <Pressable accessibilityRole="button" accessibilityLabel="Use demo scanner" onPress={onDemo} style={({ pressed }) => [styles.icon, pressed && styles.pressed]}><Icon name="flask-outline" color={colors.scannerFrame} /></Pressable>
     </View>
     <View pointerEvents="box-none" style={[styles.controls, { paddingBottom: Math.max(insets.bottom, 16), paddingLeft: insets.left + 16, paddingRight: insets.right + 16 }]}>
-      {liveScannerConfig && connection === 'ready' ? <View pointerEvents="none" style={styles.feedback}>
+      {liveScannerConfig && connection === 'ready' ? <View pointerEvents="box-none" style={styles.feedback}>
         {status.phase === 'RESULT_READY' && result ? <ScannedCardReveal key={status.cardId} item={result} count={scan.summary.copies} />
-          : <View style={styles.status} accessibilityLiveRegion="polite">
+          : <Pressable style={styles.status} accessibilityRole={__DEV__ ? 'button' : undefined} accessibilityLabel={__DEV__ ? `${scanningMessage}. Show scanner diagnostics` : undefined} onPress={__DEV__ ? openDiagnostics : undefined} accessibilityLiveRegion="polite">
             {status.phase === 'IDENTIFYING' ? <ActivityIndicator color={colors.white} /> : <Icon name={status.phase === 'ERROR' || captureError ? 'alert-circle-outline' : 'scan-outline'} color={colors.white} size={18} />}
             <Label kind="caption" style={styles.statusText}>{status.phase === 'RESULT_READY' && pendingResult ? `${pendingResult.recognition.candidates[0]?.name ?? 'Card recognized'} · Match printing in Organize` : scanningMessage}</Label>
-          </View>}
+            {__DEV__ ? <Icon name="information-circle-outline" color={colors.scannerMuted} size={18} /> : null}
+          </Pressable>}
       </View> : null}
       {torchNotice ? <Label kind="caption" accessibilityLiveRegion="polite" style={styles.notice}>{torchNotice}</Label> : null}
       {scan.loadError || scan.error ? <Label kind="caption" accessibilityRole="alert" style={styles.notice}>{scan.loadError ?? scan.error}</Label> : null}
@@ -148,6 +169,14 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
       {!scan.allowed ? <Button title="Explore Chase Pro" variant="inverse" onPress={paywall} /> : null}
       <Button title={`Organize (${scan.summary.copies})`} icon="albums-outline" disabled={!scan.ready} onPress={() => router.push({ pathname: '/organize', params: { onboarding } })} />
     </View>
+    <Modal transparent visible={diagnosticReport !== null} animationType="fade" onRequestClose={closeDiagnostics}>
+      <View style={styles.scrim}><View style={styles.dialog} accessibilityViewIsModal>
+        <Label kind="heading">Scanner diagnostics</Label>
+        <ScrollView><Label selectable kind="caption">{diagnosticReport}</Label></ScrollView>
+        <Button title="Refresh diagnostics" variant="secondary" onPress={() => setDiagnosticReport(diagnostics.report())} />
+        <Button title="Close diagnostics" onPress={closeDiagnostics} />
+      </View></View>
+    </Modal>
     <Modal transparent visible={Boolean(review)} animationType="fade" onRequestClose={() => chooser.current?.finish()}>
       <View style={styles.scrim}><View style={styles.dialog} accessibilityViewIsModal>
         <Label kind="heading" accessibilityRole="header">Choose the printing</Label>

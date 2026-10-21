@@ -10,6 +10,8 @@ interface ClientOptions {
   catalog: RecognitionCatalog;
   fetch?: typeof globalThis.fetch;
   timeoutMs?: number;
+  /** Automatic catalog work is bounded independently from a deliberate printing chooser. */
+  catalogTimeoutMs?: number;
   links?: RecognitionLinks;
 }
 
@@ -52,6 +54,7 @@ export class CardSightRecognitionService {
     let removeAbort = () => {};
     let timedOut = false;
     this.busy = true;
+    options.onStage?.('recognizing');
     try {
       const interrupted = new Promise<never>((_resolve, reject) => {
         const aborted = () => { controller.abort(); reject(new CardSightError('ABORTED', 'Recognition canceled.')); };
@@ -83,7 +86,11 @@ export class CardSightRecognitionService {
       // deliberate user review have their own lifecycle rather than a camera deadline.
       if (timer) clearTimeout(timer);
       removeAbort();
-      return await resolveCardSightCandidates(result, this.options.catalog, { ...options, links: this.options.links });
+      options.onStage?.('catalog');
+      const chooseCandidate = options.chooseCandidate ? async (cards: Parameters<NonNullable<typeof options.chooseCandidate>>[0], signal?: AbortSignal) => {
+        options.onStage?.('review'); return options.chooseCandidate!(cards, signal);
+      } : undefined;
+      return await resolveCardSightCandidates(result, this.options.catalog, { ...options, chooseCandidate, links: this.options.links, catalogTimeoutMs: this.options.catalogTimeoutMs });
     } catch (error) {
       if (options.signal?.aborted) throw new CardSightError('ABORTED', 'Recognition canceled.');
       if (timedOut) throw new CardSightError('TIMEOUT', 'Recognition timed out. Present another card.');
