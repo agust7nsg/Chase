@@ -3,6 +3,11 @@ name: Deploy hosted CardSight scanner
 # Deliberate deployment only. Pushing app changes does not publish a paid endpoint.
 on:
   workflow_dispatch:
+    inputs:
+      enable_pro_simulation:
+        description: 'Enable Profile Pro simulation for real scanning for 7 days (disable before release)'
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -52,6 +57,7 @@ jobs:
       - name: Configure automatic Free and guest access
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SCANNER_ENABLE_PRO_SIMULATION: ${{ inputs.enable_pro_simulation }}
         run: node scripts/configure-hosted-scanner.mjs
       - name: Deploy function
         env:

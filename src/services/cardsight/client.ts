@@ -2,13 +2,14 @@ import type { RecognitionOptions, RecognitionResult } from '../contracts';
 import { resolveCardSightCandidates, type ChooseRecognitionCandidate, type RecognitionCatalog } from './resolve';
 import { CardSightError, parseCardSightRecognitionResponse } from './types';
 import type { RecognitionLinks } from './links';
+import { scannerSimulationHeaders } from './simulation';
 
 export interface ClientOptions {
   proxyUrl: string;
   /** Short-lived local development proxy credential, never a CardSight API key. */
   token?: string;
   /** Resolves the CURRENT account session on every request; never closes over an old JWT. */
-  credentials?: () => Promise<{ token: string; apiKey: string }>;
+  credentials?: () => Promise<{ token: string; apiKey: string; simulatePro?: boolean }>;
   catalog: RecognitionCatalog;
   fetch?: typeof globalThis.fetch;
   timeoutMs?: number;
@@ -18,6 +19,7 @@ export interface ClientOptions {
 }
 
 const messages: Record<string, string> = {
+  pro_simulation_disabled: 'Pro simulation is disabled on the scanner server. Deploy with Pro testing enabled.',
   login_required: 'Your scanning session could not be verified. Reopen the scanner to reconnect.',
   access_required: 'Scanning is unavailable for this session. Contact support.',
   trial_used: 'Your free scan has been used. Your pending cards are still in Organize.',
@@ -82,7 +84,7 @@ export class CardSightRecognitionService {
       if (!credential.token || credential.token.length > 8192) throw new CardSightError('CONFIGURATION', messages.login_required);
       const response = await Promise.race([(this.options.fetch ?? globalThis.fetch)(this.endpoint, {
         method: 'POST', signal: controller.signal, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${credential.token}`,
-          ...('apiKey' in credential ? { apikey: credential.apiKey } : {}) },
+          ...('apiKey' in credential ? { apikey: credential.apiKey, ...scannerSimulationHeaders(credential.simulatePro) } : {}) },
         body: JSON.stringify({ requestId, image: { base64: image.base64, mimeType: image.mimeType } }),
       }), interrupted]);
       const text = await Promise.race([response.text(), interrupted]);

@@ -75,23 +75,40 @@ test('registered sessions are reused; unavailable guest Auth is recoverable and 
 
 test('deployment configures automatic access and guest Auth on the fixed project, preserving existing base schema', async () => {
   const calls: { url: string; method: string; body: Record<string, unknown> }[] = [];
-  await configureHostedScanner({ accessToken: 'deployment-fixture',baseMigration:'BASE',accessMigration:'ADDITIVE', fetcher: async (input, init) => {
+  await configureHostedScanner({ accessToken: 'deployment-fixture',baseMigration:'BASE',accessMigration:'ADDITIVE',simulationMigration:'SIMULATION', fetcher: async (input, init) => {
     assert.equal(new Headers(init?.headers).get('Authorization'),'Bearer deployment-fixture');
     calls.push({ url:String(input),method:init?.method ?? '',body:JSON.parse(String(init?.body)) });
-    return Response.json(calls.length === 1 ? [{ installed:true }] : calls.length === 2 ? [] : { external_anonymous_users_enabled:true, security_manual_linking_enabled:true });
+    return Response.json(calls.length === 1 ? [{ installed:true,automatic_access:false }] : calls.length < 5 ? [] : { external_anonymous_users_enabled:true, security_manual_linking_enabled:true });
   } });
-  assert.equal(calls.length,3); assert.ok(calls.every(call => call.url.startsWith('https://api.supabase.com/v1/projects/vzjekkgyrdxzlhaupnrw/')));
-  assert.deepEqual(calls[1].body,{ query:'ADDITIVE' }); assert.equal(calls[2].method,'PATCH');
-  assert.deepEqual(calls[2].body,{ external_anonymous_users_enabled:true, security_manual_linking_enabled:true });
+  assert.equal(calls.length,5); assert.ok(calls.every(call => call.url.startsWith('https://api.supabase.com/v1/projects/vzjekkgyrdxzlhaupnrw/')));
+  assert.deepEqual(calls[1].body,{ query:'ADDITIVE' }); assert.deepEqual(calls[2].body,{ query:'SIMULATION' });
+  assert.match(String(calls[3].body.query),/pro_simulation_until = null/);
+  assert.equal(calls[4].method,'PATCH');
+  assert.deepEqual(calls[4].body,{ external_anonymous_users_enabled:true, security_manual_linking_enabled:true });
 });
 
 test('deployment fails closed on insufficient scopes without leaking remote response bodies or credentials', async () => {
   let calls = 0;
-  await assert.rejects(configureHostedScanner({ accessToken:'private-fixture',baseMigration:'BASE',accessMigration:'ADDITIVE', fetcher: async () => {
+  await assert.rejects(configureHostedScanner({ accessToken:'private-fixture',baseMigration:'BASE',accessMigration:'ADDITIVE',simulationMigration:'SIMULATION', fetcher: async () => {
     calls++; return Response.json({ private:'upstream-private' },{ status:403 });
   } }),error => {
     assert.ok(error instanceof Error);
     assert.match(error.message,/token permissions/); assert.doesNotMatch(error.message,/private-fixture|upstream-private/); return true;
   });
   assert.equal(calls,1);
+});
+
+test('test deployment opens a bounded window without rerunning the old success backfill; release deployment closes it', async () => {
+  for (const enabled of [true,false]) {
+    const bodies: Record<string,unknown>[]=[];
+    await configureHostedScanner({ accessToken:'deployment-fixture',baseMigration:'BASE',accessMigration:'OLD_BACKFILL',simulationMigration:'SIMULATION',enableProSimulation:enabled,
+      fetcher:async (_input,init) => {
+        bodies.push(JSON.parse(String(init?.body)));
+        return Response.json(bodies.length===1 ? [{ installed:true,automatic_access:true }] : bodies.length===4 ? { external_anonymous_users_enabled:true,security_manual_linking_enabled:true } : []);
+      },
+    });
+    assert.equal(bodies.length,4); assert.deepEqual(bodies[1],{ query:'SIMULATION' });
+    assert.match(String(bodies[2].query),enabled ? /now\(\) \+ interval '7 days'/ : /pro_simulation_until = null/);
+    assert.ok(!bodies.some(body=>body.query==='OLD_BACKFILL'));
+  }
 });

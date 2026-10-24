@@ -28,9 +28,9 @@ export function supabaseScannerDependencies(url: string, serviceKey: string, fet
       && (user.is_anonymous === true || (typeof user.email_confirmed_at === 'string' && Number.isFinite(Date.parse(user.email_confirmed_at)))) ? user.id : null;
   }, 5000);
   const store: HostedScannerStore = {
-    status: async userId => outcome(await rpc('scanner_status', { p_user_id: userId })),
-    claim: async (userId, requestId, digest) => {
-      const value = await rpc('scanner_claim', { p_user_id: userId, p_request_id: requestId, p_digest: digest });
+    status: async (userId, simulatePro = false) => outcome(await rpc('scanner_status_v2', { p_user_id: userId, p_pro_simulation: simulatePro })),
+    claim: async (userId, requestId, digest, simulatePro = false) => {
+      const value = await rpc('scanner_claim_v2', { p_user_id: userId, p_request_id: requestId, p_digest: digest, p_pro_simulation: simulatePro });
       return isRecord(value) && isUserId(value.lease) ? { lease: value.lease } : outcome(value);
     },
     complete: async (userId, requestId, lease, result) => {

@@ -8,8 +8,8 @@ export const MAX_BODY_BYTES = Math.ceil(MAX_IMAGE_BYTES / 3) * 4 + 1024;
 export const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 export const isUserId = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value);
 export interface HostedScannerStore {
-  status(userId: string): Promise<ScannerOutcome>;
-  claim(userId: string, requestId: string, digest: string): Promise<{ lease: string } | ScannerOutcome>;
+  status(userId: string, simulatePro?: boolean): Promise<ScannerOutcome>;
+  claim(userId: string, requestId: string, digest: string, simulatePro?: boolean): Promise<{ lease: string } | ScannerOutcome>;
   complete(userId: string, requestId: string, lease: string, outcome: ScannerOutcome): Promise<void>;
 }
 export interface HostedScannerOptions {

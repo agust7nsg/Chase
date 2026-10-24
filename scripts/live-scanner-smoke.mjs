@@ -143,7 +143,7 @@ async function presentArtwork(page, index, scale = 1) {
   await page.evaluate(({ index, scale }) => { globalThis.cameraArtworkIndex = index; globalThis.cameraArtworkScale = scale; globalThis.syntheticCardStyle = 0; }, { index, scale });
 }
 
-async function fixture({ candidates = [charizard], plan = 'pro', permission = true, fail = false, ready = true, catalogMissing = false, reducedMotion = 'no-preference', catalogDelayMs = 0, providerDelayMs = 0, authenticated = true, access = true, trialUsed = false } = {}) {
+async function fixture({ candidates = [charizard], plan = 'pro', permission = true, fail = false, ready = true, catalogMissing = false, reducedMotion = 'no-preference', catalogDelayMs = 0, providerDelayMs = 0, authenticated = true, access = true, trialUsed = false, proSimulationEnabled = true } = {}) {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion });
   if (permission) await context.grantPermissions(['camera'], { origin: url });
   const catalogState = await installTCGdexFixtures(context);
@@ -154,7 +154,7 @@ async function fixture({ candidates = [charizard], plan = 'pro', permission = tr
     return index >= 0 ? route.fulfill({ contentType: 'image/webp', headers: { 'access-control-allow-origin': '*' }, body: artworkBytes[index] }) : route.fallback();
   });
   catalogState.offline = catalogMissing;
-  const state = { requests: [], fail, candidates, ready, healthRequests: 0, guestSignUps: 0, catalogState, catalogDelayMs, providerDelayMs, console: [] };
+  const state = { requests: [], fail, candidates, ready, healthRequests: 0, guestSignUps: 0, trialUsed, proSimulationEnabled, catalogState, catalogDelayMs, providerDelayMs, console: [] };
   await context.route('https://api.tcgdex.net/**', async route => {
     if (state.catalogDelayMs) await new Promise(resolve => setTimeout(resolve, state.catalogDelayMs));
     await route.fallback();
@@ -199,13 +199,16 @@ async function fixture({ candidates = [charizard], plan = 'pro', permission = tr
   });
   await context.route(`${proxy}/**`, async route => {
     const request = route.request();
-    const headers = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization,content-type,apikey', 'access-control-allow-methods': 'GET,POST,OPTIONS' };
+    const headers = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization,content-type,apikey,x-chase-pro-simulation', 'access-control-allow-methods': 'GET,POST,OPTIONS' };
     if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
     if (hosted) { assert.match(request.headers().authorization ?? '', /^Bearer ey/); assert.match(request.headers().apikey ?? '', /^sb_publishable_/); }
+    const simulated = hosted && request.headers()['x-chase-pro-simulation'] === '1';
+    const denial = !access ? 'access_required' : simulated && !state.proSimulationEnabled ? 'pro_simulation_disabled' : !simulated && state.trialUsed ? 'trial_used' : null;
     if (new URL(request.url()).pathname.endsWith('/health')) {
       state.healthRequests++;
-      return route.fulfill({ status: trialUsed ? 429 : access ? 200 : 403, headers, json: trialUsed ? { error: { code:'trial_used' } } : access ? { ready: state.ready, mode: hosted ? 'supabase-hosted' : 'local-development' } : { error: { code: 'access_required' } } });
+      return route.fulfill({ status:denial ? denial === 'trial_used' ? 429 : 403 : 200, headers, json:denial ? { error:{ code:denial } } : { ready:state.ready, mode:hosted ? 'supabase-hosted' : 'local-development',proSimulation:simulated } });
     }
+    if (denial) return route.fulfill({ status:denial === 'trial_used' ? 429 : 403,headers,json:{ error:{ code:denial } } });
     assert.ok(new URL(request.url()).pathname.endsWith('/recognize'));
     assert.equal(request.method(), 'POST');
     if (!hosted) assert.equal(request.headers().authorization, `Bearer ${pairingToken}`);
@@ -215,10 +218,11 @@ async function fixture({ candidates = [charizard], plan = 'pro', permission = tr
     assert.ok(payload.image.base64.startsWith('/9j/'), 'Real capture must produce JPEG bytes.');
     assert.ok(payload.image.base64.length < 8 * 1024 * 1024);
     assert.ok(typeof payload.requestId === 'string' && payload.requestId.length > 0);
-    state.requests.push({ requestId: payload.requestId, bytes: Buffer.from(payload.image.base64, 'base64').length, at: Date.now() });
+    state.requests.push({ simulatePro:simulated, requestId: payload.requestId, bytes: Buffer.from(payload.image.base64, 'base64').length, at: Date.now() });
     const candidates = state.candidates; const failed = state.fail;
     if (state.providerDelayMs) await new Promise(resolve => setTimeout(resolve, state.providerDelayMs));
     if (failed) return route.abort('failed');
+    if (hosted && !simulated && candidates.length) state.trialUsed=true;
     return route.fulfill({ status: 200, headers, contentType: 'application/json', body: JSON.stringify({ candidates }) });
   });
   await context.addInitScript(plan => {
@@ -305,7 +309,7 @@ async function fixture({ candidates = [charizard], plan = 'pro', permission = tr
   page.on('pageerror', error => errors.push(error.stack ?? error.message));
   page.on('console', message => { if (['warning', 'error'].includes(message.type())) state.console.push(message.text()); });
   await page.goto(`${url}/scanner`);
-  await button(page, trialUsed ? 'Explore Chase Pro' : ready && access ? 'Enable card scanning' : 'Retry connection').waitFor({ timeout: 60_000 });
+  await button(page, trialUsed && plan === 'free' ? 'Explore Chase Pro' : ready && access && !(hosted && plan === 'pro' && !proSimulationEnabled) ? 'Enable card scanning' : 'Retry connection').waitFor({ timeout: 60_000 });
   await button(page, 'Organize (0)').waitFor();
   return { page, context, state };
 }
@@ -352,12 +356,50 @@ try {
       assert.equal((await collection(guest.page)).trial.successfulRecognitions,1);
     });
     await guest.context.close();
-    const exhausted = await fixture({ trialUsed:true });
-    await check('server Free limit cannot be bypassed by local development Pro simulation', async () => {
+    const exhausted = await fixture({ trialUsed:true,plan:'free' });
+    await check('server Free limit stays enforced when the Profile switch is off', async () => {
       await exhausted.page.getByText('Your free scan has been used. Your pending cards are still in Organize.',{ exact:true }).waitFor();
       assert.equal(exhausted.state.requests.length,0); assert.equal(await exhausted.page.evaluate(() => globalThis.chaseMediaRequests),0);
     });
     await exhausted.context.close();
+    const disabledSimulation = await fixture({ proSimulationEnabled:false });
+    await check('Profile Pro simulation explains a disabled server test window before activating the camera', async () => {
+      await disabledSimulation.page.getByText('Pro simulation is disabled on the scanner server. Deploy with Pro testing enabled.',{ exact:true }).waitFor();
+      assert.equal(disabledSimulation.state.requests.length,0);
+      assert.equal(await disabledSimulation.page.evaluate(()=>globalThis.chaseMediaRequests),0);
+    });
+    await disabledSimulation.context.close();
+    const toggle = await fixture({ plan:'free',trialUsed:true });
+    await check('the actual Profile switch enables nine hosted scans after a used trial, preserves Organize and restores Free when turned off', async () => {
+      const { page,state }=toggle;
+      await page.goto(`${url}/profile`);
+      const control=page.getByRole('switch',{ name:'Development only · simulate Pro',exact:true });
+      await control.click();
+      await page.waitForFunction(()=>JSON.parse(localStorage.getItem('chase.prototype.v1')).plan==='pro');
+      await page.goto(`${url}/scanner`); await button(page,'Enable card scanning').waitFor();
+      await loadCameraArtwork(page); await presentArtwork(page,0); await enable(page);
+      for (let index=0;index<9;index++) {
+        state.candidates=[artworkPool[index % artworkPool.length][1]];
+        await presentArtwork(page,index % artworkPool.length);
+        await button(page,`Organize (${index+1})`).waitFor({ timeout:15_000 });
+        if (index===3) {
+          await button(page,'Organize (4)').click();
+          await button(page,'Return to Scanner').first().click();
+          await page.waitForFunction(()=>[...document.querySelectorAll('video')].some(v=>v.readyState>=2));
+        }
+      }
+      assert.equal(state.requests.length,9); assert.ok(state.requests.every(row=>row.simulatePro));
+      assert.equal(copies(await pending(page)),9); assert.equal(copies(await collection(page)),0);
+      await page.goto(`${url}/profile`); await page.getByRole('switch',{ name:'Development only · simulate Pro',exact:true }).click();
+      await page.waitForFunction(()=>JSON.parse(localStorage.getItem('chase.prototype.v1')).plan==='free');
+      await page.goto(`${url}/scanner`);
+      await page.getByText('Your free scan has been used. Your pending cards are still in Organize.',{ exact:true }).waitFor();
+      await button(page,'Organize (9)').waitFor(); assert.equal(state.requests.length,9);
+      await button(page,'Organize (9)').click(); await button(page,'Save all to Collection').click();
+      await page.getByText('9 copies saved to Collection.',{ exact:true }).waitFor();
+      assert.equal(copies(await pending(page)),0); assert.equal(copies(await collection(page)),9);
+    });
+    await toggle.context.close();
     const ungranted = await fixture({ access: false });
     await check('server revocation remains effective despite local Pro simulation', async () => {
       await ungranted.page.getByText('Scanning is unavailable for this session. Contact support.', { exact: true }).waitFor();

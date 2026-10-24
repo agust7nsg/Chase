@@ -12,7 +12,7 @@ export function createHostedScanner(options: HostedScannerOptions): (request: Re
     const respond = (outcome: ScannerOutcome) => Response.json(outcome.body, { status: outcome.status, headers });
     if (origin && !origins.has(origin)) return respond(failure(403, 'origin_not_allowed'));
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { ...headers,
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Authorization, Content-Type, apikey, x-client-info', 'Access-Control-Max-Age': '600' } });
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Authorization, Content-Type, apikey, x-client-info, x-chase-pro-simulation', 'Access-Control-Max-Age': '600' } });
     const path = new URL(request.url).pathname;
     const action = /\/(?:cardsight-scanner\/)?(health|recognize)$/.exec(path)?.[1];
     if (!action) return respond(failure(404, 'not_found'));
@@ -24,8 +24,9 @@ export function createHostedScanner(options: HostedScannerOptions): (request: Re
     catch { return respond(failure(503, 'authentication_unavailable')); }
     if (!isUserId(userId)) return respond(failure(401, 'login_required'));
     if (!options.configured) return respond(failure(503, 'not_configured'));
+    const simulatePro = request.headers.get('X-Chase-Pro-Simulation') === '1';
     if (action === 'health') {
-      try { return respond(await options.store.status(userId)); }
+      try { return respond(await options.store.status(userId, simulatePro)); }
       catch { return respond(failure(503, 'storage_unavailable')); }
     }
     if (request.signal.aborted) return respond(failure(499, 'cancelled'));
@@ -39,7 +40,7 @@ export function createHostedScanner(options: HostedScannerOptions): (request: Re
     const hash = await crypto.subtle.digest('SHA-256', input.bytes as Uint8Array<ArrayBuffer>);
     const fingerprint = Array.from(new Uint8Array(hash), value => value.toString(16).padStart(2, '0')).join('');
     let reservation: Awaited<ReturnType<typeof options.store.claim>>;
-    try { reservation = await options.store.claim(userId, input.id, fingerprint); }
+    try { reservation = await options.store.claim(userId, input.id, fingerprint, simulatePro); }
     catch { return respond(failure(503, 'storage_unavailable')); }
     if (!('lease' in reservation)) return respond(reservation);
     // Once reserved, finish and persist independently from the caller disconnecting.

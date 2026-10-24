@@ -13,6 +13,7 @@ import { CameraCaptureTimeout, CameraSampleError } from '@/services/cameraCaptur
 import { isHostedScanner, liveScannerConfig } from '@/services/cardsight/config';
 import { scannerHealth } from '@/services/cardsight/gateway';
 import { useAuth } from '@/features/account/AuthProvider';
+import { useChase } from '@/features/app/ChaseProvider';
 import { colors } from '@/theme/tokens';
 import type { Card } from '@/types/domain';
 import type { ScannerStatus } from '@/types/scanner';
@@ -23,6 +24,8 @@ import { ScannedCardReveal } from './ScannedCardReveal';
 export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
   const scan = useScanSession();
   const auth = useAuth();
+  const chase = useChase();
+  const simulatePro = __DEV__ && chase.state.plan === 'pro';
   const userId = auth.scannerIdentity ?? undefined;
   const hosted = isHostedScanner(liveScannerConfig);
   const focused = useIsFocused();
@@ -37,6 +40,7 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
   const [connectionAttempt, setConnectionAttempt] = useState(0);
   const [connectionCode, setConnectionCode] = useState<string | undefined>();
   const [checkedUser, setCheckedUser] = useState<string | undefined>();
+  const [checkedSimulation, setCheckedSimulation] = useState(false);
   const [status, setStatus] = useState<ScannerStatus>({ phase: 'SEARCHING', cardId: null, error: null });
   const [review, setReview] = useState<Card[] | null>(null);
   const [activity, setActivity] = useState('recognizing');
@@ -73,12 +77,12 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
     const abort = new AbortController();
     let stopped = false;
     const timer = setTimeout(() => { abort.abort(); if (!stopped) setConnection('unavailable'); }, 8000);
-    void scannerHealth(abort.signal).then(value => {
-      if (!stopped) { setCheckedUser(userId); setConnectionCode(value.code); setConnection(value.ready ? 'ready' : 'unavailable'); }
+    void scannerHealth(abort.signal, simulatePro).then(value => {
+      if (!stopped) { setCheckedUser(userId); setCheckedSimulation(simulatePro); setConnectionCode(value.code); setConnection(value.ready ? 'ready' : 'unavailable'); }
     }).catch(() => { if (!stopped) { setConnectionCode(undefined); setConnection('unavailable'); } }).finally(() => clearTimeout(timer));
     return () => { stopped = true; clearTimeout(timer); abort.abort(); };
-  }, [focused, appActive, connectionAttempt, hosted, userId]);
-  const connected = connection === 'ready' && (!hosted || userId === checkedUser);
+  }, [focused, appActive, connectionAttempt, hosted, userId, simulatePro]);
+  const connected = connection === 'ready' && (!hosted || (userId === checkedUser && simulatePro === checkedSimulation));
   const active = focused && appActive && scan.ready && !scan.loadError && connected && Boolean(liveScannerConfig);
   useEffect(() => {
     if (!active) return;
@@ -140,7 +144,8 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
   const closeDiagnostics = () => { diagnosticsOpen.current = false; setDiagnosticReport(null); };
   const scanningMessage = captureError ?? (status.phase === 'ERROR' ? status.error : !scan.allowed ? 'Free scan used' : title);
   const connectionMessage = !hosted ? (!liveScannerConfig ? 'Configure the local scanner URL and pairing token, then restart Expo.' : 'The local server must be online with CardSight recognition configured.')
-    : connectionCode === 'trial_used' ? 'Your free scan has been used. Your pending cards are still in Organize.'
+    : connectionCode === 'pro_simulation_disabled' ? 'Pro simulation is disabled on the scanner server. Deploy with Pro testing enabled.'
+      : connectionCode === 'trial_used' ? 'Your free scan has been used. Your pending cards are still in Organize.'
       : connectionCode === 'access_required' ? 'Scanning is unavailable for this session. Contact support.'
         : connectionCode === 'account_limit' ? 'Your scanner request allowance has been reached.'
           : connectionCode === 'service_limit' ? 'The scanner has reached its daily service limit. Please try again later.'

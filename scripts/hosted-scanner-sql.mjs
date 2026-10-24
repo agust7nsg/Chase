@@ -12,10 +12,12 @@ const digest = 'a'.repeat(64); let passed = 0;
 const check = async (name, run) => { await reset(); await run(); console.log(`PASS ${++passed}: ${name}`); };
 const claim = async (user = a, id = 'request-0001', hash = digest) => (await db.query('select public.scanner_claim($1::uuid,$2,$3) as value', [user,id,hash])).rows[0].value;
 const status = async (user = a) => (await db.query('select public.scanner_status($1::uuid) as value', [user])).rows[0].value;
+const testStatus = async (enabled = true, user = a) => (await db.query('select public.scanner_status_v2($1::uuid,$2) as value', [user,enabled])).rows[0].value;
+const testClaim = async (id, enabled = true, user = a) => (await db.query('select public.scanner_claim_v2($1::uuid,$2,$3,$4) as value', [user,id,digest,enabled])).rows[0].value;
 const complete = async (lease, user = a, id = 'request-0001', code = 200, body = { candidates: [] }) => (await db.query('select public.scanner_complete($1::uuid,$2,$3::uuid,$4::integer,$5::jsonb) as value', [user,id,lease,code,JSON.stringify(body)])).rows[0].value;
 async function reset() {
   await db.exec(`delete from public.scanner_request_receipts; delete from public.scanner_access_grants; delete from public.scanner_global_usage;
-    update public.scanner_service_limits set enabled=true,daily_request_limit=100,maximum_concurrent_requests=5;
+    update public.scanner_service_limits set enabled=true,daily_request_limit=100,maximum_concurrent_requests=5,pro_simulation_until=null;
     insert into public.scanner_access_grants(user_id,expires_at,remaining_requests) values ('${a}',now()+interval '1 day',10),('${b}',now()+interval '1 day',10);`);
 }
 try {
@@ -24,6 +26,8 @@ try {
   await db.exec(await readFile(new URL('../supabase/migrations/202610210001_hosted_scanner.sql', import.meta.url), 'utf8'));
   const automaticMigration = await readFile(new URL('../supabase/migrations/202610210002_automatic_scanner_access.sql', import.meta.url), 'utf8');
   await db.exec(automaticMigration);
+  const simulationMigration = await readFile(new URL('../supabase/migrations/202610240001_scanner_pro_simulation.sql', import.meta.url),'utf8');
+  await db.exec(simulationMigration);
   await check('migration automatically provisions Free while preserving expired beta restrictions', async () => {
     assert.equal((await status()).status,200);
     await db.exec(`delete from public.scanner_access_grants where user_id='${a}'`); assert.ok((await claim()).lease);
@@ -120,6 +124,71 @@ try {
     await db.exec(`update public.scanner_access_grants set enabled=false where user_id='${a}'`);
     assert.equal((await status()).status,403); assert.equal((await claim()).status,403);
     await assert.rejects(status('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'), error => error.code === '23503');
+  });
+  // A legacy migration replay above deliberately replaced the old RPCs. Restore
+  // the current schema; normal deployment never reapplies 002 after 003.
+  await db.exec(simulationMigration);
+  await check('Pro simulation cannot enable calls while the server test window is disabled or expired', async () => {
+    assert.equal((await testStatus()).body.error.code,'pro_simulation_disabled');
+    assert.equal((await testClaim('simulation-0001')).body.error.code,'pro_simulation_disabled');
+    await db.exec("update public.scanner_service_limits set pro_simulation_until=now()-interval '1 second'");
+    assert.equal((await testStatus()).status,403);
+    assert.equal((await db.query('select count(*)::integer n from public.scanner_request_receipts')).rows[0].n,0);
+  });
+  await check('used Free trial can scan a nine-card pack in Pro test mode; disabling the switch restores the used trial', async () => {
+    await db.exec(`delete from public.scanner_access_grants where user_id='${a}'`);
+    const first = await claim(); await complete(first.lease,a,'request-0001',200,{ candidates:[{ name:'Free card' }] });
+    assert.equal((await status()).body.error.code,'trial_used');
+    await db.exec("update public.scanner_service_limits set pro_simulation_until=now()+interval '7 days'");
+    for (let n=1;n<=9;n++) {
+      await db.exec("update public.scanner_request_receipts set created_at=created_at-interval '2 seconds'");
+      assert.equal((await testStatus()).body.proSimulation,true);
+      const id=`simulation-pack-${n}`; const next = await testClaim(id); assert.ok(next.lease);
+      await complete(next.lease,a,id,200,{ candidates:[{ name:`Card ${n}` }] });
+      assert.equal((await testClaim(id)).status,200,'Replay must not spend another test call.');
+    }
+    const row = (await db.query('select * from public.scanner_access_grants where user_id=$1',[a])).rows[0];
+    assert.equal(row.successful_recognitions,1); assert.equal(row.remaining_requests,19);
+    assert.equal((await testStatus(false)).body.error.code,'trial_used');
+    assert.equal((await testClaim('normal-after-test',false)).body.error.code,'trial_used');
+    assert.equal((await db.query('select attempts from public.scanner_global_usage')).rows[0].attempts,10);
+  });
+  await check('simulation does not spend an unused Free trial and cannot refill its attempts by toggling or redeploying', async () => {
+    await db.exec(`delete from public.scanner_access_grants where user_id='${a}'`);
+    await db.exec("update public.scanner_service_limits set pro_simulation_until=now()+interval '7 days'");
+    const first = await testClaim('simulation-0001'); await complete(first.lease,a,'simulation-0001',200,{ candidates:[{ name:'Test card' }] });
+    await db.exec(simulationMigration);
+    assert.equal((await testStatus(false)).status,200);
+    const row = (await db.query('select * from public.scanner_access_grants where user_id=$1',[a])).rows[0];
+    assert.equal(row.successful_recognitions,0); assert.equal(row.remaining_requests,20);
+    assert.equal((await testStatus()).body.remainingRequests,99);
+  });
+  await check('test mode keeps one active request, request replay and global budgets across replicas', async () => {
+    await db.exec("update public.scanner_service_limits set pro_simulation_until=now()+interval '7 days',daily_request_limit=1");
+    const first = await testClaim('simulation-0001'); assert.ok(first.lease);
+    assert.equal((await testClaim('simulation-0002')).body.error.code,'busy');
+    assert.equal((await testClaim('simulation-0001')).body.error.code,'in_progress');
+    await complete(first.lease,a,'simulation-0001');
+    assert.equal((await testClaim('simulation-0001')).status,200);
+    assert.equal((await testClaim('simulation-0002',true,b)).body.error.code,'service_limit');
+  });
+  await check('server shutdown of test mode and per-user revocation block new calls without clearing receipts', async () => {
+    await db.exec("update public.scanner_service_limits set pro_simulation_until=now()+interval '7 days'");
+    const first = await testClaim('simulation-0001'); await complete(first.lease,a,'simulation-0001');
+    await db.exec('update public.scanner_service_limits set pro_simulation_until=null');
+    assert.equal((await testClaim('simulation-0002')).body.error.code,'pro_simulation_disabled');
+    assert.equal((await testClaim('simulation-0001')).status,200);
+    await db.exec("update public.scanner_service_limits set pro_simulation_until=now()+interval '7 days'");
+    await db.exec(`update public.scanner_access_grants set enabled=false where user_id='${a}'`);
+    assert.equal((await testClaim('simulation-0002')).body.error.code,'access_required');
+  });
+  await check('app roles cannot request Pro by calling the privileged v2 RPC directly', async () => {
+    for (const role of ['authenticated','anon']) {
+      await db.exec(`set role ${role}`);
+      await assert.rejects(db.exec(`select public.scanner_status_v2('${a}',true)`),error=>error.code==='42501');
+      await assert.rejects(db.exec(`select public.scanner_claim_v2('${a}','simulation-0001','${digest}',true)`),error=>error.code==='42501');
+      await db.exec('reset role');
+    }
   });
   console.log(`Hosted scanner SQL passed: ${passed} scenarios on embedded PostgreSQL. No remote schema or real user was changed.`);
 } finally { await db.close(); }

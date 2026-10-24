@@ -6,6 +6,7 @@ import { supabaseScannerDependencies } from '../supabase/functions/_shared/supab
 import { ScannerTransportError } from '../supabase/functions/_shared/transportTypes';
 import { hostedScannerConfig, isHostedScanner } from '../src/services/cardsight/config';
 import { CardSightRecognitionService } from '../src/services/cardsight/client';
+import { scannerProSimulation } from '../src/services/cardsight/simulation';
 
 const userId = '12345678-1234-1234-1234-123456789abc';
 const otherUser = '12345678-1234-1234-1234-123456789def';
@@ -132,21 +133,38 @@ test('receipt RPCs carry only the verified user ID, fingerprint and whitelisted 
   const dependency = supabaseScannerDependencies('https://abcdefghijklmnopqrst.supabase.co', 'server-role-fixture-only', async (input, init) => {
     calls.push({ url: String(input), body: JSON.parse(String(init?.body)) });
     assert.equal(new Headers(init?.headers).get('apikey'), 'server-role-fixture-only');
-    if (String(input).endsWith('scanner_claim')) return Response.json({ lease: userId });
+    if (String(input).endsWith('scanner_claim_v2')) return Response.json({ lease: userId });
     return Response.json({ saved: false });
   });
   assert.deepEqual(await dependency.store.claim(userId, 'request-test-123', 'a'.repeat(64)), { lease: userId });
   await assert.rejects(dependency.store.complete(userId, 'request-test-123', userId, { status: 200, body: { candidates: [candidate] } }));
-  assert.deepEqual(calls[0].body, { p_user_id: userId, p_request_id: 'request-test-123', p_digest: 'a'.repeat(64) });
+  assert.deepEqual(calls[0].body, { p_user_id: userId, p_request_id: 'request-test-123', p_digest: 'a'.repeat(64), p_pro_simulation:false });
   assert.doesNotMatch(JSON.stringify(calls), /base64|image\/jpeg/);
 });
 test('hosted recognition resolves the current JWT for every card and preserves the real catalog identity/finish', async () => {
-  let token = jwt; const requests: string[] = [];
+  let token = jwt; let requestedPro = false; let development = true;
+  const requests: string[] = []; const simulationHeaders: (string|null)[] = [];
   const card = { id: 'tcgdex:en:xy12-35:normal', catalogIdentity: { provider: 'tcgdex' as const, language: 'en', id: 'xy12-35', variant: 'normal' }, name: 'Pikachu', setName: 'Evolutions', collectorNumber: '35/108', variant: 'Normal' as const, imageKey: 'pikachu', marketPrice: null };
   const service = new CardSightRecognitionService({ proxyUrl: 'https://abcdefghijklmnopqrst.supabase.co/functions/v1/cardsight-scanner',
-    credentials: async () => ({ token, apiKey: 'sb_publishable_fixture-only' }), catalog: { listSets: async () => [{ id: 'xy12', name: 'Evolutions' }], getSet: async () => ({ id: 'xy12', name: 'Evolutions', cards: [{ id: 'xy12-35', name: 'Pikachu', localId: '35' }] }), getVariants: async () => [card] },
-    fetch: async (_input, init) => { requests.push(new Headers(init?.headers).get('Authorization')!); assert.equal(new Headers(init?.headers).get('apikey'), 'sb_publishable_fixture-only'); return Response.json({ candidates: [candidate] }); } });
+    credentials: async () => ({ token, apiKey: 'sb_publishable_fixture-only',simulatePro:scannerProSimulation(development,requestedPro) }), catalog: { listSets: async () => [{ id: 'xy12', name: 'Evolutions' }], getSet: async () => ({ id: 'xy12', name: 'Evolutions', cards: [{ id: 'xy12-35', name: 'Pikachu', localId: '35' }] }), getVariants: async () => [card] },
+    fetch: async (_input, init) => { requests.push(new Headers(init?.headers).get('Authorization')!); simulationHeaders.push(new Headers(init?.headers).get('X-Chase-Pro-Simulation')); assert.equal(new Headers(init?.headers).get('apikey'), 'sb_publishable_fixture-only'); return Response.json({ candidates: [candidate] }); } });
   const image = { base64: jpeg, mimeType: 'image/jpeg' as const, width: 600, height: 825 };
   assert.equal((await service.recognize({ image })).id, card.id); token = jwt + '-refreshed'; assert.equal((await service.recognize({ image })).variant, 'Normal');
   assert.deepEqual(requests, [`Bearer ${jwt}`, `Bearer ${token}`]);
+  requestedPro=true; await service.recognize({ image });
+  requestedPro=false; await service.recognize({ image });
+  requestedPro=true; development=false; await service.recognize({ image });
+  assert.deepEqual(simulationHeaders,[null,null,'1',null,null], 'An existing scanner instance follows the current switch, and release mode cannot request simulation.');
+});
+
+test('health and recognition forward Pro simulation only as a server-checked mode; disabled mode makes no vendor call', async () => {
+  const run=fixture(); const modes: boolean[]=[];
+  const handler=createHostedScanner({ ...run.options,store:{ ...run.options.store,
+    status:async (_user,mode) => { modes.push(Boolean(mode)); return failure(403,'pro_simulation_disabled'); },
+    claim:async (_user,_id,_hash,mode) => { modes.push(Boolean(mode)); return failure(403,'pro_simulation_disabled'); },
+  } });
+  const health=new Request('https://scanner.test/health',{ headers:{ Authorization:`Bearer ${jwt}`,'X-Chase-Pro-Simulation':'1' } });
+  const scan=request(); scan.headers.set('X-Chase-Pro-Simulation','1');
+  assert.equal((await handler(health)).status,403); assert.equal((await handler(scan)).status,403);
+  assert.deepEqual(modes,[true,true]); assert.equal(run.calls(),0);
 });

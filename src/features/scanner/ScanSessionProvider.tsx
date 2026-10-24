@@ -108,7 +108,7 @@ export function ScanSessionProvider({ children }: { children: ReactNode }) {
     identifying.current = true;
     try {
       if (source?.mode === 'live' && (!liveScannerConfig || !frame.image)) throw new Error('Connect the scanner server before using CardSight.');
-      if (source?.mode === 'live' && !liveRecognition.current) liveRecognition.current = createLiveRecognition(catalogService, recognitionLinks);
+      if (source?.mode === 'live' && !liveRecognition.current) liveRecognition.current = createLiveRecognition(catalogService, recognitionLinks, () => chaseRef.current.state.plan === 'pro');
       const result = source?.mode === 'live'
         ? await liveRecognition.current!.recognize({ image: frame.image, signal, chooseCandidate: source.chooseCandidate, onStage: source.onStage })
         : await recognitionService.recognize({ cardId: frame.cardId, simulateFailure: optionsRef.current.fail, signal });
