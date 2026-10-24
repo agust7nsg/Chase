@@ -188,18 +188,18 @@ test('cache survives a new service, stale search stays explicit, and stale detai
   });
 });
 
-test('equal-price set printings use natural collector-number ties and retain exact filters', async () => {
+test('equal-price set printings use descending natural collector-number ties and retain exact filters', async () => {
   const cards = ['10', '2', '1', '100', '3', 'TG05'].map(number => raw(`xy12-${number}`, `Pikachu ${number}`, number));
   const source = fixture(cards);
   const service = new TcgDexCatalogService({ fetch: source.fetch });
   const one = await service.queryCards({ setId: 'xy12', pageSize: 2 });
   assert.equal(one.total, 6);
   assert.equal(one.hasMore, true);
-  assert.deepEqual(one.cards.map(card => card.localId), ['1', '2']);
+  assert.deepEqual(one.cards.map(card => card.localId), ['TG05', '100']);
   assert.equal(one.set?.name, 'Evolutions');
   const two = await service.queryCards({ setId: 'xy12', pageSize: 2, page: 2 });
   const three = await service.queryCards({ setId: 'xy12', pageSize: 2, page: 3 });
-  assert.deepEqual([...one.cards, ...two.cards, ...three.cards].map(card => card.localId), ['1', '2', '3', '10', '100', 'TG05']);
+  assert.deepEqual([...one.cards, ...two.cards, ...three.cards].map(card => card.localId), ['TG05', '100', '10', '3', '2', '1']);
   assert.equal(three.hasMore, false);
   assert.equal(new Set([...one.cards, ...two.cards, ...three.cards].map(card => card.id)).size, 6);
   assert.ok(source.requests.every(url => !url.pathname.endsWith('/cards')), 'Unfiltered global pages must not leak into a set.');
@@ -357,4 +357,17 @@ test('a failed full-set lookup is recoverable and a stale complete ranking stays
   const offline = await new TcgDexCatalogService(options).queryCards({ setId: 'xy12' });
   assert.equal(offline.stale, true);
   assert.deepEqual(offline.cards.map(card => card.id), initial.cards.map(card => card.id));
+});
+
+ test('unpriced sets retain descending collector numbers across pages and cached restarts', async () => {
+  const cards=['001','010','002','158'].map(number=>raw(`xy12-${number}`,`Card ${number}`,number));
+  for (const card of cards) delete (card as { pricing?:unknown }).pricing;
+  const source=fixture(cards); const backing=memoryStorage();
+  const service=new TcgDexCatalogService({ fetch:source.fetch,storage:backing.storage });
+  const first=await service.queryCards({ setId:'xy12',pageSize:2 });
+  const second=await service.queryCards({ setId:'xy12',pageSize:2,page:2 });
+  assert.deepEqual([...first.cards,...second.cards].map(card=>card.localId),['158','010','002','001']);
+  source.offline();
+  const restored=await new TcgDexCatalogService({ fetch:source.fetch,storage:backing.storage }).queryCards({ setId:'xy12',pageSize:2 });
+  assert.deepEqual(restored.cards.map(card=>card.localId),['158','010']);
 });

@@ -4,7 +4,7 @@ import { priceToUsd } from '../currency';
 
 const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
 export const compareCollectorNumbers = (a: CatalogCardBrief, b: CatalogCardBrief) =>
-  collator.compare(a.localId, b.localId) || collator.compare(a.id, b.id);
+  collator.compare(b.localId, a.localId) || collator.compare(b.id, a.id);
 
 /** Compare the actual displayed finish quote in one common currency; absent is not zero. */
 export function compareCardPrices(a: Card, b: Card): number {
@@ -12,8 +12,8 @@ export function compareCardPrices(a: Card, b: Card): number {
   const right = priceToUsd(b.marketPrice);
   if (left === null && right !== null) return 1;
   if (right === null && left !== null) return -1;
-  return (right ?? 0) - (left ?? 0) || collator.compare(a.localId ?? a.collectorNumber, b.localId ?? b.collectorNumber)
-    || collator.compare(a.id, b.id);
+  return (right ?? 0) - (left ?? 0) || collator.compare(b.localId ?? b.collectorNumber, a.localId ?? a.collectorNumber)
+    || collator.compare(b.id, a.id);
 }
 
 /** A printing appears once, displaying its most valuable supported finish and that finish's own quote. */
