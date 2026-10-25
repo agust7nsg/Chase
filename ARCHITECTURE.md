@@ -57,6 +57,8 @@ The persisted state includes onboarding completion, current mock plan, successfu
 
 Writes are queued to preserve order. Loading failures expose a retry; persistence failures explain that current changes may only last for the session. Do not replace unread saved data silently. Provider cache refreshes can update displayed reference data but must not reinterpret saved ownership IDs.
 
+The live scanner's card reveal is ephemeral presentation state, keyed per successful recognition rather than per printing or controller phase. It waits for image settlement before its brief display/exit interval, can be replaced immediately by the next success, and clears when scanning is covered or backgrounded. Neither image requests nor animation completion gate camera sampling, recognition, session staging or collection saves. Missing prices remain nullable and neutral; only available exact-variant estimates use the scanner's bright-green price token.
+
 AsyncStorage is device-local storage, not a database sync engine or secure credential store. A future database migration should introduce versioned storage and repository-backed collection access before adding cloud synchronization.
 
 ## Centralized entitlements

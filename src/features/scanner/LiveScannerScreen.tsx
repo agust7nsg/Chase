@@ -44,6 +44,7 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
   const [checkedUser, setCheckedUser] = useState<string | undefined>();
   const [checkedSimulation, setCheckedSimulation] = useState(false);
   const [status, setStatus] = useState<ScannerStatus>({ phase: 'SEARCHING', cardId: null, error: null });
+  const [reveal, setReveal] = useState<{ id: number; cardId: string } | null>(null);
   const [review, setReview] = useState<Card[] | null>(null);
   const [activity, setActivity] = useState('recognizing');
   const [diagnosticReport, setDiagnosticReport] = useState<string | null>(null);
@@ -56,9 +57,17 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
   const allowed = useRef(scan.allowed);
   useEffect(() => { allowed.current = scan.allowed; }, [scan.allowed]);
   const [tracker] = useState(() => new LiveCardPresentationTracker());
-  const [controller] = useState(() => new ScannerController(async () => { throw new Error('Scanner is loading.'); }, status => {
-    diagnostics.record('state', { phase: status.phase }); setStatus(status);
-  }));
+  const [controller] = useState(() => {
+    let revealSequence = 0;
+    return new ScannerController(async () => { throw new Error('Scanner is loading.'); }, status => {
+      diagnostics.record('state', { phase: status.phase }); setStatus(status);
+      // Result feedback owns its lifetime. The controller can immediately detect
+      // the next card without removing artwork that is still downloading.
+      if (status.phase === 'RESULT_READY' && status.cardId) setReveal({ id: ++revealSequence, cardId: status.cardId });
+      else if (status.phase === 'ERROR') setReveal(null);
+    });
+  });
+  const dismissReveal = useCallback((id: number) => setReveal(current => current?.id === id ? null : current), []);
   const [pipeline] = useState(() => new LiveScannerPipeline(controller, tracker, () => false));
   useEffect(() => { pipeline.setAllowed(() => allowed.current && !chooser.current && !diagnosticsOpen.current); }, [pipeline]);
   const onStage = useCallback((stage: string) => { diagnostics.record(stage); setActivity(stage); }, [diagnostics]);
@@ -118,12 +127,12 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
       if (!stopped) timer = setTimeout(() => { void tick(); }, Math.max(150, 650 - (Date.now() - sampleStarted)));
     };
     void tick();
-    return () => { stopped = true; if (timer) clearTimeout(timer); clearInterval(clock); pipeline.stop(); diagnostics.record('sampling-stop'); };
+    return () => { stopped = true; if (timer) clearTimeout(timer); clearInterval(clock); pipeline.stop(); setReveal(null); diagnostics.record('sampling-stop'); };
   }, [active, controller, tracker, pipeline, diagnostics]);
   useEffect(() => () => { controller.dispose(); chooser.current?.finish(); }, [controller]);
   const paywall = () => router.push({ pathname: '/paywall', params: { returnTo: 'scanner' } });
   const exit = () => { if (onboarding === '1') router.replace({ pathname: '/paywall', params: { onboarding } }); else if (router.canGoBack()) router.back(); else router.replace('/(tabs)'); };
-  const result = scan.session.items.find(item => item.cardId === status.cardId);
+  const result = scan.session.items.find(item => item.cardId === reveal?.cardId);
   const pendingResult = scan.session.unresolved?.find(item => `pending:${item.id}` === status.cardId);
   const title = status.phase === 'IDENTIFYING' ? activity === 'catalog' ? 'Matching printing…' : activity === 'saving' ? 'Saving scan…' : 'Identifying…' : status.phase === 'CARD_CANDIDATE' ? 'Hold steady' : status.phase === 'WAITING_FOR_CARD_CHANGE' ? 'Present the next card' : 'Center a card';
   const onCameraError = useCallback((message: string) => { diagnostics.record('camera-error'); tracker.settleLighting(Date.now()); setTorch(false); setCaptureError(message); }, [tracker, diagnostics]);
@@ -175,7 +184,7 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
     </View>
     <View pointerEvents="box-none" style={[styles.controls, { paddingBottom: Math.max(insets.bottom, 16), paddingLeft: insets.left + 16, paddingRight: insets.right + 16 }]}>
       {liveScannerConfig && connected ? <View pointerEvents="box-none" style={styles.feedback}>
-        {status.phase === 'RESULT_READY' && result ? <ScannedCardReveal key={status.cardId} item={result} count={scan.summary.copies} />
+        {focused && appActive && reveal && result ? <ScannedCardReveal key={reveal.id} eventId={reveal.id} item={result} count={scan.summary.copies} onDismiss={dismissReveal} />
           : <Pressable style={styles.status} accessibilityRole={__DEV__ ? 'button' : undefined} accessibilityLabel={__DEV__ ? `${scanningMessage}. Show scanner diagnostics` : undefined} onPress={__DEV__ ? openDiagnostics : undefined} accessibilityLiveRegion="polite">
             {status.phase === 'IDENTIFYING' ? <ActivityIndicator color={colors.white} /> : <Icon name={status.phase === 'ERROR' || captureError ? 'alert-circle-outline' : 'scan-outline'} color={colors.white} size={18} />}
             <Label kind="caption" style={styles.statusText}>{status.phase === 'RESULT_READY' && pendingResult ? `${pendingResult.recognition.candidates[0]?.name ?? 'Card recognized'} · Match printing in Organize` : scanningMessage}</Label>

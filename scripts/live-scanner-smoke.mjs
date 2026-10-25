@@ -21,7 +21,7 @@ const pairingToken = 'chase-browser-fixture-pairing-only-1234';
 const hostedUser = { id: '12345678-1234-1234-1234-123456789abc', email: 'scanner-fixture@example.com', aud: 'authenticated', role: 'authenticated', is_anonymous: false, email_confirmed_at: '2026-10-21T00:00:00Z', created_at: '2026-10-21T00:00:00Z', app_metadata: {}, user_metadata: {} };
 const hostedToken = () => ['eyJhbGciOiJIUzI1NiJ9', Buffer.from(JSON.stringify({ sub: hostedUser.id, exp: Math.floor(Date.now() / 1000) + 3600, aud: 'authenticated' })).toString('base64url'), 'fixture-signature'].join('.');
 const focus = process.env.CHASE_LIVE_FOCUS;
-assert.ok(!focus || ['catalog', 'slow', 'during', 'art', 'appearance', 'diagnostics', 'navigation'].includes(focus), 'Unknown live-scanner focus.');
+assert.ok(!focus || ['catalog', 'slow', 'during', 'art', 'appearance', 'diagnostics', 'navigation', 'reveal'].includes(focus), 'Unknown live-scanner focus.');
 assert.ok(['localhost', '127.0.0.1'].includes(new URL(url).hostname), 'Live smoke must use a local test server.');
 assert.ok(hosted ? proxy === `${hostedRoot}/functions/v1/cardsight-scanner` : ['localhost', '127.0.0.1'].includes(new URL(proxy).hostname), 'Only the explicit intercepted hosted project or a local proxy is supported.');
 const directory = await mkdtemp(join(tmpdir(), 'chase-live-camera-'));
@@ -93,7 +93,7 @@ const copies = value => (value?.items ?? []).reduce((sum, item) => sum + item.qu
 const check = async (name, action) => { await action(); console.log(`PASS ${++passed}: ${name}`); };
 const reveal = page => page.getByTestId('scan-card-reveal');
 async function recordedReveal(page, count) {
-  // Feedback deliberately lasts 1.8s. Observe its actual DOM lifetime in-page,
+  // Feedback is brief. Observe its actual DOM lifetime in-page,
   // rather than missing it between several slow automation round trips.
   await page.waitForFunction(count => globalThis.chaseReveals?.some(row => row.label.includes(`${count} pending cards.`) && row.bounds), count);
   return page.evaluate(count => globalThis.chaseReveals.find(row => row.label.includes(`${count} pending cards.`) && row.bounds), count);
@@ -143,20 +143,30 @@ async function presentArtwork(page, index, scale = 1) {
   await page.evaluate(({ index, scale }) => { globalThis.cameraArtworkIndex = index; globalThis.cameraArtworkScale = scale; globalThis.syntheticCardStyle = 0; }, { index, scale });
 }
 
-async function fixture({ candidates = [charizard], plan = 'pro', permission = true, fail = false, ready = true, catalogMissing = false, reducedMotion = 'no-preference', catalogDelayMs = 0, providerDelayMs = 0, authenticated = true, access = true, trialUsed = false, proSimulationEnabled = true } = {}) {
+async function fixture({ candidates = [charizard], plan = 'pro', permission = true, fail = false, ready = true, catalogMissing = false, reducedMotion = 'no-preference', catalogDelayMs = 0, providerDelayMs = 0, artworkDelayMs = 0, missingPricing = false, failHighWebp = false, authenticated = true, access = true, trialUsed = false, proSimulationEnabled = true } = {}) {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion });
   if (permission) await context.grantPermissions(['camera'], { origin: url });
   const catalogState = await installTCGdexFixtures(context);
   // Render a real catalog illustration in scanner screenshots while keeping all
   // artwork/network requests local and independent of provider availability.
-  await context.route('https://assets.tcgdex.net/**', route => {
+  await context.route('https://assets.tcgdex.net/**', async route => {
     const index = artworkPool.findIndex(([id]) => route.request().url().startsWith(`${fixtureCards.get(id)?.image}/`));
+    if (index >= 0) {
+      state.artworkRequests.push({ url: route.request().url(), at: Date.now() });
+      if (failHighWebp && route.request().url().endsWith('/high.webp')) return route.fulfill({ status: 404, body: '' });
+      if (state.artworkDelayMs) await new Promise(resolve => setTimeout(resolve, state.artworkDelayMs));
+    }
     return index >= 0 ? route.fulfill({ contentType: 'image/webp', headers: { 'access-control-allow-origin': '*' }, body: artworkBytes[index] }) : route.fallback();
   });
   catalogState.offline = catalogMissing;
-  const state = { requests: [], fail, candidates, ready, healthRequests: 0, guestSignUps: 0, trialUsed, proSimulationEnabled, catalogState, catalogDelayMs, providerDelayMs, console: [] };
+  const state = { requests: [], artworkRequests: [], artworkDelayMs, fail, candidates, ready, healthRequests: 0, guestSignUps: 0, trialUsed, proSimulationEnabled, catalogState, catalogDelayMs, providerDelayMs, console: [] };
   await context.route('https://api.tcgdex.net/**', async route => {
     if (state.catalogDelayMs) await new Promise(resolve => setTimeout(resolve, state.catalogDelayMs));
+    const card = fixtureCards.get(new URL(route.request().url()).pathname.replace('/v2/en/cards/', ''));
+    if (missingPricing && card) {
+      const withoutPricing = { ...card }; delete withoutPricing.pricing;
+      return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(withoutPricing) });
+    }
     await route.fallback();
   });
   activeState = state;
@@ -241,8 +251,17 @@ async function fixture({ candidates = [charizard], plan = 'pro', permission = tr
       const element = document.querySelector('[data-testid="scan-card-reveal"]');
       if (!element || seenReveals.has(element)) return;
       seenReveals.add(element);
-      const row = { label: element.getAttribute('aria-label') ?? '', bounds: null, artwork: null };
+      const row = { label: element.getAttribute('aria-label') ?? '', bounds: null, artwork: null, frames: [] };
       globalThis.chaseReveals.push(row);
+      if (globalThis.chaseObserveRevealMotion) {
+        const sample = () => {
+          if (!element.isConnected || row.frames.length >= 480) return;
+          const rect = element.getBoundingClientRect();
+          row.frames.push({ y: rect.y, opacity: Number(getComputedStyle(element).opacity) });
+          requestAnimationFrame(sample);
+        };
+        requestAnimationFrame(sample);
+      }
       setTimeout(() => {
         if (!element.isConnected) return;
         const bounds = element.getBoundingClientRect();
@@ -610,8 +629,7 @@ try {
     const { page, state } = reduced;
     await enable(page); await button(page, 'Organize (1)').waitFor();
     assert.match((await recordedReveal(page, 1)).label, /Recognized Charizard\. 1 pending cards\./);
-    await page.waitForTimeout(2200);
-    assert.equal(await reveal(page).count(), 0, 'The reveal must not remain over the live guides indefinitely.');
+    await reveal(page).waitFor({ state: 'detached', timeout: 8000 });
     await page.evaluate(() => { globalThis.syntheticCardStyle = -1; }); await page.waitForTimeout(2200);
     await page.evaluate(() => { globalThis.syntheticCardStyle = 0; });
     await button(page, 'Organize (2)').waitFor();
@@ -700,6 +718,93 @@ try {
     assert.equal(state.requests.length, 2);
   });
   await mountRecovery.context.close();
+  }
+
+  if (!focus || focus === 'reveal') {
+  const restoredArt = await fixture({ artworkDelayMs: 3000, failHighWebp: true });
+  await check('a slow catalog image still slides up fully decoded, with the bright price below, while scanning stays live', async () => {
+    const { page, state } = restoredArt;
+    await page.evaluate(() => { globalThis.chaseObserveRevealMotion = true; });
+    await enable(page); await button(page, 'Organize (1)').waitFor();
+    // The former controller-owned 1.8s feedback vanished before a cold image
+    // download finished. Make that delay real instead of checking an alt label.
+    await page.waitForTimeout(2100);
+    assert.ok(state.artworkRequests.length > 0);
+    assert.equal(await reveal(page).count(), 1, 'A pending image must survive the recognition controller advancing.');
+    const art = page.getByTestId('scan-card-artwork');
+    await art.locator('img').evaluateAll(async images => {
+      await Promise.all(images.map(image => image.decode().catch(() => {})));
+    });
+    await page.waitForFunction(() => [...document.querySelectorAll('[data-testid="scan-card-artwork"] img')]
+      .some(image => image.complete && image.naturalWidth > 100));
+    const price = page.getByTestId('scan-card-price');
+    await page.waitForFunction(() => document.querySelector('[data-testid="scan-card-price"]')?.textContent === '$245.00');
+    await page.waitForFunction(() => globalThis.chaseReveals.some(row => {
+      const visible = row.frames.filter(frame => frame.opacity >= 0.2);
+      return visible.length >= 10 && Math.max(...visible.map(frame => frame.y)) - Math.min(...visible.map(frame => frame.y)) > 20;
+    }));
+    // Check settled placement and actual CSS, not just metadata or a placeholder.
+    await page.waitForTimeout(450);
+    const illustration = await art.boundingBox(); const quote = await price.boundingBox();
+    const action = await button(page, 'Organize (1)').boundingBox();
+    assert.ok(illustration && quote && quote.y >= illustration.y + illustration.height - 1, 'Price belongs below the recognized artwork.');
+    assert.ok(action && quote.y + quote.height <= action.y, 'Recognition feedback must leave Organize usable.');
+    const color = await price.evaluate(element => getComputedStyle(element).color);
+    assert.equal(color, 'rgb(120, 255, 154)', 'Only available scan valuations receive the bright-green price treatment.');
+    const base = fixtureCards.get('base1-4').image;
+    assert.ok(state.artworkRequests.some(request => request.url === `${base}/high.webp`));
+    assert.ok(state.artworkRequests.some(request => request.url === `${base}/high.png`), 'Missing WebP must try another format of the same printing.');
+    await assertFullCamera(page);
+    assert.equal(state.requests.length, 1, 'Waiting for artwork must not repeat a held-card identification.');
+    assert.equal(copies(await collection(page)), 0);
+    await page.screenshot({ path: '/tmp/chase-scanned-card-reveal.png' });
+    await reveal(page).waitFor({ state: 'detached', timeout: 7000 });
+  });
+  await check('Organize shows the exact catalog artwork after navigation and reload, with pending snapshots retained offline', async () => {
+    const { page, state } = restoredArt;
+    state.artworkDelayMs = 0;
+    await button(page, 'Organize (1)').click();
+    const details = button(page, 'Details for pending Charizard, Holo');
+    await page.waitForFunction(() => [...document.querySelectorAll('[aria-label="Details for pending Charizard, Holo"] img')]
+      .some(image => image.complete && image.naturalWidth > 100));
+    assert.equal(await details.getByText('No artwork', { exact: true }).count(), 0);
+    const before = (await pending(page)).items[0];
+    assert.equal(before.card.catalogIdentity.id, 'base1-4');
+    assert.ok(before.card.imageUrl);
+    state.catalogState.offline = true;
+    await page.reload();
+    await details.waitFor();
+    await page.waitForFunction(() => [...document.querySelectorAll('[aria-label="Details for pending Charizard, Holo"] img')]
+      .some(image => image.complete && image.naturalWidth > 100));
+    assert.equal((await pending(page)).items[0].cardId, before.cardId);
+    assert.equal(copies(await collection(page)), 0);
+    assert.equal(state.requests.length, 1);
+    await page.screenshot({ path: '/tmp/chase-organize-artwork.png' });
+  });
+  await restoredArt.context.close();
+  const reducedArt = await fixture({ reducedMotion: 'reduce', missingPricing: true });
+  await check('reduced-motion compact scanner shows loaded artwork and honest missing-price feedback', async () => {
+    const { page } = reducedArt;
+    await page.setViewportSize({ width: 320, height: 568 });
+    await page.evaluate(() => { globalThis.chaseObserveRevealMotion = true; });
+    await enable(page); await button(page, 'Organize (1)').waitFor();
+    await page.waitForFunction(() => [...document.querySelectorAll('[data-testid="scan-card-artwork"] img')]
+      .some(image => image.complete && image.naturalWidth > 100));
+    await page.getByText('Price unavailable', { exact: true }).filter({ visible: true }).waitFor();
+    await page.waitForTimeout(250);
+    const motion = await page.evaluate(() => globalThis.chaseReveals.at(-1).frames.filter(frame => frame.opacity >= 0.2));
+    assert.ok(motion.length > 0);
+    assert.ok(Math.max(...motion.map(frame => frame.y)) - Math.min(...motion.map(frame => frame.y)) <= 1, 'Reduced Motion must suppress the slide.');
+    const missingQuote = page.getByTestId('scan-card-price');
+    assert.equal(await missingQuote.innerText(), 'Price unavailable', 'Unavailable pricing must not fabricate an amount.');
+    assert.notEqual(await missingQuote.evaluate(element => getComputedStyle(element).color), 'rgb(120, 255, 154)', 'Missing pricing must remain neutral.');
+    const bounds = await reveal(page).boundingBox(); const action = await button(page, 'Organize (1)').boundingBox();
+    assert.ok(bounds && action && bounds.y >= 48 && bounds.y + bounds.height <= action.y, 'A small phone must retain artwork, feedback and the persistent action.');
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+    assert.equal(copies(await collection(page)), 0);
+    await page.screenshot({ path: '/tmp/chase-scanner-compact-reduced-motion.png' });
+  });
+  await reducedArt.context.close();
   }
 
   if (!focus || focus === 'appearance') {

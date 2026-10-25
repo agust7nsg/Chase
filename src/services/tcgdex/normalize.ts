@@ -1,5 +1,6 @@
 import type { Card, CardVariant, MarketPrice } from '../../types/domain';
 import { CatalogError, type CatalogSet, type CatalogSetDetails } from './types';
+import { cardArtworkSources } from './artwork';
 
 export function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -76,7 +77,7 @@ export function normalizeCards(value: unknown, language: string): Card[] {
   // a printed denominator for identifiers such as XY133 or TG05.
   const collectorNumber = `${value.localId}${count === undefined || count === 0 || !/^\d+[a-z]?$/i.test(value.localId as string) ? '' : `/${count}`}`;
   const image = https(value.image);
-  const imageUrl = image ? `${image.replace(/\/$/, '')}/high.webp` : undefined;
+  const imageUrl = cardArtworkSources(image)[0];
   return supported.map(finish => {
     const prices = pricesFor(value, finish);
     return {

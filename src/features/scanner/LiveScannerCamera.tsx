@@ -164,7 +164,7 @@ const CameraSurface = forwardRef<SurfaceHandle, { bounds: { width: number; heigh
       let result: LiveCameraCapture | undefined;
       let stage: 'capture' | 'analysis' | 'upload' = 'capture';
       try {
-        const photo = await native.takePictureAsync({ quality: 0.8, exif: false, skipProcessing: false });
+        const photo = await native.takePictureAsync({ quality: 0.8, exif: false, skipProcessing: false, shutterSound: false });
         files.push(photo.uri);
         if (!alive.current || !gate.current(lease)) return;
         const captureMs = Date.now() - started;

@@ -83,7 +83,7 @@ function SessionRow({ item, selected, busy, toggle, onQuantity, onVariant, onRem
   const [variants, setVariants] = useState<Card[]>(() => variantsFor(item.cardId));
   const [loadingVariants, setLoadingVariants] = useState(false);
   const [variantError, setVariantError] = useState<string | null>(null);
-  const card = getCatalogCard(item.cardId)!;
+  const card = item.card ?? getCatalogCard(item.cardId)!;
   const canChooseVariant = (card.availableVariants?.length ?? variants.length) > 1 || card.variant === 'Unspecified';
   const reviewVariants = async () => {
     if (loadingVariants) return;

@@ -28,8 +28,11 @@ The source of truth is `src/theme/tokens.ts`.
 | `danger` | `#B91C1C` | Error and destructive action text |
 | `scanner` | `#14213A` | Dedicated scanner frame, within the light application |
 | `scannerMuted` | `#B8C7DD` | Supporting scanner text |
+| `scannerPrice` | `#78FF9A` | Bright recognized-card estimate on the dark scanner caption |
 
 Do not rely on color alone to communicate status or access. Pair it with words and icons. Body text needs at least 4.5:1 contrast; large text needs 3:1.
+
+The scanner's recognized-card price is an explicit exception to the general neon restriction, at the user's request. Show the estimate below the full card in bright green on a solid dark caption, with its display currency. Loading and unavailable prices stay neutral. A successful scan slides the actual artwork up once it loads; the confirmation owns its lifetime independently from detection, respects Reduced Motion, and never delays the next scan.
 
 ## Typography
 
