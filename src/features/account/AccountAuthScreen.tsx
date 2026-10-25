@@ -14,6 +14,7 @@ export function AccountAuthScreen({ mode }: { mode: AuthMode }) {
   const [email, setEmail] = useState(''); const [password, setPassword] = useState('');
   const [visiblePassword, setVisiblePassword] = useState(false);
   const [error, setError] = useState<string | null>(null); const [notice, setNotice] = useState<string | null>(null);
+  const [socialNotice, setSocialNotice] = useState<string | null>(null);
   const guestCreate = mode === 'create' && Boolean(auth.scannerIdentity) && !auth.user;
   const navigate = (section: AuthMode) => router.replace({ pathname: '/account', params: { section } });
   const returnToProfile = () => router.dismissTo('/(tabs)/profile');
@@ -37,6 +38,18 @@ export function AccountAuthScreen({ mode }: { mode: AuthMode }) {
   return <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
     <Screen safeTop={false}>
       <View style={{ paddingTop: 16, gap: 20 }}><Icon name={mode === 'logout' ? 'log-out-outline' : 'person-circle-outline'} color={colors.primary} size={32} /><Label kind="title" accessibilityRole="header">{titles[mode]}</Label></View>
+      {mode === 'signin' || mode === 'create' ? <View style={{ gap: 12 }}>
+        <Button title="Continue with Apple" icon="logo-apple" variant="secondary" disabled={auth.busy}
+          onPress={() => setSocialNotice('Continue with Apple is not available yet.')} />
+        <Button title="Continue with Google" icon="logo-google" variant="secondary" disabled={auth.busy}
+          onPress={() => setSocialNotice('Continue with Google is not available yet.')} />
+        {socialNotice ? <Label kind="caption" accessibilityLiveRegion="polite" style={uiStyles.muted}>{socialNotice}</Label> : null}
+        {auth.configured ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingTop: 8 }}>
+          <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
+          <Label kind="caption" style={uiStyles.muted}>or continue with email</Label>
+          <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
+        </View> : null}
+      </View> : null}
       {!auth.configured ? <Label accessibilityRole="alert">Account connection is not configured yet. Guest mode and your saved cards are available.</Label>
         : mode === 'logout' ? <View style={{ gap: 16 }}><Label>{auth.user ? `Sign out of ${auth.user.email ?? 'your account'}?` : 'You are using Chase as a guest.'}</Label><Label kind="caption" style={uiStyles.muted}>Your collection and pending scans stay on this device.</Label>{auth.user ? <Button title="Log Out" loading={auth.busy} onPress={() => { void submit(); }} /> : null}</View>
         : mode === 'reset' && !auth.user ? <View style={{ gap: 16 }}><Label>Open a password reset link on this device first.</Label><Button title="Request reset link" onPress={() => navigate('forgot')} /></View>
