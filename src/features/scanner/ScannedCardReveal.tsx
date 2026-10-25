@@ -8,7 +8,10 @@ import { colors } from '@/theme/tokens';
 import type { ScanSessionItem } from '@/types/scanner';
 
 /** Presentation-only feedback: animation completion never controls recognition or saving. */
-export function ScannedCardReveal({ item, count, eventId, onDismiss }: { item: ScanSessionItem; count: number; eventId: number; onDismiss: (id: number) => void }) {
+export function ScannedCardReveal({ item, count, eventId, onDismiss, reviewMessage }: {
+  item: Pick<ScanSessionItem, 'name' | 'cardId' | 'card' | 'price' | 'priceState'>;
+  count: number; eventId: number; onDismiss: (id: number) => void; reviewMessage?: string;
+}) {
   const { currency, formatMoney } = useCurrency();
   const { height, width } = useWindowDimensions();
   const card = item.card ?? getCatalogCard(item.cardId);
@@ -53,7 +56,7 @@ export function ScannedCardReveal({ item, count, eventId, onDismiss }: { item: S
   }, [artSettled, reduceMotion, eventId, onDismiss, exitOpacity]);
   const cardWidth = Math.min(184, width * 0.46, height * (width > height ? 0.19 : 0.23));
   return <View testID="scan-card-reveal" pointerEvents="none" accessible accessibilityLiveRegion="polite"
-    accessibilityLabel={`Recognized ${item.name}. ${countAtRecognition} pending cards. ${price}`}
+    accessibilityLabel={`Recognized ${item.name}. ${countAtRecognition} pending cards. ${price}${reviewMessage ? `. ${reviewMessage}` : ''}`}
     style={styles.reveal}>
     <Animated.View style={[styles.reveal, { opacity: Animated.multiply(exitOpacity, progress.interpolate({ inputRange: [0, 0.4, 1], outputRange: [0, 1, 1] })),
       transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [Math.min(height * 0.45, 360), 0] }) }] }]}>
@@ -62,6 +65,7 @@ export function ScannedCardReveal({ item, count, eventId, onDismiss }: { item: S
         <Label style={styles.name}>{item.name}</Label>
         <Label testID="scan-card-price" style={priced ? styles.price : styles.priceUnavailable}>{price}</Label>
         {priced ? <Label kind="caption" style={styles.estimate}>Market estimate · {currency}</Label> : null}
+        {reviewMessage ? <Label kind="caption" style={styles.estimate}>{reviewMessage}</Label> : null}
       </View>
     </Animated.View>
     {!artSettled ? <View style={styles.loading}><ActivityIndicator color={colors.white} /><Label kind="caption" style={styles.estimate}>Loading artwork…</Label></View> : null}

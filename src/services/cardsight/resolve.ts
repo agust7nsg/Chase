@@ -66,13 +66,13 @@ export function recognitionForPrinting(candidate: CardSightCandidate, variants: 
     ambiguity: identified && confident && candidate.language === 'en' ? 'confirmed' : 'review' };
 }
 
-interface Resolved { result: RecognitionResult; candidate: CardSightCandidate; finishKnown: boolean; reviewPrinting: boolean }
+interface Resolved { result: RecognitionResult; candidate: CardSightCandidate; finishKnown: boolean; reviewPrinting: boolean; variants: Card[] }
 const evidence = (result: RecognitionResult) => result.confidenceTier === 'High' ? 3 : result.confidenceTier === 'Medium' ? 2
   : result.confidenceTier === 'Low' ? 1 : result.confidence ?? -1;
 
 /** Cross-provider names may differ; every fallback still verifies identity and requires user confirmation. */
 export async function resolveCardSightCandidates(response: CardSightRecognitionResponse, catalog: RecognitionCatalog,
-  options: { signal?: AbortSignal; chooseCandidate?: ChooseRecognitionCandidate; links?: RecognitionLinks; catalogTimeoutMs?: number } = {}): Promise<RecognitionResult> {
+  options: { signal?: AbortSignal; chooseCandidate?: ChooseRecognitionCandidate; deferReview?: boolean; links?: RecognitionLinks; catalogTimeoutMs?: number } = {}): Promise<RecognitionResult> {
   canceled(options.signal);
   if (!response.candidates.length) throw new CardSightError('NO_MATCH', 'No card recognized. Present another card.');
   const results = new Map<string, Resolved>();
@@ -99,15 +99,21 @@ export async function resolveCardSightCandidates(response: CardSightRecognitionR
       && (linked || fallback || setNames(candidate).some(name => setKey(name) === setKey(card.setName))));
     canceled(search.signal);
     if (variants.length) diagnostics.stage = 'finish';
-    const result = recognitionForPrinting(candidate, variants);
+    const mapped = recognitionForPrinting(candidate, variants);
+    const finishConflict = !mapped && variants.length > 0;
+    const result: RecognitionResult | undefined = mapped ?? (options.deferReview && variants.length ? {
+      ...variants[0], marketPrice: null, prices: [], ambiguity: 'review',
+      ...(candidate.confidence !== undefined ? { confidence: candidate.confidence } : {}),
+      ...(candidate.confidenceTier ? { confidenceTier: candidate.confidenceTier } : {}),
+    } : undefined);
     if (!result) return;
     const prior = results.get(result.id);
     const finishKnown = !candidate.finishReviewRequired && (candidate.finish === result.catalogIdentity?.variant
       || ((!candidate.finish || candidate.finish === 'unknown') && variants.length === 1 && result.variant !== 'Unspecified'));
-    const reviewPrinting = fallback || candidate.language === 'und'
+    const reviewPrinting = finishConflict || fallback || candidate.language === 'und'
       || (candidate.confidenceTier !== undefined && candidate.confidenceTier !== 'High')
       || (candidate.confidence !== undefined && candidate.confidence < 0.85);
-    if (!prior || evidence(result) > evidence(prior.result)) results.set(result.id, { result, candidate, finishKnown, reviewPrinting });
+    if (!prior || evidence(result) > evidence(prior.result)) results.set(result.id, { result, candidate, finishKnown, reviewPrinting, variants });
   };
   try {
     for (const candidate of english) {
@@ -155,6 +161,17 @@ export async function resolveCardSightCandidates(response: CardSightRecognitionR
   const choices = [...results.values()];
   if (!choices.length) throw new CatalogResolutionError(response, diagnostics);
   if (choices.length === 1 && !choices[0].reviewPrinting) return choices[0].result;
+  if (options.deferReview) {
+    // These are preview/review snapshots only. No guess becomes a collectible
+    // or contributes a price until Organize confirms its exact printing/finish.
+    const snapshots = new Map<string, Card>();
+    for (const choice of [...choices].sort((left, right) => evidence(right.result) - evidence(left.result))) {
+      for (const card of [choice.result, ...choice.variants]) {
+        if (!snapshots.has(card.id)) snapshots.set(card.id, { ...card, marketPrice: null, prices: [] });
+      }
+    }
+    throw new CatalogResolutionError(response, { ...diagnostics, stage: 'printing' }, [...snapshots.values()]);
+  }
   if (!options.chooseCandidate) throw new CardSightError('AMBIGUOUS', 'Confirm the English printing before continuing.');
   const chosen = await catalogRequest(options.chooseCandidate(choices.map(choice => choice.result), options.signal), options.signal);
   canceled(options.signal);

@@ -14,13 +14,13 @@ import { createLiveRecognition } from '@/services/cardsight/gateway';
 import { CatalogResolutionError } from '@/services/cardsight/types';
 import { RecognitionLinks } from '@/services/cardsight/links';
 import { resolveCardSightCandidates } from '@/services/cardsight/resolve';
-import { editPendingQuantity, pendingRecognitionKey, stagePendingRecognition } from '@/services/pendingRecognition';
-import { reviewHeldFinish } from '@/services/scannerIdentity';
+import { deferHeldRecognition, editPendingQuantity, pendingRecognitionKey, stagePendingRecognition } from '@/services/pendingRecognition';
+import { heldPendingIncludesPrinting, reviewHeldFinish, reviewHeldPrinting, scannerPrintingKey } from '@/services/scannerIdentity';
 
 let sequence = 0;
 const uniqueId = () => `scan-${Date.now().toString(36)}-${(++sequence).toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 type DemoOptions = { fail: boolean; missingPrice: boolean; ambiguous: boolean };
-export type IdentifyMode = { mode: 'live'; chooseCandidate?: (cards: Card[], signal?: AbortSignal) => Promise<Card>;
+export type IdentifyMode = { mode: 'live';
   shouldStage?: (cardId: string) => boolean; heldCardId?: () => string | null;
   onCommitted?: (cardId: string) => void; onStage?: (stage: string) => void };
 type SessionContext = {
@@ -110,13 +110,19 @@ export function ScanSessionProvider({ children }: { children: ReactNode }) {
       if (source?.mode === 'live' && (!liveScannerConfig || !frame.image)) throw new Error('Connect the scanner server before using CardSight.');
       if (source?.mode === 'live' && !liveRecognition.current) liveRecognition.current = createLiveRecognition(catalogService, recognitionLinks, () => chaseRef.current.state.plan === 'pro');
       const result = source?.mode === 'live'
-        ? await liveRecognition.current!.recognize({ image: frame.image, signal, chooseCandidate: source.chooseCandidate, onStage: source.onStage })
+        ? await liveRecognition.current!.recognize({ image: frame.image, signal, deferReview: true, onStage: source.onStage })
         : await recognitionService.recognize({ cardId: frame.cardId, simulateFailure: optionsRef.current.fail, signal });
       const card = source?.mode === 'live' ? result : getLegacyCard(result.id);
       if (signal.aborted) throw new Error('Recognition canceled.');
       if (!card) throw new Error('Printing not found. Try again.');
       // Recheck after the asynchronous adapter; development access may have changed.
       if (!canScan(chaseRef.current.state) || (chaseRef.current.state.plan === 'free' && store.session.freeRecognitionUsed)) throw new Error('Your free scan has been used.');
+      const heldReview = source?.heldCardId?.();
+      if (heldReview && source?.shouldStage && !source.shouldStage(heldReview)
+        && heldPendingIncludesPrinting(store.session, heldReview, card.id)) {
+        source.onCommitted?.(heldReview);
+        return heldReview;
+      }
       if (source?.shouldStage && !source.shouldStage(card.id)) {
         const held = source.heldCardId?.() ?? card.id;
         await store.update(value => {
@@ -141,17 +147,45 @@ export function ScanSessionProvider({ children }: { children: ReactNode }) {
     } catch (cause) {
       if (source?.mode !== 'live' || !(cause instanceof CatalogResolutionError)) throw cause;
       if (signal.aborted) throw new Error('Recognition canceled.');
+      const held = source.heldCardId?.();
+      const printingKeys = new Set(cause.reviewChoices?.map(card => scannerPrintingKey(card.id)));
+      if (held && printingKeys.size === 1 && printingKeys.has(scannerPrintingKey(held))
+        && source.shouldStage && !source.shouldStage(held)) {
+        await store.update(value => {
+          if (signal.aborted) throw new Error('Recognition canceled.');
+          return reviewHeldPrinting(value, held);
+        });
+        source.onCommitted?.(held);
+        return held;
+      }
+      if (held && printingKeys.has(scannerPrintingKey(held)) && cause.reviewChoices
+        && source.shouldStage && !source.shouldStage(held)) {
+        const key = pendingRecognitionKey(cause.recognition);
+        const next = await store.update(value => {
+          if (signal.aborted) throw new Error('Recognition canceled.');
+          const receipts = new Set(chaseRef.current.state.savedScanOperations ?? []);
+          return deferHeldRecognition({ ...value, items: value.items.filter(item => !receipts.has(item.operationId)) }, held,
+            cause.recognition, cause.diagnostics, uniqueId(), new Date().toISOString(), cause.reviewChoices!, uniqueId());
+        });
+        const pending = next.unresolved?.find(row => pendingRecognitionKey(row.recognition) === key);
+        const committed = pending ? `pending:${pending.id}` : held;
+        source.onCommitted?.(committed);
+        return committed;
+      }
       const existing = store.session.unresolved?.find(row => pendingRecognitionKey(row.recognition) === pendingRecognitionKey(cause.recognition));
       if (existing && source.shouldStage && !source.shouldStage(`pending:${existing.id}`)) return `pending:${existing.id}`;
       source.onStage?.('saving');
       const next = await store.update(value => {
         if (signal.aborted) throw new Error('Recognition canceled.');
         if (!canScan(chaseRef.current.state) || (chaseRef.current.state.plan === 'free' && value.freeRecognitionUsed)) throw new Error('Your free scan has been used.');
-        return stagePendingRecognition(value, cause.recognition, cause.diagnostics, uniqueId(), new Date().toISOString());
+        return stagePendingRecognition(value, cause.recognition, cause.diagnostics, uniqueId(), new Date().toISOString(), cause.reviewChoices,
+          chaseRef.current.state.plan === 'free');
       });
       const pending = next.unresolved!.find(row => pendingRecognitionKey(row.recognition) === pendingRecognitionKey(cause.recognition))!;
       source.onCommitted?.(`pending:${pending.id}`);
-      // A catalog/network failure is not charged as the successful Free scan.
+      if (pending.freeRecognitionRecorded) chaseRef.current.recordRecognition(true);
+      // Genuine unresolved/catalog failures remain uncharged. Known catalog
+      // choices spend Free once, while their deferred confirmation stays allowed.
       return `pending:${pending.id}`;
     } finally { identifying.current = false; }
   };
@@ -161,7 +195,8 @@ export function ScanSessionProvider({ children }: { children: ReactNode }) {
     if (!pending) throw new Error('This identification has already been linked or removed.');
     const isFree = chaseRef.current.state.plan === 'free';
     await mutate(value => {
-      if (!canScan(chaseRef.current.state) || (chaseRef.current.state.plan === 'free' && value.freeRecognitionUsed)) throw new Error('Your free scan has been used. Explore Chase Pro to link another identification.');
+      const recorded = value.unresolved?.find(row => row.id === id)?.freeRecognitionRecorded;
+      if (!recorded && (!canScan(chaseRef.current.state) || (chaseRef.current.state.plan === 'free' && value.freeRecognitionUsed))) throw new Error('Your free scan has been used. Explore Chase Pro to link another identification.');
       return linkPendingRecognition(value, id, card, uniqueId(), isFree, ambiguity);
     });
     chaseRef.current.recordRecognition(isFree);
@@ -171,7 +206,10 @@ export function ScanSessionProvider({ children }: { children: ReactNode }) {
     });
   };
   const matchPending = async (id: string, cardId: string) => {
-    const card = await catalogService.getCard(cardId);
+    // The stored choices are validated exact identities with durable artwork.
+    // Confirming one must not require another upload or an online catalog call.
+    const saved = store.session.unresolved?.find(row => row.id === id)?.reviewChoices?.find(card => card.id === cardId);
+    const card = saved ?? await catalogService.getCard(cardId);
     if (!card) throw new Error('This printing is unavailable. Retry catalog search.');
     await finishLink(id, card, 'confirmed', true);
   };
@@ -179,11 +217,12 @@ export function ScanSessionProvider({ children }: { children: ReactNode }) {
     const row = store.session.unresolved?.find(item => item.id === id);
     if (!row) throw new Error('This identification has already been linked or removed.');
     try {
-      const result = await resolveCardSightCandidates(row.recognition, catalogService, { links: recognitionLinks });
+      const result = await resolveCardSightCandidates(row.recognition, catalogService, { links: recognitionLinks, deferReview: true });
       await finishLink(id, result, result.ambiguity ?? 'review', false);
     } catch (cause) {
       if (cause instanceof CatalogResolutionError) await mutate(value => ({ ...value,
-        unresolved: value.unresolved?.map(item => item.id === id ? { ...item, diagnostics: cause.diagnostics } : item) }));
+        unresolved: value.unresolved?.map(item => item.id === id ? { ...item, diagnostics: cause.diagnostics,
+          ...(cause.reviewChoices ? { reviewChoices: cause.reviewChoices } : {}) } : item) }));
       throw cause;
     }
   };

@@ -7,6 +7,10 @@ export interface PendingCatalogRecognition {
   diagnostics: CatalogResolutionDiagnostics;
   identifiedAt: string;
   quantity: number;
+  /** Catalog matches awaiting explicit printing/language/finish confirmation in Organize. */
+  reviewChoices?: Card[];
+  /** This known-catalog recognition already spent the complimentary scan, so reviewing it is still allowed. */
+  freeRecognitionRecorded?: boolean;
 }
 
 export type PriceState = 'loading' | 'available' | 'unavailable';

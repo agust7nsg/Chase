@@ -59,6 +59,8 @@ Writes are queued to preserve order. Loading failures expose a retry; persistenc
 
 The live scanner's card reveal is ephemeral presentation state, keyed per successful recognition rather than per printing or controller phase. It waits for image settlement before its brief display/exit interval, can be replaced immediately by the next success, and clears when scanning is covered or backgrounded. Neither image requests nor animation completion gate camera sampling, recognition, session staging or collection saves. Missing prices remain nullable and neutral; only available exact-variant estimates use the scanner's bright-green price token.
 
+Live recognition opts into deferred printing review: ambiguous catalog matches retain sanitized, unpriced exact-card snapshots in `ScanSession.unresolved[].reviewChoices` and reveal the leading option without a camera modal. Organize owns explicit English-printing/finish selection, including offline confirmation of saved choices. A `freeRecognitionRecorded` marker charges known-catalog review once and preserves the right to confirm that same pending item after the trial is used. Truly unmatched/catalog-failure rows keep the previous recovery behavior; no preview option is counted as confirmed ownership.
+
 AsyncStorage is device-local storage, not a database sync engine or secure credential store. A future database migration should introduce versioned storage and repository-backed collection access before adding cloud synchronization.
 
 ## Centralized entitlements

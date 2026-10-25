@@ -35,9 +35,11 @@ function MatchPendingContent({ row }: { row: PendingCatalogRecognition }) {
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
+  const [searchingCatalog, setSearchingCatalog] = useState(false);
+  const reviewingChoices = Boolean(row.reviewChoices?.length) && !searchingCatalog;
   const { formatMoney } = useCurrency();
   useEffect(() => {
-    if (variants || !query.trim()) return;
+    if (reviewingChoices || variants || !query.trim()) return;
     const abort = new AbortController();
     const timer = setTimeout(() => {
       setLoading(true); setError(null);
@@ -51,7 +53,7 @@ function MatchPendingContent({ row }: { row: PendingCatalogRecognition }) {
         .finally(() => { if (!abort.signal.aborted) setLoading(false); });
     }, 250);
     return () => { clearTimeout(timer); abort.abort(); };
-  }, [candidate, query, numberFilter, retry, page, variants]);
+  }, [candidate, query, numberFilter, retry, page, variants, reviewingChoices]);
   const back = () => { if (router.canGoBack()) router.back(); else router.replace('/organize'); };
   const choose = async (card: Card) => {
     setLoading(true); setError(null);
@@ -65,6 +67,23 @@ function MatchPendingContent({ row }: { row: PendingCatalogRecognition }) {
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Printing could not be linked.'); }
     finally { setSaving(false); }
   };
+  if (reviewingChoices) return <Screen safeTop={false}>
+    <Label kind="title">Review printing</Label>
+    <Label kind="caption" style={uiStyles.muted}>Confirm the English printing and finish.</Label>
+    {row.reviewChoices?.map(card => <View key={card.id} style={styles.reviewChoice}>
+      <View style={styles.choiceContent}><CardPrint card={card} style={{ width: 72 }} />
+        <View style={{ flex: 1, gap: 4 }}><Label style={{ fontWeight: '600' }}>{card.name}</Label>
+          <Label kind="caption" style={uiStyles.muted}>{card.setName} · {card.collectorNumber}</Label>
+          <Label kind="caption" style={uiStyles.muted}>{card.variant}</Label>
+        </View>
+      </View>
+      <Button title={`Use ${card.variant}`} accessibilityLabel={`Confirm ${card.name}, ${card.setName}, ${card.collectorNumber}, ${card.variant}`}
+        loading={saving} disabled={saving} onPress={() => { void confirm(card); }} />
+    </View>)}
+    {error ? <Label accessibilityRole="alert" style={{ color: colors.danger }}>{error}</Label> : null}
+    <Button title="Search catalog instead" variant="secondary" disabled={saving} onPress={() => setSearchingCatalog(true)} />
+    <Button title="Return to Organize" variant="ghost" disabled={saving} onPress={back} />
+  </Screen>;
   if (variants?.length) return <Screen safeTop={false}>
     <Label kind="title">Confirm printing</Label>
     <CardPrint card={variants[0]} style={{ width: 140, alignSelf: 'center' }} />
@@ -100,4 +119,8 @@ function MatchPendingContent({ row }: { row: PendingCatalogRecognition }) {
         ? <Button title="Load more printings" variant="secondary" onPress={() => setPage(value => value + 1)} /> : null} />
   </Screen>;
 }
-const styles = StyleSheet.create({ row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderColor: colors.border, minHeight: 80 } });
+const styles = StyleSheet.create({
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderColor: colors.border, minHeight: 80 },
+  reviewChoice: { gap: 12, paddingVertical: 16, borderBottomWidth: 1, borderColor: colors.border },
+  choiceContent: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+});

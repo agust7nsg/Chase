@@ -4,7 +4,6 @@ import { ActivityIndicator, AppState, Modal, Platform, Pressable, ScrollView, St
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Button, Icon, Label } from '@/components/ui';
-import { CardPrint } from '@/components/CardPrint';
 import { ScannerController } from '@/services/scannerController';
 import { LiveCardPresentationTracker } from '@/services/liveCardFrames';
 import { LiveScannerPipeline } from '@/services/liveScannerPipeline';
@@ -15,7 +14,6 @@ import { scannerHealth } from '@/services/cardsight/gateway';
 import { useAuth } from '@/features/account/AuthProvider';
 import { useChase } from '@/features/app/ChaseProvider';
 import { colors } from '@/theme/tokens';
-import type { Card } from '@/types/domain';
 import type { ScannerStatus } from '@/types/scanner';
 import { useScanSession } from './ScanSessionProvider';
 import { LiveScannerCamera, type LiveCameraHandle } from './LiveScannerCamera';
@@ -45,12 +43,10 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
   const [checkedSimulation, setCheckedSimulation] = useState(false);
   const [status, setStatus] = useState<ScannerStatus>({ phase: 'SEARCHING', cardId: null, error: null });
   const [reveal, setReveal] = useState<{ id: number; cardId: string } | null>(null);
-  const [review, setReview] = useState<Card[] | null>(null);
   const [activity, setActivity] = useState('recognizing');
   const [diagnosticReport, setDiagnosticReport] = useState<string | null>(null);
   const diagnosticsOpen = useRef(false);
   const [diagnostics] = useState(() => new ScannerDiagnostics());
-  const chooser = useRef<{ finish: (card?: Card) => void } | null>(null);
   const camera = useRef<LiveCameraHandle>(null);
   const captureFailures = useRef(0);
   const captureRetryAt = useRef(0);
@@ -69,17 +65,10 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
   });
   const dismissReveal = useCallback((id: number) => setReveal(current => current?.id === id ? null : current), []);
   const [pipeline] = useState(() => new LiveScannerPipeline(controller, tracker, () => false));
-  useEffect(() => { pipeline.setAllowed(() => allowed.current && !chooser.current && !diagnosticsOpen.current); }, [pipeline]);
+  useEffect(() => { pipeline.setAllowed(() => allowed.current && !diagnosticsOpen.current); }, [pipeline]);
   const onStage = useCallback((stage: string) => { diagnostics.record(stage); setActivity(stage); }, [diagnostics]);
-  const chooseCandidate = useCallback((cards: Card[], signal?: AbortSignal) => new Promise<Card>((resolve, reject) => {
-    if (signal?.aborted) { reject(new Error('Recognition canceled.')); return; }
-    const cancel = () => finish();
-    const finish = (card?: Card) => { signal?.removeEventListener('abort', cancel); chooser.current = null; setReview(null); if (card) resolve(card); else reject(new Error('Printing selection canceled. Present the next card.')); };
-    chooser.current = { finish }; setReview(cards);
-    signal?.addEventListener('abort', cancel, { once: true });
-  }), []);
   useEffect(() => { controller.setRecognizer((frame, signal) => scan.identify(frame, signal, {
-    mode: 'live', chooseCandidate, onStage, shouldStage: id => controller.shouldStageResult(frame, id),
+    mode: 'live', onStage, shouldStage: id => controller.shouldStageResult(frame, id),
     heldCardId: () => controller.heldCardId, onCommitted: id => controller.acknowledgeCommitted(frame, id),
   })); });
   useEffect(() => { const subscription = AppState.addEventListener('change', value => setAppActive(value === 'active')); return () => subscription.remove(); }, []);
@@ -129,10 +118,16 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
     void tick();
     return () => { stopped = true; if (timer) clearTimeout(timer); clearInterval(clock); pipeline.stop(); setReveal(null); diagnostics.record('sampling-stop'); };
   }, [active, controller, tracker, pipeline, diagnostics]);
-  useEffect(() => () => { controller.dispose(); chooser.current?.finish(); }, [controller]);
+  useEffect(() => () => { controller.dispose(); }, [controller]);
   const paywall = () => router.push({ pathname: '/paywall', params: { returnTo: 'scanner' } });
   const exit = () => { if (onboarding === '1') router.replace({ pathname: '/paywall', params: { onboarding } }); else if (router.canGoBack()) router.back(); else router.replace('/(tabs)'); };
-  const result = scan.session.items.find(item => item.cardId === reveal?.cardId);
+  const confirmedResult = scan.session.items.find(item => item.cardId === reveal?.cardId);
+  const reviewResult = scan.session.unresolved?.find(item => `pending:${item.id}` === reveal?.cardId);
+  const reviewCard = reviewResult?.reviewChoices?.[0];
+  // A preview of an unresolved option is presentation only, never ownership or
+  // a finish-specific valuation. The stored choices are reviewed in Organize.
+  const result = confirmedResult ?? (reviewCard ? { name: reviewCard.name, cardId: reviewCard.id, card: reviewCard,
+    priceState: 'unavailable' as const, price: null } : undefined);
   const pendingResult = scan.session.unresolved?.find(item => `pending:${item.id}` === status.cardId);
   const title = status.phase === 'IDENTIFYING' ? activity === 'catalog' ? 'Matching printing…' : activity === 'saving' ? 'Saving scan…' : 'Identifying…' : status.phase === 'CARD_CANDIDATE' ? 'Hold steady' : status.phase === 'WAITING_FOR_CARD_CHANGE' ? 'Present the next card' : 'Center a card';
   const onCameraError = useCallback((message: string) => { diagnostics.record('camera-error'); tracker.settleLighting(Date.now()); setTorch(false); setCaptureError(message); }, [tracker, diagnostics]);
@@ -184,7 +179,8 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
     </View>
     <View pointerEvents="box-none" style={[styles.controls, { paddingBottom: Math.max(insets.bottom, 16), paddingLeft: insets.left + 16, paddingRight: insets.right + 16 }]}>
       {liveScannerConfig && connected ? <View pointerEvents="box-none" style={styles.feedback}>
-        {focused && appActive && reveal && result ? <ScannedCardReveal key={reveal.id} eventId={reveal.id} item={result} count={scan.summary.copies} onDismiss={dismissReveal} />
+        {focused && appActive && reveal && result ? <ScannedCardReveal key={reveal.id} eventId={reveal.id} item={result} count={scan.summary.copies} onDismiss={dismissReveal}
+          reviewMessage={reviewResult ? 'Review printing in Organize' : confirmedResult?.ambiguity === 'review' ? 'Review variant in Organize' : undefined} />
           : <Pressable style={styles.status} accessibilityRole={__DEV__ ? 'button' : undefined} accessibilityLabel={__DEV__ ? `${scanningMessage}. Show scanner diagnostics` : undefined} onPress={__DEV__ ? openDiagnostics : undefined} accessibilityLiveRegion="polite">
             {status.phase === 'IDENTIFYING' ? <ActivityIndicator color={colors.white} /> : <Icon name={status.phase === 'ERROR' || captureError ? 'alert-circle-outline' : 'scan-outline'} color={colors.white} size={18} />}
             <Label kind="caption" style={styles.statusText}>{status.phase === 'RESULT_READY' && pendingResult ? `${pendingResult.recognition.candidates[0]?.name ?? 'Card recognized'} · Match printing in Organize` : scanningMessage}</Label>
@@ -205,17 +201,6 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
         <Button title="Close diagnostics" onPress={closeDiagnostics} />
       </View></View>
     </Modal>
-    <Modal transparent visible={Boolean(review)} animationType="fade" onRequestClose={() => chooser.current?.finish()}>
-      <View style={styles.scrim}><View style={styles.dialog} accessibilityViewIsModal>
-        <Label kind="heading" accessibilityRole="header">Choose the printing</Label>
-        <Label kind="caption" style={{ color: colors.muted }}>Confirm the English printing.</Label>
-        <ScrollView contentContainerStyle={{ gap: 8 }}>{review?.map(card => <Pressable key={card.id} accessibilityRole="button" accessibilityLabel={`Choose ${card.name}, ${card.setName}, ${card.collectorNumber}`}
-          onPress={() => chooser.current?.finish(card)} style={styles.choice}>
-          <CardPrint card={card} style={{ width: 45 }} /><View style={{ flex: 1 }}><Label style={{ fontWeight: '600' }}>{card.name}</Label><Label kind="caption" style={{ color: colors.muted }}>{card.setName} · {card.collectorNumber}</Label></View><Icon name="chevron-forward" color={colors.primary} />
-        </Pressable>)}</ScrollView>
-        <Button title="Cancel identification" variant="secondary" onPress={() => chooser.current?.finish()} />
-      </View></View>
-    </Modal>
   </View>;
 }
 const styles = StyleSheet.create({
@@ -233,5 +218,4 @@ const styles = StyleSheet.create({
   statusText: { color: colors.white, textAlign: 'center', flexShrink: 1 },
   notice: { color: colors.white, textAlign: 'center', padding: 10, backgroundColor: colors.scanner, borderRadius: 12 },
   scrim: { flex: 1, backgroundColor: colors.scrim, padding: 24, justifyContent: 'center' }, dialog: { backgroundColor: colors.white, borderRadius: 20, padding: 20, gap: 16, maxHeight: '85%' },
-  choice: { minHeight: 76, borderBottomWidth: 1, borderColor: colors.border, flexDirection: 'row', alignItems: 'center', padding: 8, gap: 12 },
 });

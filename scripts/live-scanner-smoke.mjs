@@ -21,7 +21,7 @@ const pairingToken = 'chase-browser-fixture-pairing-only-1234';
 const hostedUser = { id: '12345678-1234-1234-1234-123456789abc', email: 'scanner-fixture@example.com', aud: 'authenticated', role: 'authenticated', is_anonymous: false, email_confirmed_at: '2026-10-21T00:00:00Z', created_at: '2026-10-21T00:00:00Z', app_metadata: {}, user_metadata: {} };
 const hostedToken = () => ['eyJhbGciOiJIUzI1NiJ9', Buffer.from(JSON.stringify({ sub: hostedUser.id, exp: Math.floor(Date.now() / 1000) + 3600, aud: 'authenticated' })).toString('base64url'), 'fixture-signature'].join('.');
 const focus = process.env.CHASE_LIVE_FOCUS;
-assert.ok(!focus || ['catalog', 'slow', 'during', 'art', 'appearance', 'diagnostics', 'navigation', 'reveal'].includes(focus), 'Unknown live-scanner focus.');
+assert.ok(!focus || ['catalog', 'slow', 'during', 'art', 'appearance', 'diagnostics', 'navigation', 'reveal', 'deferred'].includes(focus), 'Unknown live-scanner focus.');
 assert.ok(['localhost', '127.0.0.1'].includes(new URL(url).hostname), 'Live smoke must use a local test server.');
 assert.ok(hosted ? proxy === `${hostedRoot}/functions/v1/cardsight-scanner` : ['localhost', '127.0.0.1'].includes(new URL(proxy).hostname), 'Only the explicit intercepted hosted project or a local proxy is supported.');
 const directory = await mkdtemp(join(tmpdir(), 'chase-live-camera-'));
@@ -569,35 +569,6 @@ try {
   });
   await review.context.close();
 
-  const ambiguous = await fixture({ candidates: [charizard, greninja] });
-  await check('multiple exact printings require a chooser before staging', async () => {
-    const { page } = ambiguous;
-    await enable(page);
-    await page.getByText('Choose the printing', { exact: true }).waitFor();
-    assert.equal(copies(await pending(page)), 0);
-    await button(page, 'Choose Greninja ex, Twilight Masquerade, 214/167').click();
-    await button(page, 'Organize (1)').waitFor();
-    assert.equal((await pending(page)).items[0].cardId, 'tcgdex:en:sv6-214:holo');
-    assert.equal(new URL(page.url()).pathname, '/scanner');
-  });
-  await ambiguous.context.close();
-
-  for (const [reason, changes] of [['missing language', { language: 'und' }], ['Medium confidence tier', { confidenceTier: 'Medium' }]]) {
-    const uncertain = await fixture({ candidates: [{ ...charizard, ...changes }] });
-    await check(`${reason} requires English printing confirmation before staging`, async () => {
-      const { page } = uncertain;
-      await enable(page);
-      await page.getByText('Confirm the English printing.', { exact: true }).waitFor();
-      assert.equal(copies(await pending(page)), 0);
-      await button(page, 'Choose Charizard, Base Set, 4/102').click();
-      await button(page, 'Organize (1)').waitFor();
-      assert.equal((await pending(page)).items[0].ambiguity, 'confirmed');
-      assert.equal((await pending(page)).items[0].confidence, undefined, 'No invented exact probability.');
-      assert.equal(new URL(page.url()).pathname, '/scanner');
-    });
-    await uncertain.context.close();
-  }
-
   const denied = await fixture({ permission: false });
   await check('permission denial remains recoverable and the explicit demo makes no proxy requests', async () => {
     const { page } = denied;
@@ -718,6 +689,103 @@ try {
     assert.equal(state.requests.length, 2);
   });
   await mountRecovery.context.close();
+  }
+
+  if (!focus || focus === 'deferred') {
+  const deferred = await fixture({ candidates: [charizard, greninja] });
+  await check('printing and language ambiguity never interrupt consecutive recognition or the artwork reveal', async () => {
+    const { page, state } = deferred;
+    await enable(page); await button(page, 'Organize (1)').waitFor();
+    const first = await recordedReveal(page, 1);
+    assert.match(first.label, /1 pending cards\./);
+    assert.equal(new URL(page.url()).pathname, '/scanner');
+    assert.equal(await page.getByText('Choose the printing', { exact: true }).count(), 0);
+    assert.equal(await button(page, 'Cancel identification').count(), 0);
+    let session = await pending(page);
+    assert.equal(session.items.length, 0);
+    assert.equal(session.unresolved.length, 1);
+    assert.ok(session.unresolved[0].reviewChoices.some(card => card.id === 'tcgdex:en:sv6-214:holo'));
+    assert.ok(session.unresolved[0].reviewChoices.every(card => card.marketPrice === null && !card.prices?.length));
+    assert.equal(copies(await collection(page)), 0);
+    // Provider responses remain fixtures. Changing captured pixels presents the
+    // next physical card without interacting with a printing/finish control.
+    const umbreon = artworkPool.find(([id]) => id === 'swsh7-215')[1];
+    state.candidates = [{ ...umbreon, language: 'und' }];
+    await page.evaluate(() => { globalThis.syntheticCardStyle = 1; });
+    await button(page, 'Organize (2)').waitFor(); await recordedReveal(page, 2);
+    state.candidates = [pikachu];
+    await page.evaluate(() => { globalThis.syntheticCardStyle = 2; });
+    await button(page, 'Organize (3)').waitFor(); await recordedReveal(page, 3);
+    session = await pending(page);
+    assert.equal(session.unresolved.length, 2);
+    assert.equal(session.items.length, 1);
+    assert.equal(session.items[0].ambiguity, 'review');
+    assert.equal(session.items[0].price, null);
+    assert.equal(state.requests.length, 3);
+    assert.equal(copies(await collection(page)), 0);
+    assert.equal(await page.getByText('Choose the printing', { exact: true }).count(), 0);
+    await assertFullCamera(page); await assertCleanLiveControls(page);
+  });
+  await check('Organize persists deferred choices offline and cannot save an unreviewed finish', async () => {
+    const { page, state } = deferred;
+    await button(page, 'Organize (3)').click();
+    const before = await pending(page);
+    state.catalogState.offline = true;
+    await page.reload();
+    await button(page, 'Review Charizard printing').waitFor();
+    assert.deepEqual((await pending(page)).unresolved.map(row => row.reviewChoices), before.unresolved.map(row => row.reviewChoices));
+    await button(page, 'Save all to Collection').click();
+    await page.getByText(/Confirm the variant before saving/).waitFor();
+    assert.equal(copies(await collection(page)), 0);
+    // Review uses the exact persisted catalog choices; no second photograph or
+    // upstream recognition is needed even while the catalog API is unavailable.
+    await button(page, 'Review Charizard printing').click();
+    await button(page, 'Confirm Greninja ex, Twilight Masquerade, 214/167, Holo').click();
+    await button(page, 'Review Umbreon VMAX printing').waitFor();
+    await button(page, 'Review Umbreon VMAX printing').click();
+    await button(page, 'Confirm Umbreon VMAX, Evolving Skies, 215/203, Holo').click();
+    await button(page, 'Review Pikachu variant').waitFor();
+    assert.equal((await pending(page)).unresolved.length, 0);
+    assert.equal(copies(await pending(page)), 3);
+    assert.equal(copies(await collection(page)), 0);
+    assert.equal(state.requests.length, 3);
+  });
+  await check('finish correction and exact estimates happen in Organize before a replay-safe Collection save', async () => {
+    const { page, state } = deferred;
+    state.catalogState.offline = false;
+    await button(page, 'Review Pikachu variant').click();
+    await button(page, 'Confirm Reverse holo').click();
+    if (await button(page, 'Retry prices').count()) await button(page, 'Retry prices').click();
+    await page.waitForFunction(() => {
+      const session = JSON.parse(localStorage.getItem('chase.scan-session.v1'));
+      const expected = { 'tcgdex:en:sv6-214:holo': 300, 'tcgdex:en:swsh7-215:holo': 650, 'tcgdex:en:xy12-35:reverse': 4.2 };
+      return session.items.length === 3 && session.items.every(row => row.ambiguity === 'confirmed' && row.price?.amount === expected[row.cardId]);
+    });
+    await button(page, 'Save all to Collection').click();
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('chase.prototype.v1')).items.reduce((sum, row) => sum + row.quantity, 0) === 3);
+    await page.reload(); await page.getByText('No pending cards', { exact: true }).waitFor();
+    assert.equal(copies(await collection(page)), 3);
+    assert.equal(state.requests.length, 3);
+    assert.deepEqual((await collection(page)).items.map(row => row.cardId).sort(), ['tcgdex:en:sv6-214:holo', 'tcgdex:en:swsh7-215:holo', 'tcgdex:en:xy12-35:reverse'].sort());
+  });
+  await deferred.context.close();
+
+  const medium = await fixture({ candidates: [{ ...charizard, confidenceTier: 'Medium' }] });
+  await check('Medium confidence stages an unpriced review immediately and confirms only inside Organize', async () => {
+    const { page, state } = medium;
+    await enable(page); await button(page, 'Organize (1)').waitFor(); await recordedReveal(page, 1);
+    assert.equal(await page.getByText('Choose the printing', { exact: true }).count(), 0);
+    const row = (await pending(page)).unresolved[0];
+    assert.equal(row.recognition.candidates[0].confidence, undefined, 'No invented exact probability.');
+    assert.ok(row.reviewChoices.length > 0);
+    assert.ok(row.reviewChoices.every(card => card.marketPrice === null));
+    assert.equal(copies(await collection(page)), 0);
+    await button(page, 'Organize (1)').click(); await button(page, 'Review Charizard printing').click();
+    await button(page, 'Confirm Charizard, Base Set, 4/102, Holo').click();
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem('chase.scan-session.v1')).items[0]?.ambiguity === 'confirmed');
+    assert.equal(state.requests.length, 1); assert.equal(copies(await collection(page)), 0);
+  });
+  await medium.context.close();
   }
 
   if (!focus || focus === 'reveal') {

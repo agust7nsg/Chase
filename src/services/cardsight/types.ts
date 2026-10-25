@@ -1,4 +1,5 @@
 import type { CardSightRecognitionResponse } from '../../../supabase/functions/_shared/cardsightProtocol';
+import type { Card } from '../../types/domain';
 export { parseCardSightRecognitionResponse } from '../../../supabase/functions/_shared/cardsightProtocol';
 export type { CardSightCandidate, CardSightRecognitionResponse } from '../../../supabase/functions/_shared/cardsightProtocol';
 
@@ -17,7 +18,8 @@ export class CardSightError extends Error {
 
 /** Valid provider metadata only. Never contains camera bytes, a URL token or credentials. */
 export class CatalogResolutionError extends CardSightError {
-  constructor(readonly recognition: CardSightRecognitionResponse, readonly diagnostics: CatalogResolutionDiagnostics) {
+  constructor(readonly recognition: CardSightRecognitionResponse, readonly diagnostics: CatalogResolutionDiagnostics,
+    readonly reviewChoices?: Card[]) {
     super('CATALOG_UNRESOLVED', 'Recognized · match the printing in Organize.');
     this.name = 'CatalogResolutionError';
   }

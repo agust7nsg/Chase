@@ -19,6 +19,8 @@ export interface RecognitionOptions {
   signal?: AbortSignal;
   image?: RecognitionImage;
   onStage?: (stage: 'recognizing' | 'catalog' | 'review') => void;
+  /** Camera-first callers stage uncertain matches for Organize instead of interrupting capture. */
+  deferReview?: boolean;
 }
 
 /** Ephemeral camera input. Never persisted with a ScanSession or Collection row. */

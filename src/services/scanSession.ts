@@ -35,11 +35,12 @@ export function editSessionQuantity(session: ScanSession, id: string, quantity: 
 }
 export function linkPendingRecognition(session: ScanSession, id: string, card: Card, operation: string, isFree: boolean,
   ambiguity: 'confirmed' | 'review'): ScanSession {
-  if (isFree && session.freeRecognitionUsed) throw new Error('Your free scan has been used.');
   const row = session.unresolved?.find(item => item.id === id);
   if (!row) throw new Error('This pending identification has already been linked or removed.');
+  const chargeFree = isFree && !row.freeRecognitionRecorded;
+  if (chargeFree && session.freeRecognitionUsed) throw new Error('Your free scan has been used.');
   const next = appendRecognition({ ...session, unresolved: session.unresolved!.filter(item => item.id !== id) }, card,
-    operation, row.identifiedAt, isFree, ambiguity, row.recognition.candidates[0].confidence);
+    operation, row.identifiedAt, chargeFree, ambiguity, row.recognition.candidates[0].confidence);
   const target = next.items.find(item => item.cardId === card.id && item.ambiguity === ambiguity)!;
   return row.quantity === 1 ? next : editSessionQuantity(next, target.id, target.quantity + row.quantity - 1, operation);
 }
@@ -130,6 +131,6 @@ export function restoreScanSession(value: unknown, fallbackId: string): ScanSess
     ids.add(row.id); total += row.quantity;
   }
   if (!Number.isSafeInteger(total)) throw new Error('Pending quantity needs recovery.');
-  return { version: 1, id: data.id || fallbackId, items, freeRecognitionUsed: data.freeRecognitionUsed === true,
+  return { version: 1, id: data.id || fallbackId, items, freeRecognitionUsed: data.freeRecognitionUsed === true || unresolved.some(row => row.freeRecognitionRecorded),
     ...(unresolved.length ? { unresolved } : {}) };
 }
