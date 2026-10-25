@@ -1,6 +1,6 @@
 # Chase
 
-Chase v0.1 is a navigable Pokémon TCG collection prototype for iOS and Android, built with Expo SDK 57, React Native, TypeScript, and Expo Router. It supports guest use and local storage. It is a frontend foundation, not a production release.
+Chase v0.1 is a navigable Pokémon TCG collection prototype for iOS and Android, built with Expo SDK 58, React Native, TypeScript, and Expo Router. It supports guest use and local storage. It is a frontend foundation, not a production release.
 
 ## Run the project
 
@@ -13,6 +13,8 @@ npm run start
 ```
 
 Open the development server with a compatible Expo Go version or a development build on an iOS or Android device. These commands require the corresponding local tools:
+
+The SDK 58 upgrade uses React Native 0.88 and React 19.3. Existing custom development builds must be rebuilt; Expo Go must support SDK 58. Keep `.env.local` and existing app data when testing. See [SDK 58 compatibility and phone checks](SDK58_UPGRADE.md).
 
 ```bash
 npm run android  # Android emulator/device with Android SDK and adb

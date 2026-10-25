@@ -6,7 +6,7 @@ import { colors } from '@/theme/tokens';
 
 export type IconName = ComponentProps<typeof Ionicons>['name'];
 export function Icon({ name, size = 22, color = colors.text }: { name: IconName; size?: number; color?: ColorValue }) {
-  return <Ionicons name={name} size={size} color={color} accessible={false} />;
+  return <Ionicons name={name} size={size} style={{ color }} accessible={false} />;
 }
 export function Label({ children, kind = 'body', style, ...props }: TextProps & { kind?: 'body' | 'title' | 'heading' | 'caption' | 'eyebrow' | 'price' }) {
   return <Text {...props} style={[styles.text, styles[kind], style]}>{children}</Text>;

@@ -49,3 +49,22 @@ Use the updated app bundle (`npx expo start --clear`) with the existing hosted s
 Local validation: TypeScript/lint passed; all 260 Node tests passed, including six new layout-handshake cases. Browser runs each passed seven scenarios for navigation, slow capture and actual-art continuity (the six shared gate/account cases are repeated, not 21 unique cases). Navigation includes twelve return cycles and thirteen saved cards; the slow path exceeds 2.2 seconds; the twenty-presentation run includes a recoverable failure and Organize round trips. Recognition/Auth responses are fixtures, not live vendor calls.
 
 Android and iOS JavaScript exports also passed after the final changes. No native dependency, server function, schema or API credential changed.
+
+## SDK 58 compatibility audit — October 25, 2026
+
+The SDK upgrade replaces the original audited `expo-camera` 57.0.6 with 58.0.12, alongside Expo 58.0.19, React Native 0.88.0, `expo-image-manipulator` 58.0.15, `expo-file-system` 58.0.11 and Expo Router 58.0.26. The earlier verification above records the original repair; it does not claim that a physical SDK 58 camera has been tested.
+
+The [versioned SDK 58 Camera reference](https://docs.expo.dev/versions/v58.0.0/sdk/camera/) and installed native sources were compared against saved SDK 57 sources. Chase's used capture contracts remain available: `takePictureAsync`, `getAvailablePictureSizesAsync`, `pictureSize`, `onCameraReady`, `onLayout`, `enableTorch`, autofocus and `animateShutter`. Keep `skipProcessing: false` for correctly oriented Samsung/device photos and `shutterSound: false` for silent continuous sampling. No new document-scanning or barcode workflow is introduced.
+
+The Android preview mechanisms relevant to the previous failure remain in 58.0.12's `ExpoCameraView.kt`:
+
+- `onLayout` still forwards dimensions to the inner `PreviewView` only when width or height changes (lines 264–272).
+- The explicit 4:3/16:9 ratios still select `FIT_CENTER`; the default preview retains cover scaling (lines 473–479). The centered cover crop must remain unchanged.
+- Binding and destruction still use shared-provider `unbindAll()` (lines 554 and 900).
+- `onCameraReady` still originates from `CameraState.OPEN`, rather than a rendered-pixel acknowledgement (lines 688–698).
+
+Therefore the mount-owner guards, transition gate, stable-bounds interval, measured Android expand/restore handshake and readiness frames remain in place. Expo Router 58 still exports the native-stack type and `transitionStart`, `transitionEnd` and `gestureCancel` events used by the gate. The web camera still does not forward `onLayout`, so the wrapper measurement remains necessary there.
+
+The installed `ImageManipulatorContext` and `ImageRef` interfaces are unchanged from the saved SDK 57 versions; asynchronous rendering, JPEG/base64 saving and shared-object release retain their existing contracts. `File.exists` and `File.delete()` remain available for temporary-photo cleanup. A camera API change to `getAvailableLensesAsync()` now returns `LensInfo[]` instead of strings; Chase does not use lens enumeration or selection, so this change does not alter its scanner.
+
+Native internals also update runtime plumbing and barcode-analyzer cleanup. These changes are not proof of improved camera performance. Repeat the regression focuses `navigation`, `slow`, `art`, `reveal` and `deferred`, and the Samsung S24 FE checklist above using Expo Go compatible with SDK 58. Browser previews and JavaScript exports still cannot establish the coverage of Android's inner camera surface, native autofocus timing, actual torch illumination or vendor accuracy.

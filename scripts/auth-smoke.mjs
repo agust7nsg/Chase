@@ -75,6 +75,9 @@ try {
   });
   await check('password recovery requests are explicit and a guest cannot update an account password', async () => {
     await button(page, 'Sign In').click(); await button(page, 'Forgot password?').click();
+    // Sign-in and recovery both contain Email. Wait for the destination before
+    // filling so a navigation transition cannot type into the outgoing form.
+    await button(page, 'Send reset link').waitFor();
     await page.getByRole('textbox', { name: 'Email', exact: true }).fill(user.email); await button(page, 'Send reset link').click();
     await page.getByText('If an account exists for this email, you will receive a reset link. Open it on this device.', { exact: true }).waitFor();
     await page.goto(`${url}/account?section=reset`); await page.getByText('Open a password reset link on this device first.', { exact: true }).waitFor();

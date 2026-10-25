@@ -1,6 +1,6 @@
 import { useCurrency } from '@/features/currency/CurrencyProvider';
 import { useLayoutEffect, useRef, useState } from 'react';
-import { Animated, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
+import { Animated, Platform, Pressable, StyleSheet, useWindowDimensions, View, type KeyDownEvent, type NativeScrollEvent, type NativeSyntheticEvent, type ScrollViewInstance } from 'react-native';
 import { CardPrint } from '@/components/CardPrint';
 
 import { Icon, Label } from '@/components/ui';
@@ -18,7 +18,7 @@ export function PriceCarousel() {
   const printWidth = Math.min(stageWidth * 0.55, height < 740 ? 170 : 218);
   const interval = printWidth + 24;
   const stageHeight = printWidth * 825 / 600 + 32;
-  const scroll = useRef<ScrollView>(null);
+  const scroll = useRef<ScrollViewInstance>(null);
   const [scrollX] = useState(() => new Animated.Value(initialIndex * interval));
   const selectedRef = useRef(initialIndex);
   const [selected, setSelected] = useState(initialIndex);
@@ -44,10 +44,11 @@ export function PriceCarousel() {
   });
   const keyboardProps = Platform.OS === 'web' ? {
     tabIndex: 0 as const,
-    onKeyDown: (event: { key: string; preventDefault: () => void }) => {
-      if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+    onKeyDown: (event: KeyDownEvent) => {
+      const key = 'key' in event && typeof event.key === 'string' ? event.key : event.nativeEvent.key;
+      if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(key)) {
         event.preventDefault();
-        goTo(event.key === 'Home' ? 0 : event.key === 'End' ? cards.length - 1 : selectedRef.current + (event.key === 'ArrowLeft' ? -1 : 1));
+        goTo(key === 'Home' ? 0 : key === 'End' ? cards.length - 1 : selectedRef.current + (key === 'ArrowLeft' ? -1 : 1));
       }
     },
   } : {};

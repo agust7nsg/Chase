@@ -80,6 +80,15 @@ async function setSwitch(page, name, enabled) {
 }
 
 async function openCard(page, name) {
+  // Router can commit the address before replacing the visible screen. Both
+  // Collection and My Cards expose View <name>, so wait for the destination
+  // before resolving a click against a retained outgoing screen's card row.
+  await page.waitForURL(url => ['/my-cards', '/search'].includes(url.pathname));
+  if (new URL(page.url()).pathname === '/my-cards') {
+    await page.getByRole('heading', { name: 'My Cards', exact: true }).filter({ visible: true }).waitFor();
+  } else {
+    await page.getByRole('textbox', { name: catalogSearchLabel, exact: true }).filter({ visible: true }).waitFor();
+  }
   await button(page, new RegExp(`^View ${escapeRegex(name)},`)).first().click();
   await button(page, /^(Add to collection|Add one copy)$/).waitFor();
 }

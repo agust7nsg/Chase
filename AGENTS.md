@@ -42,7 +42,7 @@ Docs: https://docs.expo.dev/eas/index.md
 
 ## Chase permanent product rules
 
-- Maintain a focused iOS/Android React Native application. Do not substitute a web-only app or Capacitor. The current project uses Expo SDK 57; read `package.json` each session rather than assuming that remains current.
+- Maintain a focused iOS/Android React Native application. Do not substitute a web-only app or Capacitor. The current project uses Expo SDK 58; read `package.json` each session rather than assuming that remains current. SDK58_UPGRADE.md records the compatibility checks and remaining phone verification.
 - Each cloud task already runs in an isolated environment. Use the existing checkout; do not propose or create a Git worktree unless the user explicitly requests one. Preserve user changes. During environment-only onboarding, keep tracked application files, dependencies, tests, and lockfiles unchanged unless the user also authorizes a coding task.
 - Use `npm ci` for reproducible installation and the existing `package-lock.json`. Keep package signatures, artifact checksums, and TLS verification enabled. Add only small, necessary Expo-compatible dependencies.
 - Read `README.md`, `DESIGN.md`, and `ARCHITECTURE.md` before extending the product. Consult `.agents/skills/ui-ux-pro-max/SKILL.md` before making UI design changes. The skill was installed through `npx ui-ux-pro-max-cli@2.15.0 init --ai codex`; Python 3.x is needed for its local search scripts.

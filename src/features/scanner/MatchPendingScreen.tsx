@@ -114,9 +114,9 @@ function MatchPendingContent({ row }: { row: PendingCatalogRecognition }) {
           <Label style={{ fontWeight: '600' }}>{item.name}</Label><Label kind="caption" style={uiStyles.muted}>{item.setName} · {item.collectorNumber}</Label>
         </View><Icon name="chevron-forward" color={colors.primary} />
       </Pressable>}
-      ListEmptyComponent={!loading && !error ? <Label style={uiStyles.muted}>No matching printings. Change the name or clear the number filter.</Label> : null}
+      ListEmptyComponent={!loading && !error ? <Label style={uiStyles.muted}>No matching printings. Change the name or clear the number filter.</Label> : undefined}
       ListFooterComponent={loading ? <ActivityIndicator accessibilityLabel="Loading printing matches" color={colors.primary} /> : hasMore
-        ? <Button title="Load more printings" variant="secondary" onPress={() => setPage(value => value + 1)} /> : null} />
+        ? <Button title="Load more printings" variant="secondary" onPress={() => setPage(value => value + 1)} /> : undefined} />
   </Screen>;
 }
 const styles = StyleSheet.create({

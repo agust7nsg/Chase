@@ -1,6 +1,6 @@
 import { useCurrency } from '@/features/currency/CurrencyProvider';
 import { useMemo, useState } from 'react';
-import { Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, View, type KeyDownEvent } from 'react-native';
 import type { HistoryPoint, HistoryRange } from '@/services/priceHistory';
 import { colors } from '@/theme/tokens';
 import { Icon, Label, uiStyles } from './ui';
@@ -51,10 +51,11 @@ function PriceChartPlot({ points, height = 168, compact = false, label, color = 
   </View>;
   const cursorIndex = selected ?? points.length - 1;
   const valueText = `${historyDate((selectedPoint ?? points.at(-1)!).date, true)}, ${money((selectedPoint ?? points.at(-1)!).value)} ${currency}`;
-  const keyboardProps = Platform.OS === 'web' ? { onKeyDown: (event: { key: string; preventDefault: () => void }) => {
-    if (['ArrowLeft', 'ArrowDown', 'ArrowRight', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+  const keyboardProps = Platform.OS === 'web' ? { onKeyDown: (event: KeyDownEvent) => {
+    const key = 'key' in event && typeof event.key === 'string' ? event.key : event.nativeEvent.key;
+    if (['ArrowLeft', 'ArrowDown', 'ArrowRight', 'ArrowUp', 'Home', 'End'].includes(key)) {
       event.preventDefault();
-      select(event.key === 'Home' ? 0 : event.key === 'End' ? points.length - 1 : cursorIndex + (event.key === 'ArrowLeft' || event.key === 'ArrowDown' ? -1 : 1));
+      select(key === 'Home' ? 0 : key === 'End' ? points.length - 1 : cursorIndex + (key === 'ArrowLeft' || key === 'ArrowDown' ? -1 : 1));
     }
   } } : {};
   return <View style={{ gap: 8 }}>

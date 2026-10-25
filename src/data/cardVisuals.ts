@@ -1,7 +1,7 @@
 import type { Card } from '@/types/domain';
 
 export type CollectorMood = 'moon' | 'sky' | 'ember' | 'garden' | 'cosmic';
-type CardVisual = { source?: number | { uri: string }; mood: CollectorMood; note?: string; edition: string };
+type CardVisual = { source?: number | string | { uri: string }; mood: CollectorMood; note?: string; edition: string };
 
 /** Verified local printing images. The legacy inventory keys stay stable. */
 export const cardVisuals: Record<string, CardVisual> = {

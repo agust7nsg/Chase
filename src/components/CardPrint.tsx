@@ -2,15 +2,19 @@ import { Image } from 'expo-image';
 import { useEffect, useState } from 'react';
 import { View, type ImageStyle } from 'react-native';
 import type { Card } from '@/types/domain';
-import { visualFor } from '@/data/cardVisuals';
+import { cardVisuals, visualFor } from '@/data/cardVisuals';
 import { colors } from '@/theme/tokens';
 import { cardArtworkSources } from '@/services/tcgdex/artwork';
 import { Icon, Label } from './ui';
 
 export function CardPrint({ card, style, onLoad, onError }: { card: Card; style?: ImageStyle; onLoad?: () => void; onError?: () => void }) {
   const advertised = visualFor(card).source;
-  const imageId = `${card.id}:${typeof advertised === 'number' ? advertised : advertised?.uri ?? ''}`;
-  const sources = typeof advertised === 'number' ? [advertised] : cardArtworkSources(advertised?.uri).map(uri => ({ uri }));
+  const bundledSource = cardVisuals[card.id]?.source;
+  const imageId = `${card.id}:${typeof advertised === 'number' || typeof advertised === 'string' ? advertised : advertised?.uri ?? ''}`;
+  const remoteUri = typeof advertised === 'string' ? advertised : typeof advertised === 'object' ? advertised?.uri : undefined;
+  // Metro resolves bundled artwork to numeric native IDs or local web URIs.
+  // Only remote catalog URLs belong in the HTTPS/alternate-encoding resolver.
+  const sources = bundledSource !== undefined ? [bundledSource] : cardArtworkSources(remoteUri).map(uri => ({ uri }));
   const [attempt, setAttempt] = useState({ imageId, index: 0 });
   const index = attempt.imageId === imageId ? attempt.index : 0;
   const source = sources[index];

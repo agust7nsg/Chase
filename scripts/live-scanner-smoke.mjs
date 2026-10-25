@@ -729,6 +729,10 @@ try {
   await check('Organize persists deferred choices offline and cannot save an unreviewed finish', async () => {
     const { page, state } = deferred;
     await button(page, 'Organize (3)').click();
+    // Click resolves before an asynchronous route push necessarily commits.
+    // Reload the intended Organize route, never the outgoing live scanner.
+    await page.waitForURL(url => url.pathname === '/organize');
+    await page.getByRole('heading', { name: 'Organize', exact: true }).filter({ visible: true }).waitFor();
     const before = await pending(page);
     state.catalogState.offline = true;
     await page.reload();
