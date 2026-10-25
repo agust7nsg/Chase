@@ -20,6 +20,7 @@ import type { ScannerStatus } from '@/types/scanner';
 import { useScanSession } from './ScanSessionProvider';
 import { LiveScannerCamera, type LiveCameraHandle } from './LiveScannerCamera';
 import { ScannedCardReveal } from './ScannedCardReveal';
+import { useScannerCameraFocus } from './useScannerCameraFocus';
 
 export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
   const scan = useScanSession();
@@ -32,6 +33,7 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
   const insets = useSafeAreaInsets();
   const { onboarding } = useLocalSearchParams<{ onboarding?: string }>();
   const [appActive, setAppActive] = useState(AppState.currentState === 'active');
+  const cameraFocused = useScannerCameraFocus(focused, appActive);
   const [torch, setTorch] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
   const [torchNotice, setTorchNotice] = useState<string | null>(null);
@@ -83,7 +85,7 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
     return () => { stopped = true; clearTimeout(timer); abort.abort(); };
   }, [focused, appActive, connectionAttempt, hosted, userId, simulatePro]);
   const connected = connection === 'ready' && (!hosted || (userId === checkedUser && simulatePro === checkedSimulation));
-  const active = focused && appActive && scan.ready && !scan.loadError && connected && Boolean(liveScannerConfig);
+  const active = cameraFocused && scan.ready && !scan.loadError && connected && Boolean(liveScannerConfig);
   useEffect(() => {
     if (!active) return;
     let stopped = false;
@@ -140,7 +142,7 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
     tracker.settleLighting(Date.now());
     setTorch(value => !value);
   };
-  const openDiagnostics = () => { diagnosticsOpen.current = true; setDiagnosticReport(diagnostics.report()); };
+  const openDiagnostics = () => { diagnosticsOpen.current = true; const preview = camera.current?.preview(); if (preview) diagnostics.record('preview-layout', preview); setDiagnosticReport(diagnostics.report()); };
   const closeDiagnostics = () => { diagnosticsOpen.current = false; setDiagnosticReport(null); };
   const scanningMessage = captureError ?? (status.phase === 'ERROR' ? status.error : !scan.allowed ? 'Free scan used' : title);
   const connectionMessage = !hosted ? (!liveScannerConfig ? 'Configure the local scanner URL and pairing token, then restart Expo.' : 'The local server must be online with CardSight recognition configured.')
@@ -153,8 +155,8 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
   return <View style={styles.screen}>
     {focused ? <StatusBar style="light" /> : null}
     <View style={StyleSheet.absoluteFill} testID="live-scanner-preview">
-      {liveScannerConfig && connected ? <LiveScannerCamera ref={camera} active={focused && appActive && scan.ready && !scan.loadError}
-        torch={torch && focused && appActive} onReadyChange={onCameraReadyChange} onError={onCameraError} /> : <View style={[styles.setup, { paddingTop: insets.top + 72, paddingBottom: insets.bottom + 96 }]}>
+      {liveScannerConfig && connected ? <LiveScannerCamera ref={camera} active={cameraFocused && scan.ready && !scan.loadError}
+        torch={torch && cameraFocused} onReadyChange={onCameraReadyChange} onError={onCameraError} /> : <View style={[styles.setup, { paddingTop: insets.top + 72, paddingBottom: insets.bottom + 96 }]}>
         {liveScannerConfig && connection === 'loading' ? <ActivityIndicator color={colors.white} /> : <Icon name="server-outline" color={colors.scannerFrame} size={36} />}<Label kind="heading" style={styles.heading}>{!liveScannerConfig ? 'Connect scanner server' : connectionCode === 'trial_used' ? 'Free scan used' : connection === 'loading' ? 'Connecting scanner…' : 'Scanner unavailable'}</Label>
         <Label style={styles.quiet}>{connectionMessage}</Label>
         {liveScannerConfig && connection === 'unavailable' && connectionCode !== 'trial_used' ? <Button title="Retry connection" variant="inverse" onPress={() => { setConnection('loading'); setConnectionAttempt(value => value + 1); }} /> : null}
@@ -190,7 +192,7 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
       <View style={styles.scrim}><View style={styles.dialog} accessibilityViewIsModal>
         <Label kind="heading">Scanner diagnostics</Label>
         <ScrollView><Label selectable kind="caption">{diagnosticReport}</Label></ScrollView>
-        <Button title="Refresh diagnostics" variant="secondary" onPress={() => setDiagnosticReport(diagnostics.report())} />
+        <Button title="Refresh diagnostics" variant="secondary" onPress={openDiagnostics} />
         <Button title="Close diagnostics" onPress={closeDiagnostics} />
       </View></View>
     </Modal>

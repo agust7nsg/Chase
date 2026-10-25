@@ -21,7 +21,7 @@ const pairingToken = 'chase-browser-fixture-pairing-only-1234';
 const hostedUser = { id: '12345678-1234-1234-1234-123456789abc', email: 'scanner-fixture@example.com', aud: 'authenticated', role: 'authenticated', is_anonymous: false, email_confirmed_at: '2026-10-21T00:00:00Z', created_at: '2026-10-21T00:00:00Z', app_metadata: {}, user_metadata: {} };
 const hostedToken = () => ['eyJhbGciOiJIUzI1NiJ9', Buffer.from(JSON.stringify({ sub: hostedUser.id, exp: Math.floor(Date.now() / 1000) + 3600, aud: 'authenticated' })).toString('base64url'), 'fixture-signature'].join('.');
 const focus = process.env.CHASE_LIVE_FOCUS;
-assert.ok(!focus || ['catalog', 'slow', 'during', 'art', 'appearance', 'diagnostics'].includes(focus), 'Unknown live-scanner focus.');
+assert.ok(!focus || ['catalog', 'slow', 'during', 'art', 'appearance', 'diagnostics', 'navigation'].includes(focus), 'Unknown live-scanner focus.');
 assert.ok(['localhost', '127.0.0.1'].includes(new URL(url).hostname), 'Live smoke must use a local test server.');
 assert.ok(hosted ? proxy === `${hostedRoot}/functions/v1/cardsight-scanner` : ['localhost', '127.0.0.1'].includes(new URL(proxy).hostname), 'Only the explicit intercepted hosted project or a local proxy is supported.');
 const directory = await mkdtemp(join(tmpdir(), 'chase-live-camera-'));
@@ -834,6 +834,43 @@ try {
     assert.equal(state.requests.length, 2, 'The re-presented physical copy remains locked after its result.');
   });
   await duringIdentification.context.close();
+  }
+
+  if (!focus || focus === 'navigation') {
+  const navigation = await fixture();
+  await check('twelve Organize returns retire old previews, settle changed bounds and scan the next card without losing pending rows', async () => {
+    const { page, state } = navigation;
+    await loadCameraArtwork(page); await presentArtwork(page, 0); await enable(page);
+    await button(page, 'Organize (1)').waitFor();
+    for (let index = 1; index <= 12; index++) {
+      if (process.env.CHASE_LIVE_PROGRESS) console.log(`Organize return ${index}/12`);
+      // Leave while thumbnail processing is outstanding; late callbacks must not
+      // mark the next surface ready or interfere with its capture gate.
+      await page.evaluate(() => { globalThis.chaseThumbnailDelayMs = 1200; });
+      const previous = await page.evaluate(() => globalThis.chaseDelayedThumbnailCallbacks);
+      await page.waitForFunction(previous => globalThis.chaseDelayedThumbnailCallbacks > previous, previous);
+      await page.evaluate(() => { globalThis.previousCameraTrack = document.querySelector('video').srcObject.getVideoTracks()[0]; });
+      await button(page, `Organize (${index})`).click();
+      await page.waitForFunction(() => globalThis.previousCameraTrack.readyState === 'ended');
+      // Change the hidden scanner's layout while Organize is covering it.
+      await page.setViewportSize({ width: index % 2 ? 360 : 390, height: index % 2 ? 800 : 844 });
+      await page.evaluate(() => { globalThis.chaseThumbnailDelayMs = 0; });
+      await button(page, 'Return to Scanner').first().click();
+      await assertFullCamera(page);
+      await page.waitForFunction(() => !document.querySelector('[data-testid="camera-preview-settling"]'));
+      await page.waitForTimeout(1400);
+      assert.equal(copies(await pending(page)), index, 'Returning to the held card never adds a copy.');
+      state.candidates = [artworkPool[index % artworkPool.length][1]];
+      await presentArtwork(page, index % artworkPool.length);
+      await button(page, `Organize (${index + 1})`).waitFor({ timeout: 15_000 });
+      assert.equal(copies(await collection(page)), 0);
+    }
+    assert.equal(copies(await pending(page)), 13);
+    await button(page, 'Organize (13)').click(); await button(page, 'Save all to Collection').click();
+    await page.getByText('13 copies saved to Collection.', { exact: true }).waitFor();
+    assert.equal(copies(await collection(page)), 13); assert.equal(copies(await pending(page)), 0);
+  });
+  await navigation.context.close();
   }
 
   if (!focus || focus === 'art') {
