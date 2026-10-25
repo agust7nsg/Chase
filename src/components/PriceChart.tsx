@@ -45,7 +45,10 @@ function PriceChartPlot({ points, height = 168, compact = false, label, color = 
   };
   const selectedPoint = selected === null ? null : points[selected];
   const coordinate = selected === null ? null : layout.coordinates[selected];
-  if (!points.length) return <Label kind="caption" style={uiStyles.muted}>Price history is unavailable.</Label>;
+  if (!points.length) return <View testID="pending-history-chart" accessible accessibilityRole="image" accessibilityLabel={`${label}. Historical data pending.`} style={{ height, width: '100%', justifyContent: 'center', alignItems: 'center' }}>
+    {[0.2, 0.5, 0.8].map(position => <View key={position} accessible={false} style={[styles.gridLine, { top: height * position }]} />)}
+    <Label kind="caption" style={[uiStyles.muted, { backgroundColor: colors.background, paddingHorizontal: 12 }]}>History pending</Label>
+  </View>;
   const cursorIndex = selected ?? points.length - 1;
   const valueText = `${historyDate((selectedPoint ?? points.at(-1)!).date, true)}, ${money((selectedPoint ?? points.at(-1)!).value)} ${currency}`;
   const keyboardProps = Platform.OS === 'web' ? { onKeyDown: (event: { key: string; preventDefault: () => void }) => {
