@@ -1,6 +1,7 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, View } from 'react-native';
+import { useCallback, useState } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ChaseProvider, useChase } from '@/features/app/ChaseProvider';
 import { Button, Label, Screen } from '@/components/ui';
@@ -8,6 +9,7 @@ import { colors } from '@/theme/tokens';
 import { CurrencyProvider } from '@/features/currency/CurrencyProvider';
 import { ScanSessionProvider } from '@/features/scanner/ScanSessionProvider';
 import { AuthProvider } from '@/features/account/AuthProvider';
+import { StartupSplash } from '@/features/app/StartupSplash';
 
 function Navigator() {
   const { ready, loadError, retryLoad, persistenceError } = useChase();
@@ -32,5 +34,16 @@ function Navigator() {
   </View>;
 }
 export default function RootLayout() {
-  return <SafeAreaProvider><AuthProvider><CurrencyProvider><ChaseProvider><ScanSessionProvider><StatusBar style="dark" /><Navigator /></ScanSessionProvider></ChaseProvider></CurrencyProvider></AuthProvider></SafeAreaProvider>;
+  return <SafeAreaProvider><AuthProvider><CurrencyProvider><ChaseProvider><ScanSessionProvider><AppShell /></ScanSessionProvider></ChaseProvider></CurrencyProvider></AuthProvider></SafeAreaProvider>;
+}
+function AppShell() {
+  const { ready, loadError } = useChase();
+  const [opening, setOpening] = useState(true);
+  const finish = useCallback(() => setOpening(false), []);
+  return <View style={{ flex: 1 }}><StatusBar style="dark" />
+    <View style={{ flex: 1 }} accessibilityElementsHidden={opening} importantForAccessibility={opening ? 'no-hide-descendants' : 'auto'}>
+      <Navigator />
+    </View>
+    {opening ? <StartupSplash ready={ready || Boolean(loadError)} onFinished={finish} /> : null}
+  </View>;
 }

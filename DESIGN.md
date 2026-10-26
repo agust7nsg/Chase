@@ -89,6 +89,8 @@ Do not use motion as decoration. Any future animation must respect reduced-motio
 
 ## Product composition
 
+Cold launch uses a short blue startup composition: three abstract white cards fan in, a scan line passes through the frame, the cards fold away and the white scan mark/Chase wordmark remain before a fade into the existing route. It runs once per root launch, without sound, network requests or remote artwork. Reduced Motion uses a brief static mark. Native splash background matches the blue animation; Expo Go cannot fully reproduce the standalone native launch screen. Local hydration continues underneath, errors remain recoverable, and a bounded fallback always releases the overlay.
+
 The Mobbin references provided by the user establish a standard of purposeful composition: Fitbit isolates the product, Mindtrip organizes discovery around content, Ro uses restraint, and Shopify prioritizes information and tasks. They are reference principles, not copied screens. Function determines the layout. Reusable controls do not imply a repeated page template.
 
 - **Brand:** the lowercase `chase` wordmark and scanning-frame symbol are shared by introduction and Home. The stable identity comes from type, proportions, control treatment, contrast and terminology.

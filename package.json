@@ -51,6 +51,7 @@
     "test:scanner": "node scripts/scanner-smoke.mjs",
     "test:catalog": "node scripts/catalog-smoke.mjs",
     "test:auth": "node scripts/auth-smoke.mjs",
+    "test:splash": "node scripts/splash-smoke.mjs",
     "test:hosted-sql": "node scripts/hosted-scanner-sql.mjs",
     "scanner:proxy": "node --env-file-if-exists=.env.scanner --import tsx server/startScannerProxy.ts",
     "test:live-scanner": "node scripts/live-scanner-smoke.mjs"
