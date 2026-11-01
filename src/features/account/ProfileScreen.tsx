@@ -1,3 +1,4 @@
+import { proSimulationEnabled } from '@/config/testing';
 import { useCurrency } from '@/features/currency/CurrencyProvider';
 import { CURRENCY_NAMES } from '@/services/currency';
 import { router } from 'expo-router';
@@ -55,7 +56,7 @@ export function ProfileScreen() {
       <SettingRow title="Restore Purchases" icon="refresh-outline" onPress={() => openAccount('restore')} />
     </View>
 
-    {__DEV__ ? <Panel style={styles.developer}>
+    {proSimulationEnabled ? <Panel style={styles.developer}>
       <View style={uiStyles.between}>
         <View style={{ flex: 1, gap: 6 }}><Label style={{ fontWeight: '600' }}>Development only · simulate Pro</Label><Label kind="caption" style={uiStyles.muted}>No payment</Label></View>
         <Switch value={state.plan === 'pro'} onValueChange={setDevPro} accessibilityLabel="Development only · simulate Pro" trackColor={{ false: colors.border, true: colors.primary }} />

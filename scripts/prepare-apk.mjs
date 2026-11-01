@@ -14,6 +14,6 @@ const config = JSON.parse(await readFile(path, 'utf8'));
 const profile = config.build?.preview;
 if (!profile || profile.android?.buildType !== 'apk') throw new Error('Falta el perfil preview APK. Descarga la version actualizada.');
 // Only these public values reach the bundle; never copy an entire environment file.
-profile.env = { EXPO_PUBLIC_SCANNER_BACKEND: 'supabase', EXPO_PUBLIC_SUPABASE_URL: url, EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: key };
+profile.env = { EXPO_PUBLIC_ENABLE_PRO_SIMULATION: 'true', EXPO_PUBLIC_SCANNER_BACKEND: 'supabase', EXPO_PUBLIC_SUPABASE_URL: url, EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: key };
 await writeFile(path, JSON.stringify(config, null, 2) + '\n');
 console.log('APK preparada con el escaner alojado y la configuracion PUBLICA de Supabase. Ninguna clave privada fue copiada.');

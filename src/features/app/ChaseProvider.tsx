@@ -1,3 +1,4 @@
+import { proSimulationEnabled } from '@/config/testing';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
 import { AppState } from 'react-native';
@@ -40,7 +41,7 @@ export function ChaseProvider({ children }: { children: ReactNode }) {
   const [featuredCardId, setFeaturedCardId] = useState<FeaturedCardId>(FEATURED_CARD_IDS[0]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const load = useCallback(async () => {
-    try { const [, cardId] = await Promise.all([store.load(__DEV__), loadSessionFeaturedCard()]); if (mounted.current) { setFeaturedCardId(cardId); setLoadError(null); } }
+    try { const [, cardId] = await Promise.all([store.load(proSimulationEnabled), loadSessionFeaturedCard()]); if (mounted.current) { setFeaturedCardId(cardId); setLoadError(null); } }
     catch { if (mounted.current) setLoadError('Your local collection could not be loaded. Retry to protect your saved cards.'); }
   }, [store]);
   useEffect(() => {
@@ -93,7 +94,7 @@ export function ChaseProvider({ children }: { children: ReactNode }) {
   return <ChaseContext.Provider value={{
     state, ready, loadError: loadError ?? (!auth.deletionReady ? auth.error : null), persistenceError: store.persistenceError, featuredCardId, catalogRevision: revision, entitlements: getEntitlements(state.plan), summary: summarizeCollection(state.items),
     retryLoad: () => { if (!auth.deletionReady) auth.retry(); void load(); }, completeOnboarding: () => store.globals(current => ({ ...current, onboardingComplete: true })),
-    setDevPro: enabled => { if (__DEV__) void store.globals(current => ({ ...current, plan: enabled ? 'pro' : 'free' })).catch(() => {}); },
+    setDevPro: enabled => { if (proSimulationEnabled) void store.globals(current => ({ ...current, plan: enabled ? 'pro' : 'free' })).catch(() => {}); },
     addToCollection: id => perform(current => addCard(current, id)), updateQuantity: (id, quantity) => perform(current => setQuantity(current, id, quantity)),
     removeFromCollection: id => perform(current => removeCard(current, id)),
     recordRecognition: usedFree => { if (usedFree) void store.globals(current => ({ ...current, trial: { successfulRecognitions: 1 } })).catch(() => {}); },

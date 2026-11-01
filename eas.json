@@ -8,6 +8,9 @@
       "environment": "preview",
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_ENABLE_PRO_SIMULATION": "true"
       }
     }
   }

@@ -1,3 +1,4 @@
+import { proSimulationEnabled } from '@/config/testing';
 import { supabase } from '../auth/client';
 import { accountFetch } from '../auth/fetch';
 import { createScannerSession } from '../auth/scannerSession';
@@ -14,7 +15,7 @@ export async function scannerCredentials(simulatePro = false): Promise<{ token: 
   if (!isHostedScanner(liveScannerConfig) || !session) throw new CardSightError('CONFIGURATION', 'Online scanning is not configured.');
   const current = await session();
   return { token: current.access_token, apiKey: liveScannerConfig.publishableKey,
-    simulatePro: scannerProSimulation(typeof __DEV__ !== 'undefined' && __DEV__, simulatePro) };
+    simulatePro: scannerProSimulation(proSimulationEnabled, simulatePro) };
 }
 
 export function createLiveRecognition(catalog: RecognitionCatalog, links: RecognitionLinks, simulatePro: () => boolean = () => false): CardSightRecognitionService {

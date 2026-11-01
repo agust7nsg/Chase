@@ -1,3 +1,4 @@
+import { proSimulationEnabled } from '@/config/testing';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { router, useIsFocused, useLocalSearchParams } from 'expo-router';
 import { ActivityIndicator, AppState, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
@@ -24,7 +25,7 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
   const scan = useScanSession();
   const auth = useAuth();
   const chase = useChase();
-  const simulatePro = __DEV__ && chase.state.plan === 'pro';
+  const simulatePro = proSimulationEnabled && chase.state.plan === 'pro';
   const userId = auth.scannerIdentity ?? undefined;
   const hosted = isHostedScanner(liveScannerConfig);
   const focused = useIsFocused();
