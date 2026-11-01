@@ -27,6 +27,7 @@ type ChaseContextValue = {
   recordRecognition: (usedFree: boolean) => void;
   saveScannedItems: (items: ScanSessionItem[]) => Promise<ScanSaveResult>;
   collectionSync: { owner: string | null; syncing: boolean; error: string | null; account: AccountCollection | null; guestCopies: number };
+  forgetDeletedAccount: (owner: string) => Promise<void>;
   syncCollection: () => void; importGuestCards: () => Promise<void>; keepGuestSeparate: () => Promise<void>;
   resolveCollectionConflict: (cardId: string, keepLocal: boolean) => Promise<void>;
 };
@@ -48,7 +49,13 @@ export function ChaseProvider({ children }: { children: ReactNode }) {
     return () => { mounted.current = false; store.setPublisher(() => {}); store.select(null); };
   }, [load, store]);
   useEffect(() => { let active = true; if (auth.localReady) void Promise.resolve().then(() => { if (active) store.select(auth.localAccountId); }); return () => { active = false; }; }, [auth.localReady, auth.localAccountId, store]);
-  const ready = store.loaded && auth.localReady;
+  const blockedOwner = useRef<string | null>(null);
+  useEffect(() => {
+    if (blockedOwner.current && blockedOwner.current !== auth.deletionJob?.ownerId) store.unblock(blockedOwner.current);
+    blockedOwner.current = auth.deletionJob?.ownerId ?? null;
+    if (blockedOwner.current) store.block(blockedOwner.current);
+  }, [auth.deletionJob, store]);
+  const ready = store.loaded && auth.localReady && auth.deletionReady;
   // Select the render view immediately, without tearing down the navigation stack
   // during OAuth callbacks or briefly exposing the previous account's inventory.
   const state = store.loaded ? collectionView(store.raw, auth.localAccountId) : initialState;
@@ -84,14 +91,15 @@ export function ChaseProvider({ children }: { children: ReactNode }) {
     return result;
   };
   return <ChaseContext.Provider value={{
-    state, ready, loadError, persistenceError: store.persistenceError, featuredCardId, catalogRevision: revision, entitlements: getEntitlements(state.plan), summary: summarizeCollection(state.items),
-    retryLoad: () => { void load(); }, completeOnboarding: () => store.globals(current => ({ ...current, onboardingComplete: true })),
+    state, ready, loadError: loadError ?? (!auth.deletionReady ? auth.error : null), persistenceError: store.persistenceError, featuredCardId, catalogRevision: revision, entitlements: getEntitlements(state.plan), summary: summarizeCollection(state.items),
+    retryLoad: () => { if (!auth.deletionReady) auth.retry(); void load(); }, completeOnboarding: () => store.globals(current => ({ ...current, onboardingComplete: true })),
     setDevPro: enabled => { if (__DEV__) void store.globals(current => ({ ...current, plan: enabled ? 'pro' : 'free' })).catch(() => {}); },
     addToCollection: id => perform(current => addCard(current, id)), updateQuantity: (id, quantity) => perform(current => setQuantity(current, id, quantity)),
     removeFromCollection: id => perform(current => removeCard(current, id)),
     recordRecognition: usedFree => { if (usedFree) void store.globals(current => ({ ...current, trial: { successfulRecognitions: 1 } })).catch(() => {}); },
     saveScannedItems,
     collectionSync: { owner: auth.localAccountId, syncing: store.syncing, error: store.syncError, account, guestCopies: store.raw.items.reduce((sum, item) => sum + item.quantity, 0) },
+    forgetDeletedAccount: owner => store.forgetAccount(owner),
     syncCollection: () => { void store.sync(); }, importGuestCards: () => store.importGuest(), keepGuestSeparate: () => store.declineImport(),
     resolveCollectionConflict: (id, keep) => store.resolve(id, keep),
   }}>{children}</ChaseContext.Provider>;

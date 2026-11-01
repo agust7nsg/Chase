@@ -37,6 +37,7 @@ export function ProfileScreen() {
         : <View style={styles.accountActions}><View style={{ flex: 1, minWidth: 115 }}><Button title="Create Account" variant="ghost" onPress={() => openAccount('create')} /></View><View style={{ flex: 1, minWidth: 95 }}><Button title="Sign In" variant="ghost" onPress={() => openAccount('signin')} /></View></View>}
     </View>
 
+    {auth.user || auth.localAccountId || auth.deletionJob ? <SettingRow title={auth.deletionJob ? 'Continue account deletion' : 'Delete Account'} icon="trash-outline" onPress={() => openAccount('delete')} /> : null}
     <CollectionBackup />
 
     <View>

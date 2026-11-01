@@ -8,7 +8,7 @@ At the user's request, email/password authentication was removed from the applic
 
 Existing Supabase accounts and persisted sessions are not deleted or silently migrated. A stored session still requires server verification; logout preserves the local collection and pending scans. A Google provider may supply an email address displayed in Profile; that is not email/password authentication. This client change does not alter Supabase's provider settings. To also disallow direct email registration at the server, disable the Email provider separately in the dashboard, while retaining anonymous Auth for guest scanning.
 
-Account collection sync is now implemented separately with explicit guest import, offline queues and isolated account replicas; see [COLLECTION_SYNC.md](COLLECTION_SYNC.md) for required SQL deployment. Authentication alone never imports guest cards, verifies purchases or deletes accounts. Hosted recognition is a separate deployment described in [HOSTED_SCANNER.md](HOSTED_SCANNER.md).
+Account collection sync is now implemented separately with explicit guest import, offline queues and isolated account replicas; see [COLLECTION_SYNC.md](COLLECTION_SYNC.md) for required SQL deployment. Authentication alone never imports guest cards or verifies purchases. Account deletion is a separate, explicitly confirmed flow; see [ACCOUNT_DELETION.md](ACCOUNT_DELETION.md) for its required deployment and retention boundaries. Hosted recognition is a separate deployment described in [HOSTED_SCANNER.md](HOSTED_SCANNER.md).
 
 ## Public client configuration
 
@@ -70,4 +70,4 @@ Social-only validation passed TypeScript, lint, all 280 unit tests, 10 account b
 
 ## Remaining account work
 
-Configure and implement Apple, verify real Google consent and native redirects, deploy and verify collection synchronization, connect verified RevenueCat entitlements, and implement authenticated account deletion/retention. Legal documents must describe the actual deployed services. Guest use remains available independently of these integrations.
+Configure and implement Apple, verify real Google consent and native redirects, deploy and verify collection synchronization, connect verified RevenueCat entitlements, and deploy/verify authenticated account deletion with a disposable native test account. Legal documents must describe the actual deployed services. Guest use remains available independently of these integrations.

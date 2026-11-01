@@ -7,7 +7,7 @@ import { Badge, Button, Icon, Label, Screen, uiStyles, type IconName } from '@/c
 import { legalLinks } from '@/config/links';
 import { colors } from '@/theme/tokens';
 import { AccountAuthScreen, type AuthMode } from './AccountAuthScreen';
-import { useAuth } from './AuthProvider';
+import { DeleteAccountScreen } from './DeleteAccountScreen';
 
 type SectionName = 'restore' | 'privacy' | 'terms' | 'support' | 'currency' | 'about' | 'delete';
 type Workflow = { title: string; icon: IconName; message: string; detail: string };
@@ -45,8 +45,8 @@ const workflows: Record<SectionName, Workflow> = {
   },
   delete: {
     title: 'Delete Account', icon: 'trash-outline',
-    message: 'Account deletion is not connected yet.',
-    detail: 'You are using Chase as a guest and there is no account to delete. No collection data is deleted here. Account deletion will require confirmation when accounts become available.',
+    message: 'Delete Account',
+    detail: 'Permanently delete your registered account and its cloud collection.',
   },
 };
 
@@ -55,19 +55,18 @@ function isSection(value: string | undefined): value is SectionName {
 }
 
 export function AccountScreen() {
-  const auth = useAuth();
   const { currency, openCurrencySelector } = useCurrency();
   const { section } = useLocalSearchParams<{ section?: string | string[] }>();
   const requestedSection = Array.isArray(section) ? section[0] : section;
   const activeSection = isSection(requestedSection) ? requestedSection : 'about';
   const workflow = activeSection === 'currency' ? { ...workflows.currency, message: `${CURRENCY_NAMES[currency]} (${currency})` }
-    : activeSection === 'delete' && auth.user ? { ...workflows.delete, message: 'Account deletion is not connected yet.', detail: 'Your account has not been deleted. An authenticated deletion service must be connected before this action becomes available.' }
     : workflows[activeSection];
   const isExternalSection = activeSection === 'privacy' || activeSection === 'terms' || activeSection === 'support';
   const configuredUrl = isExternalSection ? legalLinks[activeSection] : null;
   const isHttpsUrl = configuredUrl !== null && /^https:\/\/[^\s/]+(?:\/[^\s]*)?$/i.test(configuredUrl);
   const [linkError, setLinkError] = useState<string | null>(null);
 
+  if (requestedSection === 'delete') return <DeleteAccountScreen />;
   if (requestedSection === 'forgot' || requestedSection === 'reset') return <AccountAuthScreen key="signin" mode="signin" />;
   if (['create', 'signin', 'logout'].includes(requestedSection ?? '')) return <AccountAuthScreen key={requestedSection} mode={requestedSection as AuthMode} />;
 

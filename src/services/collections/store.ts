@@ -10,6 +10,19 @@ export interface CollectionCloud {
 export class CollectionSyncStore {
   raw: DeviceState = emptyDevice(); owner: string | null = null; loaded = false;
   persistenceError: string | null = null; syncError: string | null = null; syncing = false;
+  private blocked = new Set<string>();
+  private forgotten = new Set<string>();
+  block(owner: string) { this.blocked.add(owner); }
+  unblock(owner: string) { if (!this.forgotten.has(owner)) this.blocked.delete(owner); }
+  async forgetAccount(owner: string) {
+    this.block(owner); this.forgotten.add(owner);
+    await this.transaction(raw => {
+      if (!raw.collectionSync) return raw;
+      const accounts = { ...raw.collectionSync.accounts }; delete accounts[owner];
+      return { ...raw, collectionSync: { ...raw.collectionSync, accounts } };
+    });
+  }
+  private writable(owner: string | null) { if (owner && this.blocked.has(owner)) throw new Error('Account deletion is pending. Collection sync is paused.'); }
   private queue: Promise<unknown> = Promise.resolve();
   constructor(private storage: SessionStorage, private id: () => string, private publish: () => void, private cloud: CollectionCloud | null) {}
   setPublisher(publish: () => void) { this.publish = publish; }
@@ -33,7 +46,7 @@ export class CollectionSyncStore {
   }
   async update(operation: (state: PrototypeState) => PrototypeState, owner = this.owner) {
     await this.transaction(raw => {
-      if (owner !== this.owner) throw new Error('Account changed. Please try again.');
+      this.writable(owner); if (owner !== this.owner) throw new Error('Account changed. Please try again.');
       return stageView(raw, owner, operation(collectionView(raw, owner)), this.id);
     });
   }
@@ -42,31 +55,31 @@ export class CollectionSyncStore {
   }
   async importGuest() {
     const owner = this.owner; if (!owner) throw new Error('Sign in to import guest cards.');
-    await this.transaction(raw => { if (owner !== this.owner) throw new Error('Account changed.'); return importGuest(raw, owner, this.id); });
+    await this.transaction(raw => { this.writable(owner); if (owner !== this.owner) throw new Error('Account changed.'); return importGuest(raw, owner, this.id); });
   }
   async declineImport() {
-    const owner = this.owner; if (owner) await this.transaction(raw => withAccount(raw, owner, { ...accountOf(raw, owner), importDecision: 'declined' }));
+    const owner = this.owner; if (owner) await this.transaction(raw => { this.writable(owner); return withAccount(raw, owner, { ...accountOf(raw, owner), importDecision: 'declined' }); });
   }
   async resolve(cardId: string, keepLocal: boolean) {
-    const owner = this.owner; if (owner) await this.transaction(raw => withAccount(raw, owner, resolveConflict(accountOf(raw, owner), cardId, keepLocal, this.id)));
+    const owner = this.owner; if (owner) await this.transaction(raw => { this.writable(owner); return withAccount(raw, owner, resolveConflict(accountOf(raw, owner), cardId, keepLocal, this.id)); });
   }
   async sync() {
     const owner = this.owner;
-    if (!owner || !this.cloud || this.syncing || !this.loaded) return;
+    if (!owner || this.blocked.has(owner) || !this.cloud || this.syncing || !this.loaded) return;
     this.syncing = true; this.syncError = null; this.publish();
     try {
       const rows = await this.cloud.read(owner);
-      await this.transaction(raw => withAccount(raw, owner, mergeRows(accountOf(raw, owner), rows)));
-      for (let n = 0; n < 200 && this.owner === owner; n++) {
+      await this.transaction(raw => this.blocked.has(owner) ? raw : withAccount(raw, owner, mergeRows(accountOf(raw, owner), rows)));
+      for (let n = 0; n < 200 && this.owner === owner && !this.blocked.has(owner); n++) {
         const account = accountOf(this.raw, owner);
         const operation = account.pending.find(op => !op.after && !account.conflicts[op.cardId]);
         if (!operation) break;
         const result = await this.cloud.apply(owner, operation);
-        await this.transaction(raw => withAccount(raw, owner, settle(accountOf(raw, owner), operation, result.status, result.row)));
+        await this.transaction(raw => this.blocked.has(owner) ? raw : withAccount(raw, owner, settle(accountOf(raw, owner), operation, result.status, result.row)));
       }
-      if (this.owner === owner) {
+      if (this.owner === owner && !this.blocked.has(owner)) {
         const latest = await this.cloud.read(owner);
-        await this.transaction(raw => withAccount(raw, owner, { ...mergeRows(accountOf(raw, owner), latest), lastSynced: new Date().toISOString() }));
+        await this.transaction(raw => this.blocked.has(owner) ? raw : withAccount(raw, owner, { ...mergeRows(accountOf(raw, owner), latest), lastSynced: new Date().toISOString() }));
       }
     } catch { if (this.owner === owner) this.syncError = 'Could not sync. Your saved cards and pending changes remain on this device. Retry when connected.'; }
     finally { this.syncing = false; this.publish(); if (this.owner && this.owner !== owner) void this.sync(); }

@@ -6,3 +6,9 @@ project_id = "chase"
 # Neither a publishable key nor an unverified decoded JWT authorizes a scan.
 verify_jwt = false
 entrypoint = "./functions/cardsight-scanner/index.ts"
+
+[functions.delete-account]
+# The handler verifies Auth /user and recent OAuth, or an already authorized
+# private deletion receipt for recovery after the Auth user has been removed.
+verify_jwt = false
+entrypoint = "./functions/delete-account/index.ts"

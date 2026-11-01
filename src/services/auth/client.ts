@@ -19,7 +19,8 @@ const browserStorage: SecureKeyValue = {
   removeItem: async key => { if (typeof window !== 'undefined') window.localStorage.removeItem(key); },
 };
 const localOwnerKey = `chase.auth.${supabaseConfig?.project ?? 'unconfigured'}.local-owner`;
-const authStorage = Platform.OS === 'web' ? browserStorage : nativeStorage;
+export const accountPrivateStorage = Platform.OS === 'web' ? browserStorage : nativeStorage;
+const authStorage = accountPrivateStorage;
 /** A cache selector only; this value must never authorize a cloud request. */
 export async function rememberedLocalOwner(): Promise<string | null> {
   try { const id = await authStorage.getItem(localOwnerKey); return id && /^[a-f\d]{8}-(?:[a-f\d]{4}-){3}[a-f\d]{12}$/i.test(id) ? id : null; } catch { return null; }

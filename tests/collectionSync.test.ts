@@ -131,3 +131,31 @@ test('an account switch during an in-flight sync cannot send the old outbox as t
   const syncing = run.store.sync(); run.store.select(b); release(); await syncing;
   assert.equal(cloud.writes, 0); assert.equal(run.store.view().items.length, 0); assert.equal(accountOf(run.store.raw, a).pending.length, 1);
 });
+
+test('account deletion forgets only its replica and preserves guest, other owners and installation receipts', async () => {
+  const run = await device(undefined, { ...seed, savedScanOperations: ['saved-installation-operation'] }); run.store.select(a); await run.store.update(current => addCard(current, 'base1-2'));
+  run.store.select(b); await run.store.update(current => addCard(current, 'base1-15'));
+  const before = clone(run.store.raw); await run.store.forgetAccount(a);
+  assert.equal(run.store.raw.collectionSync?.accounts[a], undefined);
+  assert.deepEqual(run.store.raw.collectionSync?.accounts[b], before.collectionSync?.accounts[b]);
+  assert.deepEqual(run.store.raw.items, before.items); assert.deepEqual(run.store.raw.trial, before.trial);
+  assert.deepEqual(run.store.raw.savedScanOperations, before.savedScanOperations);
+  run.store.select(a); await assert.rejects(run.store.update(current => addCard(current, 'base1-2')), /deletion/);
+  await assert.rejects(run.store.importGuest(), /deletion/);
+});
+test('late in-flight cloud pulls cannot recreate a deleted local replica', async () => {
+  const run = await device(); run.store.select(a); await run.store.update(current => addCard(current, 'base1-4'));
+  let release!: (rows: RemoteRow[]) => void;
+  run.cloud.read = () => new Promise(resolve => { release = resolve; });
+  const pull = run.store.sync(); await run.store.forgetAccount(a);
+  release([{ cardId: 'base1-4', revision: 100, item: seed.items[0] }]); await pull;
+  assert.equal(run.store.raw.collectionSync?.accounts[a], undefined); assert.deepEqual(run.store.raw.items, seed.items);
+});
+test('late cloud mutation acknowledgements cannot recreate deleted outbox metadata', async () => {
+  const run = await device(); run.store.select(a); await run.store.update(current => addCard(current, 'base1-4'));
+  let release!: (value: { status: 'ok'; row: RemoteRow }) => void;
+  run.cloud.apply = () => new Promise(resolve => { release = resolve; });
+  const sync = run.store.sync(); while (!release) await new Promise(r => setTimeout(r, 0));
+  await run.store.forgetAccount(a); release({ status: 'ok', row: { cardId: 'base1-4', revision: 1, item: seed.items[0] } }); await sync;
+  assert.equal(run.store.raw.collectionSync?.accounts[a], undefined); assert.deepEqual(run.store.raw.items, seed.items);
+});
