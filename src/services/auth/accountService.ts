@@ -2,9 +2,11 @@ import type { SupabaseClient, User } from '@supabase/supabase-js';
 import type { UserProfile } from '../../types/domain';
 import { validateCredentials } from './config';
 import type { AccountAuthenticationService } from '../contracts';
+import { OAuthError } from './oauth';
 
 export function profileFor(user: User): UserProfile {
-  const name = typeof user.user_metadata?.display_name === 'string' ? user.user_metadata.display_name.trim().slice(0, 80) : '';
+  const rawName = user.user_metadata?.display_name ?? user.user_metadata?.full_name;
+  const name = typeof rawName === 'string' ? rawName.trim().slice(0, 80) : '';
   return { id: user.id, email: user.email, displayName: name || user.email?.split('@')[0] || 'Collector' };
 }
 
@@ -29,6 +31,20 @@ export class AccountService implements AccountAuthenticationService {
     const invalid = validateCredentials(email, password); if (invalid) throw new Error(invalid);
     const result = await this.client.auth.signInWithPassword({ email: email.trim(), password });
     if (result.error) throw result.error;
+  }
+  async startGoogle(redirectTo: string, existingAccount = false): Promise<{ url: string; flowId?: string }> {
+    const stored = await this.client.auth.getSession();
+    if (stored.error) throw stored.error;
+    const credentials = { provider: 'google' as const, options: { redirectTo, skipBrowserRedirect: true,
+      scopes: 'openid email profile', queryParams: { prompt: 'select_account' } } };
+    // Upgrade scanner guests in place; ordinary sign-in to an existing Google account is an explicit alternative.
+    const result = stored.data.session?.user.is_anonymous && !existingAccount
+      ? await this.client.auth.linkIdentity(credentials) : await this.client.auth.signInWithOAuth(credentials);
+    if (result.error) throw new OAuthError(result.error.code ?? 'google_unavailable');
+    if (!result.data.url) throw new OAuthError('invalid_oauth_callback');
+    const target = new URL(result.data.url);
+    if (target.protocol !== 'https:' || target.username || target.password) throw new OAuthError('invalid_oauth_callback');
+    return { url: target.href, flowId: result.data.flowId ?? undefined };
   }
   async signUp(email: string, password: string, redirectTo: string): Promise<boolean> {
     const stored = await this.client.auth.getSession();
@@ -59,7 +75,12 @@ export class AccountService implements AccountAuthenticationService {
   completeRedirect(code: string, flowId?: string): Promise<boolean> {
     if (!/^[A-Za-z0-9._~-]{10,2048}$/.test(code)) return Promise.reject(new Error('Invalid email link.'));
     if (flowId !== undefined && !/^[A-Za-z0-9_-]{8,64}$/.test(flowId)) return Promise.reject(new Error('Invalid email link.'));
-    if (this.exchange?.code === code) return this.exchange.request;
+    if (this.exchange?.code === code) {
+      // Native browser knows the initiating flow; Router may receive the same
+      // code without the optional flow selector. Never exchange it twice.
+      if (flowId && this.exchange.flowId && flowId !== this.exchange.flowId) return Promise.reject(new Error('Invalid sign-in link.'));
+      return this.exchange.request;
+    }
     const request = this.client.auth.exchangeCodeForSession(code, flowId ? { flowId } : undefined).then(result => {
       if (result.error) throw result.error;
       return ('redirectType' in result.data && result.data.redirectType === 'recovery')

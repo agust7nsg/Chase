@@ -22,6 +22,12 @@ export function validateCredentials(email: string, password: string, create = fa
 export function accountError(error: unknown): string {
   const code = error && typeof error === 'object' && 'code' in error ? error.code : '';
   const message = error instanceof Error ? error.message : '';
+  if (code === 'oauth_requires_build') return 'Google sign-in needs an installed Chase build. Expo Go does not support this OAuth callback. Email sign-in and guest mode are still available.';
+  if (code === 'access_denied') return 'Google sign-in was canceled. You can try again or continue as a guest.';
+  if (code === 'provider_disabled' || code === 'validation_failed' || code === 'oauth_provider_not_supported') return 'Google sign-in is not enabled correctly in Supabase yet. Email sign-in and guest mode are still available.';
+  if (code === 'manual_linking_disabled') return 'Google account linking is not enabled in Supabase yet. Your guest session and saved cards are unchanged.';
+  if (code === 'invalid_oauth_callback') return 'Google sign-in could not be verified. Return to Sign In and try again on this device.';
+  if (code === 'google_identity_exists') return 'This Google account already belongs to a Chase account. Choose Use existing Google account to sign in. Your local cards will stay on this device.';
   // Older Auth responses may lack a versioned error code. Match only known text.
   if (message === 'Invalid login credentials') return 'Email or password is incorrect.';
   if (message === 'Email not confirmed') return 'Confirm your email before signing in.';

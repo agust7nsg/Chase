@@ -607,6 +607,9 @@ try {
     await carouselPage.goto(new URL('/onboarding', baseUrl).href, { waitUntil: 'domcontentloaded' });
     const carousel = carouselPage.getByRole('slider', { name: 'Card price carousel', exact: true });
     await carousel.waitFor();
+    // Wait after the route mounts: CDP gestures do not wait for the startup
+    // overlay like Playwright clicks do, and a pre-mount detached check races it.
+    await carouselPage.getByTestId('startup-splash').waitFor({ state: 'detached' });
     assert.match(await carousel.getAttribute('aria-valuetext'), /Charizard.*245.00/);
     assert.equal(await button(carouselPage, /^Preview (Charizard|Umbreon) price$/).count(), 0);
     const bounds = await carousel.boundingBox(); const y = bounds.y + bounds.height / 2;

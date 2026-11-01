@@ -18,6 +18,15 @@ export function AccountAuthScreen({ mode }: { mode: AuthMode }) {
   const guestCreate = mode === 'create' && Boolean(auth.scannerIdentity) && !auth.user;
   const navigate = (section: AuthMode) => router.replace({ pathname: '/account', params: { section } });
   const returnToProfile = () => router.dismissTo('/(tabs)/profile');
+  const signInGoogle = async (existingAccount = false) => {
+    if (auth.busy) return;
+    setError(null); setNotice(null); setSocialNotice(null);
+    try {
+      const result = await auth.signInGoogle(existingAccount);
+      if (result === 'success') { setPassword(''); returnToProfile(); }
+      else if (result === 'cancel' || result === 'dismiss') setSocialNotice('Google sign-in canceled. You can try again.');
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Google sign-in could not be completed.'); }
+  };
   const submit = async () => {
     if (auth.busy) return;
     const invalid = mode === 'reset' ? validateCredentials('valid@example.com', password, true)
@@ -41,8 +50,10 @@ export function AccountAuthScreen({ mode }: { mode: AuthMode }) {
       {mode === 'signin' || mode === 'create' ? <View style={{ gap: 12 }}>
         <Button title="Continue with Apple" icon="logo-apple" variant="secondary" disabled={auth.busy}
           onPress={() => setSocialNotice('Continue with Apple is not available yet.')} />
-        <Button title="Continue with Google" icon="logo-google" variant="secondary" disabled={auth.busy}
-          onPress={() => setSocialNotice('Continue with Google is not available yet.')} />
+        <Button title="Continue with Google" icon="logo-google" variant="secondary" disabled={auth.busy || !auth.configured} loading={auth.googleInProgress}
+          onPress={() => { void signInGoogle(); }} />
+        {error?.includes('Use existing Google account') ? <Button title="Use existing Google account" variant="secondary" disabled={auth.busy}
+          onPress={() => { void signInGoogle(true); }} /> : null}
         {socialNotice ? <Label kind="caption" accessibilityLiveRegion="polite" style={uiStyles.muted}>{socialNotice}</Label> : null}
         {auth.configured ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingTop: 8 }}>
           <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
@@ -63,7 +74,7 @@ export function AccountAuthScreen({ mode }: { mode: AuthMode }) {
           <Label kind="caption" style={uiStyles.muted}>Your collection stays on this device. Cloud backup is not connected yet.</Label>
         </View>}
       {mode === 'logout' && error ? <Label accessibilityRole="alert" style={{ color: colors.danger }}>{error}</Label> : null}
-      <Button title="Continue to Chase" variant="ghost" onPress={returnToProfile} />
+      <Button title="Continue to Chase" variant="ghost" disabled={auth.busy} onPress={returnToProfile} />
     </Screen>
   </KeyboardAvoidingView>;
 }

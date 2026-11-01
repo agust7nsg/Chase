@@ -4,10 +4,13 @@ import { AccountService } from '@/services/auth/accountService';
 import { accountError } from '@/services/auth/config';
 import { supabase } from '@/services/auth/client';
 import type { UserProfile } from '@/types/domain';
+import { runGoogleOAuth } from '@/services/auth/oauth';
+import { dismissGoogleBrowser, googleBrowser } from '@/services/auth/oauthBrowser';
 
 const service = supabase ? new AccountService(supabase) : null;
 type AuthContextValue = {
-  configured: boolean; ready: boolean; busy: boolean; user: UserProfile | null; scannerIdentity: string | null; error: string | null;
+  configured: boolean; ready: boolean; busy: boolean; googleInProgress: boolean; user: UserProfile | null; scannerIdentity: string | null; error: string | null;
+  signInGoogle: (existingAccount?: boolean) => Promise<'success' | 'cancel' | 'dismiss' | 'redirecting'>;
   retry: () => void; signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, redirect: string) => Promise<boolean>;
   signOut: () => Promise<void>; sendReset: (email: string, redirect: string) => Promise<void>;
@@ -19,6 +22,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [scannerIdentity, setScannerIdentity] = useState<string | null>(null);
   const [ready, setReady] = useState(!service);
   const [busy, setBusy] = useState(false);
+  const [googleInProgress, setGoogleInProgress] = useState(false);
+  const googleActive = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const mounted = useRef(true); const generation = useRef(0); const working = useRef(false);
   const invalidate = useCallback(() => ++generation.current, []);
@@ -50,7 +55,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
     updateActivity(AppState.currentState === 'active');
     const listener = AppState.addEventListener('change', state => updateActivity(state === 'active'));
-    return () => { mounted.current = false; invalidate(); subscription?.data.subscription.unsubscribe(); listener.remove(); updateActivity(false); };
+    return () => { mounted.current = false; invalidate(); subscription?.data.subscription.unsubscribe(); listener.remove(); updateActivity(false); if (googleActive.current) dismissGoogleBrowser(); };
   }, [refresh, invalidate]);
   const perform = async <T,>(operation: (account: AccountService) => Promise<T>): Promise<T> => {
     if (!service) throw new Error('Account connection is not configured.');
@@ -60,9 +65,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     catch (cause) { throw new Error(accountError(cause)); }
     finally { working.current = false; if (mounted.current) setBusy(false); }
   };
-  return <Context.Provider value={{ configured: Boolean(service), ready, busy, user, scannerIdentity, error,
+  return <Context.Provider value={{ configured: Boolean(service), ready, busy, googleInProgress, user, scannerIdentity, error,
     retry: () => { void refresh(); },
     signIn: (email, password) => perform(async account => { await account.signIn(email, password); if (!await refresh()) throw new Error('Account could not be verified.'); }),
+    signInGoogle: (existingAccount = false) => perform(async account => {
+      googleActive.current = true; setGoogleInProgress(true);
+      try {
+        const result = await runGoogleOAuth(account, googleBrowser, existingAccount);
+        if (result === 'success' && !await refresh()) throw new Error('Account could not be verified.');
+        return result;
+      } finally { googleActive.current = false; if (mounted.current) setGoogleInProgress(false); }
+    }),
     signUp: (email, password, redirect) => perform(async account => { const confirm = await account.signUp(email, password, redirect); if (!confirm && !await refresh()) throw new Error('Account could not be verified.'); return confirm; }),
     signOut: () => perform(async account => { await account.signOut(); await refresh(); }),
     sendReset: (email, redirect) => perform(account => account.sendReset(email, redirect)),
