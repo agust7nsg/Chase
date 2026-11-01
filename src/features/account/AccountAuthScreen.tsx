@@ -1,80 +1,50 @@
 import { useState } from 'react';
 import { router } from 'expo-router';
-import * as Linking from 'expo-linking';
-import { KeyboardAvoidingView, Platform, TextInput, View } from 'react-native';
+import { View } from 'react-native';
 import { Button, Icon, Label, Screen, uiStyles } from '@/components/ui';
 import { colors } from '@/theme/tokens';
-import { validateCredentials } from '@/services/auth/config';
 import { useAuth } from './AuthProvider';
 
-export type AuthMode = 'create' | 'signin' | 'forgot' | 'reset' | 'logout';
-const titles: Record<AuthMode, string> = { create: 'Create Account', signin: 'Sign In', forgot: 'Reset password', reset: 'New password', logout: 'Log Out' };
+export type AuthMode = 'create' | 'signin' | 'logout';
+const titles: Record<AuthMode, string> = { create: 'Create Account', signin: 'Sign In', logout: 'Log Out' };
 export function AccountAuthScreen({ mode }: { mode: AuthMode }) {
   const auth = useAuth();
-  const [email, setEmail] = useState(''); const [password, setPassword] = useState('');
-  const [visiblePassword, setVisiblePassword] = useState(false);
-  const [error, setError] = useState<string | null>(null); const [notice, setNotice] = useState<string | null>(null);
-  const [socialNotice, setSocialNotice] = useState<string | null>(null);
-  const guestCreate = mode === 'create' && Boolean(auth.scannerIdentity) && !auth.user;
-  const navigate = (section: AuthMode) => router.replace({ pathname: '/account', params: { section } });
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const returnToProfile = () => router.dismissTo('/(tabs)/profile');
   const signInGoogle = async (existingAccount = false) => {
     if (auth.busy) return;
-    setError(null); setNotice(null); setSocialNotice(null);
+    setError(null); setNotice(null);
     try {
       const result = await auth.signInGoogle(existingAccount);
-      if (result === 'success') { setPassword(''); returnToProfile(); }
-      else if (result === 'cancel' || result === 'dismiss') setSocialNotice('Google sign-in canceled. You can try again.');
+      if (result === 'success') returnToProfile();
+      else if (result === 'cancel' || result === 'dismiss') setNotice('Google sign-in canceled. You can try again.');
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Google sign-in could not be completed.'); }
   };
-  const submit = async () => {
+  const signOut = async () => {
     if (auth.busy) return;
-    const invalid = mode === 'reset' ? validateCredentials('valid@example.com', password, true)
-      : mode === 'logout' ? null : validateCredentials(email, mode === 'forgot' || guestCreate ? 'guest-upgrade' : password, mode === 'create');
-    setError(invalid); setNotice(null); if (invalid) return;
-    try {
-      if (mode === 'signin') { await auth.signIn(email, password); setPassword(''); returnToProfile(); }
-      else if (mode === 'create') {
-        const confirm = await auth.signUp(email, password, Linking.createURL('/auth/callback'));
-        setPassword(''); if (confirm) setNotice(guestCreate ? 'Check your email to verify your account and choose a password.' : 'Check your email to confirm your account, then sign in.'); else returnToProfile();
-      } else if (mode === 'forgot') { await auth.sendReset(email, Linking.createURL('/auth/callback')); setNotice('If an account exists for this email, you will receive a reset link. Open it on this device.'); }
-      else if (mode === 'reset') { await auth.updatePassword(password); setPassword(''); setNotice('Password updated.'); }
-      else { await auth.signOut(); returnToProfile(); }
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Account request failed. Please try again.'); }
+    setError(null);
+    try { await auth.signOut(); returnToProfile(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not sign out. Please try again.'); }
   };
-  const showEmail = mode === 'signin' || mode === 'create' || mode === 'forgot';
-  const showPassword = mode === 'signin' || (mode === 'create' && !guestCreate) || mode === 'reset';
-  return <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-    <Screen safeTop={false}>
-      <View style={{ paddingTop: 16, gap: 20 }}><Icon name={mode === 'logout' ? 'log-out-outline' : 'person-circle-outline'} color={colors.primary} size={32} /><Label kind="title" accessibilityRole="header">{titles[mode]}</Label></View>
-      {mode === 'signin' || mode === 'create' ? <View style={{ gap: 12 }}>
-        <Button title="Continue with Apple" icon="logo-apple" variant="secondary" disabled={auth.busy}
-          onPress={() => setSocialNotice('Continue with Apple is not available yet.')} />
-        <Button title="Continue with Google" icon="logo-google" variant="secondary" disabled={auth.busy || !auth.configured} loading={auth.googleInProgress}
-          onPress={() => { void signInGoogle(); }} />
-        {error?.includes('Use existing Google account') ? <Button title="Use existing Google account" variant="secondary" disabled={auth.busy}
-          onPress={() => { void signInGoogle(true); }} /> : null}
-        {socialNotice ? <Label kind="caption" accessibilityLiveRegion="polite" style={uiStyles.muted}>{socialNotice}</Label> : null}
-        {auth.configured ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingTop: 8 }}>
-          <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
-          <Label kind="caption" style={uiStyles.muted}>or continue with email</Label>
-          <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
-        </View> : null}
-      </View> : null}
-      {!auth.configured ? <Label accessibilityRole="alert">Account connection is not configured yet. Guest mode and your saved cards are available.</Label>
-        : mode === 'logout' ? <View style={{ gap: 16 }}><Label>{auth.user ? `Sign out of ${auth.user.email ?? 'your account'}?` : 'You are using Chase as a guest.'}</Label><Label kind="caption" style={uiStyles.muted}>Your collection and pending scans stay on this device.</Label>{auth.user ? <Button title="Log Out" loading={auth.busy} onPress={() => { void submit(); }} /> : null}</View>
-        : mode === 'reset' && !auth.user ? <View style={{ gap: 16 }}><Label>Open a password reset link on this device first.</Label><Button title="Request reset link" onPress={() => navigate('forgot')} /></View>
-        : <View style={{ gap: 20 }}>
-          {notice ? <Label accessibilityLiveRegion="polite" style={{ color: colors.success }}>{notice}</Label> : null}
-          {showEmail ? <View style={{ gap: 8 }}><Label nativeID="account-email-label">Email</Label><TextInput accessibilityLabel="Email" accessibilityLabelledBy="account-email-label" value={email} onChangeText={setEmail} editable={!auth.busy} keyboardType="email-address" autoCapitalize="none" autoCorrect={false} autoComplete="email" textContentType="emailAddress" style={uiStyles.input} /></View> : null}
-          {showPassword ? <View style={{ gap: 8 }}><Label nativeID="account-password-label">Password</Label><TextInput accessibilityLabel="Password" accessibilityLabelledBy="account-password-label" value={password} onChangeText={setPassword} editable={!auth.busy} secureTextEntry={!visiblePassword} autoCapitalize="none" autoCorrect={false} autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} textContentType={mode === 'signin' ? 'password' : 'newPassword'} style={uiStyles.input} /><Button variant="ghost" title={visiblePassword ? 'Hide password' : 'Show password'} onPress={() => setVisiblePassword(value => !value)} />{mode !== 'signin' ? <Label kind="caption" style={uiStyles.muted}>At least 8 characters.</Label> : null}</View> : null}
-          {error ? <Label accessibilityRole="alert" style={{ color: colors.danger }}>{error}</Label> : null}
-          <Button title={mode === 'forgot' ? 'Send reset link' : mode === 'reset' ? 'Update password' : titles[mode]} loading={auth.busy} onPress={() => { void submit(); }} />
-          {mode === 'signin' ? <><Button variant="ghost" title="Forgot password?" onPress={() => navigate('forgot')} /><Button variant="ghost" title="Create Account" onPress={() => navigate('create')} /></> : mode === 'create' ? <Button variant="ghost" title="Sign In" onPress={() => navigate('signin')} /> : notice && mode === 'reset' ? <Button title="Return to Profile" onPress={returnToProfile} /> : null}
-          <Label kind="caption" style={uiStyles.muted}>Your collection stays on this device. Cloud backup is not connected yet.</Label>
-        </View>}
-      {mode === 'logout' && error ? <Label accessibilityRole="alert" style={{ color: colors.danger }}>{error}</Label> : null}
-      <Button title="Continue to Chase" variant="ghost" disabled={auth.busy} onPress={returnToProfile} />
-    </Screen>
-  </KeyboardAvoidingView>;
+  return <Screen safeTop={false}>
+    <View style={{ paddingTop: 16, gap: 20 }}><Icon name={mode === 'logout' ? 'log-out-outline' : 'person-circle-outline'} color={colors.primary} size={32} /><Label kind="title" accessibilityRole="header">{titles[mode]}</Label></View>
+    {mode !== 'logout' ? <View style={{ gap: 12 }}>
+      <Button title="Continue with Apple" icon="logo-apple" variant="secondary" disabled={auth.busy}
+        onPress={() => setNotice('Continue with Apple is not available yet.')} />
+      <Button title="Continue with Google" icon="logo-google" variant="secondary" disabled={auth.busy || !auth.configured} loading={auth.googleInProgress}
+        onPress={() => { void signInGoogle(); }} />
+      {error?.includes('Use existing Google account') ? <Button title="Use existing Google account" variant="secondary" disabled={auth.busy}
+        onPress={() => { void signInGoogle(true); }} /> : null}
+      {notice ? <Label kind="caption" accessibilityLiveRegion="polite" style={uiStyles.muted}>{notice}</Label> : null}
+      <Label kind="caption" style={uiStyles.muted}>Your collection stays on this device. Cloud backup is not connected yet.</Label>
+    </View> : auth.configured ? <View style={{ gap: 16 }}>
+      <Label>{auth.user ? `Sign out of ${auth.user.email ?? 'your account'}?` : 'You are using Chase as a guest.'}</Label>
+      <Label kind="caption" style={uiStyles.muted}>Your collection and pending scans stay on this device.</Label>
+      {auth.user ? <Button title="Log Out" loading={auth.busy} onPress={() => { void signOut(); }} /> : null}
+    </View> : null}
+    {!auth.configured ? <Label accessibilityRole="alert">Account connection is not configured yet. Guest mode and your saved cards are available.</Label> : null}
+    {error ? <Label accessibilityRole="alert" style={{ color: colors.danger }}>{error}</Label> : null}
+    <Button title="Continue to Chase" variant="ghost" disabled={auth.busy} onPress={returnToProfile} />
+  </Screen>;
 }

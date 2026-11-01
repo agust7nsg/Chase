@@ -14,15 +14,15 @@ export default function AuthCallbackScreen() {
     try {
       // Supabase can return OAuth errors in the URL fragment. Never display its description.
       const hash = typeof fragment === 'string' ? new URLSearchParams(fragment) : null;
-      return { value: authCallbackParameters({ code, sb_flow_id, error_code: error_code || hash?.get('error_code'), error: providerError || hash?.get('error') }), error: null };
+      return { value: authCallbackParameters({ provider, code, sb_flow_id, error_code: error_code || hash?.get('error_code'), error: providerError || hash?.get('error') }), error: null };
     } catch (cause) { return { value: null, error: accountError(cause) }; }
-  }, [code, sb_flow_id, error_code, providerError, fragment]);
+  }, [code, sb_flow_id, error_code, providerError, fragment, provider]);
   const invalid = !auth.configured ? 'Account connection is not configured.' : parsed.error;
   useEffect(() => {
     // Native Linking and openAuthSession can receive the same URL. Let the active
     // browser operation finish first; cold launches/web use this route directly.
     if (started.current || invalid || !parsed.value || auth.googleInProgress) return; started.current = true;
-    void auth.completeRedirect(parsed.value.code, parsed.value.flowId).then(recovery => { if (recovery && provider !== 'google') router.replace({ pathname: '/account', params: { section: 'reset' } }); else router.dismissTo('/(tabs)/profile'); })
+    void auth.completeRedirect(parsed.value.code, parsed.value.flowId).then(() => router.dismissTo('/(tabs)/profile'))
       .catch(() => setError('This sign-in link has expired or could not be verified. Try again on this device.'));
   }, [auth, invalid, parsed, provider]);
   const message = error ?? invalid;

@@ -335,13 +335,10 @@ try {
     const before = await stateOf(page);
     for (const destination of ['Create Account', 'Sign In']) {
       await button(page, destination).click();
-      const email = page.getByRole('textbox', { name: 'Email', exact: true });
-      const unconfigured = visibleText(page, 'Account connection is not configured yet. Guest mode and your saved cards are available.');
-      await email.or(unconfigured).waitFor();
-      if (await email.isVisible()) {
-        await page.getByLabel('Password', { exact: true }).waitFor();
-        await visibleText(page, 'Your collection stays on this device. Cloud backup is not connected yet.').waitFor();
-      }
+      await button(page, 'Continue with Google').waitFor();
+      await button(page, 'Continue with Apple').waitFor();
+      assert.equal(await page.getByRole('textbox').count(), 0, 'Account pages expose social sign-in only.');
+      await visibleText(page, 'Your collection stays on this device. Cloud backup is not connected yet.').waitFor();
       await page.goBack();
     }
     const destinations = [

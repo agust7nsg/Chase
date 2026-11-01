@@ -11,10 +11,8 @@ const service = supabase ? new AccountService(supabase) : null;
 type AuthContextValue = {
   configured: boolean; ready: boolean; busy: boolean; googleInProgress: boolean; user: UserProfile | null; scannerIdentity: string | null; error: string | null;
   signInGoogle: (existingAccount?: boolean) => Promise<'success' | 'cancel' | 'dismiss' | 'redirecting'>;
-  retry: () => void; signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string, redirect: string) => Promise<boolean>;
-  signOut: () => Promise<void>; sendReset: (email: string, redirect: string) => Promise<void>;
-  updatePassword: (password: string) => Promise<void>; completeRedirect: (code: string, flowId?: string) => Promise<boolean>;
+  retry: () => void; signOut: () => Promise<void>;
+  completeRedirect: (code: string, flowId?: string) => Promise<void>;
 };
 const Context = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -67,7 +65,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
   return <Context.Provider value={{ configured: Boolean(service), ready, busy, googleInProgress, user, scannerIdentity, error,
     retry: () => { void refresh(); },
-    signIn: (email, password) => perform(async account => { await account.signIn(email, password); if (!await refresh()) throw new Error('Account could not be verified.'); }),
     signInGoogle: (existingAccount = false) => perform(async account => {
       googleActive.current = true; setGoogleInProgress(true);
       try {
@@ -76,11 +73,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return result;
       } finally { googleActive.current = false; if (mounted.current) setGoogleInProgress(false); }
     }),
-    signUp: (email, password, redirect) => perform(async account => { const confirm = await account.signUp(email, password, redirect); if (!confirm && !await refresh()) throw new Error('Account could not be verified.'); return confirm; }),
     signOut: () => perform(async account => { await account.signOut(); await refresh(); }),
-    sendReset: (email, redirect) => perform(account => account.sendReset(email, redirect)),
-    updatePassword: password => perform(account => account.updatePassword(password)),
-    completeRedirect: (code, flowId) => perform(async account => { const recovery = await account.completeRedirect(code, flowId); if (!await refresh()) throw new Error('Account could not be verified.'); return recovery; }),
+    completeRedirect: (code, flowId) => perform(async account => { await account.completeRedirect(code, flowId); if (!await refresh()) throw new Error('Account could not be verified.'); }),
   }}>{children}</Context.Provider>;
 }
 export function useAuth() { const value = useContext(Context); if (!value) throw new Error('AuthProvider is missing.'); return value; }

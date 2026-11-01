@@ -14,7 +14,7 @@ const user = { id: '12345678-1234-1234-1234-123456789abc', aud: 'authenticated',
 const token = () => ['eyJhbGciOiJIUzI1NiJ9', Buffer.from(JSON.stringify({ sub: user.id, exp: Math.floor(Date.now() / 1000) + 3600, aud: 'authenticated', role: 'authenticated' })).toString('base64url'), 'fixture-signature'].join('.');
 async function fixture(guest = false) {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
-  const state = { calls: [], invalid: false, offline: false, confirm: true, oauth: 'success', pkce: [], user: { ...user, is_anonymous: guest } };
+  const state = { calls: [], offline: false, oauth: 'success', pkce: [], user: { ...user, is_anonymous: guest } };
   await installTCGdexFixtures(context);
   await context.route('https://*.supabase.co/**', async route => {
     const request = route.request(); const parsed = new URL(request.url()); state.calls.push(parsed.pathname);
@@ -34,15 +34,13 @@ async function fixture(guest = false) {
       assert.ok(request.headers().authorization?.startsWith('Bearer '));
       return route.fulfill({ headers, json: { url: `${parsed.origin}/auth/v1/authorize?${parsed.searchParams}` } });
     }
-    if (state.invalid) return route.fulfill({ status: 400, headers, json: { code: 'invalid_credentials', message: 'Invalid login credentials' } });
-    if (parsed.pathname.endsWith('/signup') && state.confirm) return route.fulfill({ headers, json: user });
-    if (parsed.pathname.endsWith('/token') || parsed.pathname.endsWith('/signup')) {
+    if (parsed.pathname.endsWith('/token')) {
+      assert.equal(parsed.searchParams.get('grant_type'), 'pkce', 'Password authentication must never be requested.');
       if (parsed.searchParams.get('grant_type') === 'pkce') state.pkce.push(request.postDataJSON());
       return route.fulfill({ headers, json: { access_token: token(), token_type: 'bearer', expires_in: 3600, refresh_token: 'fixture-refresh', user: state.user } });
     }
     if (parsed.pathname.endsWith('/user')) return route.fulfill({ headers, json: state.user });
     if (parsed.pathname.endsWith('/logout')) return route.fulfill({ status: 204, headers });
-    if (parsed.pathname.endsWith('/recover')) return route.fulfill({ headers, json: {} });
     throw new Error(`Unexpected fixture endpoint: ${parsed.pathname}`);
   });
   await context.addInitScript(({ seed, pendingSeed }) => {
@@ -57,9 +55,14 @@ async function fixture(guest = false) {
   const stored = () => page.evaluate(() => JSON.parse(localStorage.getItem('chase.prototype.v1')));
   return { page, context, state, stored };
 }
-async function fields(page, password = 'valid-password') {
-  await page.getByRole('textbox', { name: 'Email', exact: true }).fill(user.email);
-  await page.getByLabel('Password', { exact: true }).fill(password);
+async function socialOnly(page) {
+  await button(page, 'Continue with Google').waitFor();
+  await button(page, 'Continue with Apple').waitFor();
+  await page.getByTestId('startup-splash').waitFor({ state: 'detached' });
+  assert.equal(await page.getByRole('textbox').count(), 0, 'No email/password input may remain.');
+  assert.equal(await page.getByLabel('Password', { exact: true }).count(), 0);
+  for (const name of ['Forgot password?', 'Send reset link', 'Update password', 'Show password', 'Request reset link']) assert.equal(await button(page, name).count(), 0);
+  assert.equal(await page.getByText('or continue with email', { exact: true }).count(), 0);
 }
 let active;
 try {
@@ -69,44 +72,33 @@ try {
     await page.goto(`${url}/profile`); await button(page, 'Sign In').waitFor();
     assert.equal(state.calls.length, 0); assert.deepEqual(await run.stored(), seed);
   });
-  await check('registration validates input and email confirmation never grants a signed-in identity', async () => {
-    await button(page, 'Create Account').click(); await button(page, 'Create Account').click();
-    await page.getByText('Enter a valid email address.', { exact: true }).waitFor(); assert.equal(state.calls.length, 0);
-    await fields(page); await button(page, 'Create Account').click();
-    await page.getByText('Check your email to confirm your account, then sign in.', { exact: true }).waitFor();
-    await button(page, 'Continue to Chase').click(); await page.getByText('Guest collector', { exact: true }).filter({ visible: true }).waitFor();
+  await check('Sign In and Create Account expose only Google and Apple and never request email credentials', async () => {
+    for (const name of ['Create Account', 'Sign In']) {
+      await button(page, name).click(); await socialOnly(page);
+      await button(page, 'Continue with Apple').click();
+      await page.getByText('Continue with Apple is not available yet.', { exact: true }).waitFor();
+      await button(page, 'Continue to Chase').click(); await button(page, 'Sign In').waitFor();
+    }
+    assert.equal(state.calls.length, 0); assert.deepEqual(await run.stored(), seed);
+  });
+  await check('old password screens resolve to social sign-in and old email callbacks cannot exchange a code', async () => {
+    for (const section of ['forgot', 'reset']) {
+      await page.goto(`${url}/account?section=${section}`); await socialOnly(page);
+    }
+    for (const callback of ['?code=legacy-email-verification-code', '?code=legacy-recovery-code&type=recovery', '?provider=email&code=legacy-email-code']) {
+      await page.goto(`${url}/auth/callback${callback}`);
+      await page.getByText('This sign-in link is no longer supported. Continue with Google or as a guest.', { exact: true }).waitFor();
+      await button(page, 'Sign In').click(); await socialOnly(page);
+    }
+    assert.equal(state.calls.length, 0); assert.equal(state.pkce.length, 0);
     assert.deepEqual(await run.stored(), seed);
+    assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem('chase.scan-session.v1'))), pendingSeed);
   });
-  await check('invalid login is recoverable, then a verified account appears without changing ownership or Pro access', async () => {
-    state.invalid = true; await button(page, 'Sign In').click(); await fields(page, 'wrong-password'); await button(page, 'Sign In').click();
-    await page.getByText('Email or password is incorrect.', { exact: true }).waitFor();
-    state.invalid = false; await fields(page); await button(page, 'Sign In').click();
-    await page.getByText(user.email, { exact: true }).filter({ visible: true }).waitFor(); await button(page, 'Log Out').waitFor();
-    assert.deepEqual(await run.stored(), seed); assert.ok(state.calls.includes('/auth/v1/user'));
-  });
-  await check('reload restores a server-verified session and local logout preserves collection and pending scans', async () => {
-    await page.reload(); await page.getByText(user.email, { exact: true }).filter({ visible: true }).waitFor();
-    const pendingBefore = await page.evaluate(() => localStorage.getItem('chase.scan-session.v1'));
-    assert.deepEqual(JSON.parse(pendingBefore), pendingSeed, 'Actual pending copies must survive account creation, sign-in and reload.');
-    await button(page, 'Log Out').click(); await page.getByText('Your collection and pending scans stay on this device.', { exact: true }).waitFor(); await button(page, 'Log Out').click();
-    await button(page, 'Sign In').waitFor(); assert.deepEqual(await run.stored(), seed);
-    assert.equal(await page.evaluate(() => localStorage.getItem('chase.scan-session.v1')), pendingBefore);
-  });
-  await check('password recovery requests are explicit and a guest cannot update an account password', async () => {
-    await button(page, 'Sign In').click(); await button(page, 'Forgot password?').click();
-    // Sign-in and recovery both contain Email. Wait for the destination before
-    // filling so a navigation transition cannot type into the outgoing form.
-    await button(page, 'Send reset link').waitFor();
-    await page.getByRole('textbox', { name: 'Email', exact: true }).fill(user.email); await button(page, 'Send reset link').click();
-    await page.getByText('If an account exists for this email, you will receive a reset link. Open it on this device.', { exact: true }).waitFor();
-    await page.goto(`${url}/account?section=reset`); await page.getByText('Open a password reset link on this device first.', { exact: true }).waitFor();
-    assert.deepEqual(await run.stored(), seed);
-  });
-  await check('narrow authentication layout supports labels and leaves guest access available', async () => {
+  await check('social sign-in fits narrow screens with guest access available', async () => {
     await page.setViewportSize({ width: 320, height: 568 }); await page.goto(`${url}/account?section=signin`);
-    await page.getByRole('textbox', { name: 'Email', exact: true }).waitFor();
+    await socialOnly(page);
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
-    await page.screenshot({ path: '/tmp/chase-account-signin.png', fullPage: true });
+    await page.screenshot({ path: '/tmp/chase-social-signin.png', fullPage: true });
     await button(page, 'Continue to Chase').click(); await button(page, 'Sign In').waitFor();
   });
   await run.context.close();
@@ -120,6 +112,11 @@ try {
     assert.deepEqual(await google.page.evaluate(() => JSON.parse(localStorage.getItem('chase.scan-session.v1'))), pendingSeed);
     await google.page.reload(); await google.page.getByText(user.email, { exact: true }).filter({ visible: true }).waitFor();
     assert.ok(google.state.calls.includes('/auth/v1/user'));
+    await button(google.page, 'Log Out').click();
+    await google.page.getByText('Your collection and pending scans stay on this device.', { exact: true }).waitFor();
+    await button(google.page, 'Log Out').click(); await button(google.page, 'Sign In').waitFor();
+    assert.deepEqual(await google.stored(), seed);
+    assert.deepEqual(await google.page.evaluate(() => JSON.parse(localStorage.getItem('chase.scan-session.v1'))), pendingSeed);
     await google.context.close();
   });
   await check('Create Account with Google upgrades an existing scanner guest through identity linking', async () => {
@@ -156,13 +153,13 @@ try {
   await check('OAuth errors for a disabled provider and invalid callbacks never display an authenticated identity', async () => {
     const google = await fixture(); active = google.page; google.state.oauth = 'provider_disabled';
     await google.page.goto(`${url}/account?section=signin`); await button(google.page, 'Continue with Google').click();
-    await google.page.getByText('Google sign-in is not enabled correctly in Supabase yet. Email sign-in and guest mode are still available.', { exact: true }).waitFor();
+    await google.page.getByText('Google sign-in is not enabled correctly in Supabase yet. You can continue as a guest.', { exact: true }).waitFor();
     await google.page.goto(`${url}/auth/callback?provider=google&code=invalid`);
     await google.page.getByText('Google sign-in could not be verified. Return to Sign In and try again on this device.', { exact: true }).waitFor();
     assert.equal(google.state.pkce.length, 0); assert.deepEqual(await google.stored(), seed);
     await google.context.close();
   });
-  await check('Apple remains an honest placeholder; Google linking network failures leave email/guest access available', async () => {
+  await check('Apple remains an honest placeholder; Google linking network failures leave guest access available', async () => {
     const google = await fixture(true); active = google.page;
     await google.page.goto(`${url}/account?section=signin`); await button(google.page, 'Continue with Apple').click();
     await google.page.getByText('Continue with Apple is not available yet.', { exact: true }).waitFor();

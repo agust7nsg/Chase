@@ -8,6 +8,7 @@ export class OAuthError extends Error {
 }
 
 export function authCallbackParameters(params: Record<string, unknown>): { code: string; flowId?: string } {
+  if (params.provider !== 'google') throw new OAuthError('unsupported_auth_link');
   const failure = params.error_code || params.error;
   if (failure) throw new OAuthError(typeof failure === 'string' ? failure : 'invalid_oauth_callback');
   const { code, sb_flow_id: flowId } = params;
@@ -35,7 +36,7 @@ export function parseGoogleCallback(actual: string, expected: string) {
     || received.username || received.password || received.searchParams.get('provider') !== 'google') throw new OAuthError('invalid_oauth_callback');
   const hash = new URLSearchParams(received.hash.slice(1));
   if (hash.has('access_token') || hash.has('refresh_token')) throw new OAuthError('invalid_oauth_callback');
-  return authCallbackParameters({ code: received.searchParams.get('code') ?? undefined,
+  return authCallbackParameters({ provider: received.searchParams.get('provider'), code: received.searchParams.get('code') ?? undefined,
     sb_flow_id: received.searchParams.get('sb_flow_id') ?? undefined,
     error_code: received.searchParams.get('error_code') || hash.get('error_code'),
     error: received.searchParams.get('error') || hash.get('error') });
@@ -44,7 +45,7 @@ export function parseGoogleCallback(actual: string, expected: string) {
 export type OAuthBrowserResult = { type: 'success'; url: string } | { type: 'cancel' | 'dismiss' | 'redirecting' };
 export interface GoogleOAuthAccount {
   startGoogle(redirectTo: string, existingAccount?: boolean): Promise<{ url: string; flowId?: string }>;
-  completeRedirect(code: string, flowId?: string): Promise<boolean>;
+  completeRedirect(code: string, flowId?: string): Promise<void>;
 }
 export interface OAuthBrowser { redirectUri(): string; open(url: string, redirect: string): Promise<OAuthBrowserResult> }
 

@@ -9,10 +9,10 @@ const id = '12345678-1234-1234-1234-123456789abc';
 const root = 'https://abcdefghijklmnopqrst.supabase.co';
 function guestFixture(disabled = false) {
   const values = new Map<string, string>(); const calls: { path: string; method: string; body: unknown }[] = [];
-  let guest = true; let confirmed = false; let metadata: Record<string,unknown> = {};
+  let guest = true; let confirmed = false;
   const user = () => ({ id, aud: 'authenticated', role: 'authenticated', is_anonymous: guest,
     ...(confirmed ? { email: 'collector@example.com', email_confirmed_at: '2026-10-21T00:00:00Z' } : {}),
-    created_at: '2026-10-21T00:00:00Z', app_metadata: {}, user_metadata: metadata });
+    created_at: '2026-10-21T00:00:00Z', app_metadata: {}, user_metadata: {} });
   const token = ['eyJhbGciOiJIUzI1NiJ9', Buffer.from(JSON.stringify({ sub: id, exp: Math.floor(Date.now() / 1000) + 3600 })).toString('base64url'), 'fixture-signature'].join('.');
   const sdk = () => createClient(root, 'sb_publishable_guest-fixture-only', {
     auth: { flowType:'pkce', autoRefreshToken: false, detectSessionInUrl: false, storageKey: 'guest-fixture',
@@ -24,13 +24,9 @@ function guestFixture(disabled = false) {
         if (disabled) return Response.json({ code: 'anonymous_provider_disabled', msg: 'Private server configuration' }, { status: 422, headers: { 'x-supabase-api-version': '2024-01-01' } });
         return Response.json({ access_token: token, refresh_token: 'guest-fixture-refresh', expires_in: 3600, token_type: 'bearer', user: user() });
       }
-      if (path.endsWith('/token')) return Response.json({ access_token:token, refresh_token:'guest-fixture-refresh', expires_in:3600, token_type:'bearer', user:user() });
-      if (path.endsWith('/user')) {
-        const body = init?.body ? JSON.parse(String(init.body)) : {};
-        if (guest && body.password) return Response.json({ code:'validation_failed',msg:'Verify email first' },{ status:422 });
-        metadata = { ...metadata,...body.data };
-        return Response.json(user());
-      }
+      if (path.endsWith('/user/identities/authorize')) return Response.json({ url: root + '/auth/v1/authorize?provider=google' });
+      if (path.endsWith('/token')) { guest = false; confirmed = true; return Response.json({ access_token:token, refresh_token:'guest-fixture-refresh', expires_in:3600, token_type:'bearer', user:user() }); }
+      if (path.endsWith('/user')) { assert.equal(init?.method ?? 'GET', 'GET'); return Response.json(user()); }
       throw new Error('Unexpected guest endpoint');
     } },
   });
@@ -47,20 +43,17 @@ test('scanner creates one authenticated guest for overlapping requests, reuses i
   assert.equal(await new AccountService(run.client).current(),null, 'A technical guest must not appear as a registered account.');
 });
 
-test('registration upgrades the guest UUID in place without a new signup, quota identity or collection mutation', async () => {
+test('Google registration upgrades the guest UUID in place without a new signup, quota identity or collection mutation', async () => {
   const run = guestFixture(); const session = createScannerSession(run.client); await session();
   run.values.set('chase.prototype.v1','collection'); run.values.set('chase.scan-session.v1','pending');
   const account = new AccountService(run.client);
-  assert.equal(await account.signUp('collector@example.com','long-password','chase://auth/callback'),true);
-  const update = run.calls.find(call => call.method === 'PUT');
-  assert.equal((update?.body as { email: string }).email,'collector@example.com');
-  assert.equal((update?.body as { password?: string }).password,undefined, 'Passwords cannot be set before guest email verification.');
+  const authorization = await account.startGoogle('chase://auth/callback?provider=google');
+  assert.ok(run.calls.some(call => call.path.endsWith('/user/identities/authorize')));
   assert.equal((await session()).user.id,id); assert.equal(run.calls.filter(call => call.path.endsWith('/signup')).length,1);
-  run.confirm();
-  assert.equal(await account.completeRedirect('valid-guest-upgrade-code'),true, 'Verification must route to password setup.');
-  await account.updatePassword('verified-password');
+  await account.completeRedirect('valid-guest-upgrade-code', authorization.flowId);
   assert.equal((await account.current())?.id,id);
-  assert.equal((await run.client.auth.getSession()).data.session?.user.user_metadata.chase_password_setup,false);
+  assert.equal((await session()).user.is_anonymous,false);
+  assert.ok(run.calls.every(call => call.method !== 'PUT'), 'Google linking must not send email/password updates.');
   assert.equal(run.values.get('chase.prototype.v1'),'collection'); assert.equal(run.values.get('chase.scan-session.v1'),'pending');
 });
 

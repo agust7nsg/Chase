@@ -1,99 +1,73 @@
 # Supabase authentication
 
-The hosted scanner was subsequently implemented as a separate deployment in [HOSTED_SCANNER.md](HOSTED_SCANNER.md). This document describes the authentication stage; its validation counts are the results at that stage.
+## Current account methods
 
-## Implemented boundary
+Chase offers **Continue with Google**, **Continue with Apple** and guest access. Google is implemented with Supabase OAuth/PKCE. Apple remains an explicit placeholder until its developer/provider configuration and native implementation are ready.
 
-Chase now has a real Supabase Auth adapter and account UI: Google OAuth, email/password registration, confirmation-required state, sign-in, persistent sessions, password recovery/update, PKCE callbacks and logout. Profile displays a server-verified account. Guest access remains available throughout onboarding, catalog browsing and scanning. Apple is still an explicitly unfinished placeholder.
+At the user's request, email/password authentication was removed from the application: no email or password forms, signup/verification requests, password sign-in, reset emails or password updates. Those operations were removed from the account service, context and contracts as well as the UI. Legacy `/account?section=forgot` and `section=reset` destinations now show social sign-in. Old email verification/recovery callbacks without `provider=google` are rejected before any code exchange and offer social sign-in or a return to Chase.
 
-This stage does **not** upload collections, assign local ownership to the signed-in user, deploy SQL/RLS policies, host CardSight, verify RevenueCat subscriptions or delete remote accounts. Linking GitHub to Supabase does not configure those features or automatically connect an Expo client.
+Existing Supabase accounts and persisted sessions are not deleted or silently migrated. A stored session still requires server verification; logout preserves the local collection and pending scans. A Google provider may supply an email address displayed in Profile; that is not email/password authentication. This client change does not alter Supabase's provider settings. To also disallow direct email registration at the server, disable the Email provider separately in the dashboard, while retaining anonymous Auth for guest scanning.
 
-The configured project reference is `vzjekkgyrdxzlhaupnrw`. No database or Auth dashboard settings were changed by this implementation. Live project access has not been verified: this cloud environment's HTTPS proxy currently rejects Supabase and GitHub REST requests with HTTP 403, including an escalated retry. A saved environment draft adds the required public configuration and domains; publishing that draft is a separate user action and has not been confirmed. No real accounts or reset emails were created during validation.
+Authentication does not upload collections, assign local ownership to an account, verify RevenueCat purchases or delete remote accounts. Hosted recognition is a separate deployment described in [HOSTED_SCANNER.md](HOSTED_SCANNER.md).
 
 ## Public client configuration
 
-Create `.env.local` in the project root (or add these values to the build environment):
+Keep `.env.local` in the project root, or configure the build environment:
 
 ```dotenv
 EXPO_PUBLIC_SUPABASE_URL=https://vzjekkgyrdxzlhaupnrw.supabase.co
 EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<project publishable key beginning sb_publishable_>
 ```
 
-Use the **Publishable key**, not a Secret key or `service_role`. These two client configuration values are public by design; security for future application tables must come from authentication and RLS. Private vendor and administrative keys never belong in `EXPO_PUBLIC_*` values. `.env.local` is ignored by Git; `.env.example` provides the variable names and public project URL without copying a key into tracked source. The supplied public values are configured in this workspace's ignored `.env.local`.
+These two values are public client configuration. Secret/service_role, Google client secrets, CardSight credentials and deployment tokens never belong in `EXPO_PUBLIC_*` values. `.env.local` is ignored by Git. Restart Metro with `npx expo start --clear` after changing public configuration. Missing or invalid configuration leaves guest use available and shows a connection message.
 
-After changing Expo public variables, restart Metro with `npx expo start --clear`. Missing/invalid public configuration leaves the guest app functional and shows an explicit account configuration message. Authentication requests have a bounded timeout; a network failure never becomes a fake signed-in state.
+## Google configuration
 
-## Supabase dashboard configuration
+1. The Google Cloud **Web application** client must allow `https://vzjekkgyrdxzlhaupnrw.supabase.co/auth/v1/callback`. This is the Google → Supabase callback.
+2. Supabase Authentication → Sign In / Providers → Google must be enabled with that client's ID and secret. No additional Google credentials are needed in the app. If Google's consent screen is in Testing, add your Google accounts under Audience → Test users.
+3. Supabase Authentication → URL Configuration → Redirect URLs must allow **`chase://auth/callback?provider=google`** for installed builds. For local web testing also allow **`http://localhost:8085/auth/callback?provider=google`**, or the actual HTTPS/localhost origin and port used. This is the separate Supabase → Chase callback. The old plain email callback is no longer used. Do not substitute a changing Expo tunnel address for the installed app's custom scheme.
+4. **Allow manual linking** must be enabled in Supabase Auth settings for anonymous scanner users. The hosted-scanner setup workflow already enables this setting. Google calls `linkIdentity` for an existing guest, retaining the same UUID and scanner usage. If the identity belongs to an existing account, Chase offers **Use existing Google account** as an explicit alternative. It never silently switches identities after a linking failure.
 
-Before testing real emails, verify the project's email provider/signup settings and confirmation policy in Supabase Authentication. Chase supports both confirmation-required and immediately confirmed signup responses; it does not alter the project's policy. Verify email delivery configuration and rate limits in the dashboard.
+Native OAuth opens the system authentication browser with `expo-web-browser`; web uses a full-page redirect back to the same origin, avoiding popup blockers. PKCE requests only `openid email profile`. Supabase handles the provider exchange and consent; Chase no longer manages user passwords or email verification flows.
 
-Add the actual client callback URLs under Authentication → URL Configuration → Redirect URLs:
+## Device and browser testing
 
-- Installed Chase build: `chase://auth/callback` (the current `app.json` scheme is `chase`).
-- Expo Go: the address generated by `Linking.createURL('/auth/callback')` for the running development server, typically `exp://<computer LAN address>:8081/--/auth/callback`. Use the actual host/port; it changes with the development network.
-- Web: the actual application origin followed by `/auth/callback`, for example `http://localhost:8085/auth/callback` for the local smoke-test server. Do not configure a fabricated production domain.
+- Preserve `.env.local` when downloading updated code and run `npm ci` when dependencies change.
+- **Expo Go is not a supported OAuth runtime in SDK 58.** Chase explains this before starting OAuth and retains guest access. Android testing needs an installed/development Chase build with the `chase` scheme and `expo-web-browser`; it does not need an Apple membership. Existing SDK 58 builds containing this module need only the JS update for the removal of email forms.
+- With Android Studio/SDK installed, `npx expo run:android` creates a local development build. Expo's [development build guide](https://docs.expo.dev/develop/development-builds/create-a-build/) describes cloud builds. Native builds remain distinct from JavaScript exports.
+- For web, use `npm run web -- --localhost --port 8085` and the browser URL. Google returns to the same allowlisted origin/port that initiated OAuth.
+- Open Profile → Sign In or Create Account: only Google and Apple should appear, with an explicit guest return. Google should return a server-verified identity. Test guest linking, account reuse, cancellation/denial, expired callbacks, offline errors, restart/session restore and logout. Test backgrounding and a callback opened with the installed app closed.
+- Seed Collection and Organize before testing. Quantities, pending scans, currency and Free/Pro access must not change during authentication or logout. Also check 320px layouts, large system text and native accessibility.
 
-Allow Supabase's callback query parameters, including `code` and `sb_flow_id`; test the concrete URL against the project's redirect allowlist. Leave the email templates using the provider's confirmation URL so verification returns an authorization code. PKCE confirmation/recovery must open on the same device/browser that initiated the request, where the verifier is stored. Custom mail templates that replace the code flow need a separately implemented and reviewed token-hash handler; Chase does not accept URL access tokens.
+The cloud environment does not supply an Android emulator or iOS simulator. Automated provider responses are fixtures, not a real Google login. The earlier attempt to inspect live Supabase Auth settings failed on host resolution; dashboard configuration and real consent/deep-link delivery require device/browser testing. No actual accounts or emails are created by automated checks.
 
-## Google OAuth configuration and testing
+## State, security and compatibility
 
-The Continue with Google buttons on Sign In and Create Account now start real Supabase Google OAuth with PKCE (`openid email profile`). Native uses `expo-web-browser` and the system authentication browser; web redirects the current page to Supabase and returns to the same browser origin, avoiding popup blockers. No Google client secret or ID needs to be added to Chase's environment: they belong in the Supabase Google provider configuration.
+`AuthProvider` is separate from `ChaseProvider` and `ScanSessionProvider`. Sessions use the existing `chase.auth.<project>.v1` storage key. Native tokens and PKCE verifiers remain in serialized chunked SecureStore; browser sessions use localStorage. Passwords are neither collected nor persisted by Chase. Identity always comes from server `getUser()` verification, not cached metadata alone.
 
-1. Google Cloud's **Web application** OAuth client must have this authorized redirect URI: `https://vzjekkgyrdxzlhaupnrw.supabase.co/auth/v1/callback`. This is the Google → Supabase callback, not the URL used to reopen Chase.
-2. In Supabase Authentication → Sign In / Providers → Google, enable Google and save that client's ID and secret. If Google's consent screen is in Testing, add your test Google accounts under Audience → Test users.
-3. In Supabase Authentication → URL Configuration → Redirect URLs, add **`chase://auth/callback?provider=google`** for the installed app. Retain the existing plain `chase://auth/callback` for email links. For local web testing also add **`http://localhost:8085/auth/callback?provider=google`** (or the actual origin/port you start). Use the real production HTTPS web callback only if one exists. Do not use a changing Expo tunnel address as the installed-app callback.
-4. For scanner guests, **Allow manual linking** must be enabled under Auth settings. The hosted-scanner setup workflow already enables this setting. The default Google action calls `linkIdentity` for anonymous sessions, keeping their UUID and server scan usage. If the Google identity already belongs to an existing account, the error screen offers **Use existing Google account** as an explicit sign-in alternative. It does not silently unlink a guest or retry as another identity. No local ownership is uploaded or cleared by either path.
-5. Install dependencies with `npm ci`, preserving `.env.local`. For Android/iOS use a rebuilt development/installed Chase build that includes `expo-web-browser` and the `chase` scheme. **Expo Go is not a supported OAuth test runtime in SDK 58**; Chase shows a recoverable message before starting OAuth and keeps email/guest access available. Follow Expo's [development build guide](https://docs.expo.dev/develop/development-builds/create-a-build/) to produce a build; rebuilding requires no Apple membership for Android. Existing custom builds must be rebuilt for the added native module. A local Android development build can be generated with `npx expo run:android` if Android Studio/SDK is installed. For web, run `npm run web -- --localhost --port 8085` and use its HTTP address in a browser.
-6. In the installed app or web, open Profile → Sign In → Continue with Google, choose your account and return to Profile. Test Create Account too: both Google buttons use the same provider flow. Check displayed identity, restart/session restore, logout, denial/cancel and offline retries. Seed actual owned cards and Organize rows first and confirm neither changes. Close/reopen the app during the browser flow to exercise the cold PKCE callback.
+Successful OAuth codes are exchanged once even when native Linking and the browser deliver the same callback. The callback only accepts the supported Google marker and code/optional flow ID, never bearer tokens in URLs. Provider error descriptions, tokens and secrets are not shown in the UI. Network deadlines cover headers and bodies. Errors and cancellations do not clear pending scans, spend recognition allowance or change collections.
 
-The SDK persists PKCE verifiers in the existing secure storage; successful codes are exchanged once even if native Linking and the browser report the same result. Callback URLs are checked against the expected return origin/path and only authorization codes are accepted, never URL access tokens. Every completed exchange still requires `getUser()` verification. Provider descriptions, secrets and tokens are not shown in UI or logged. Native browser cancellation leaves the guest/session and pending scans intact. Web OAuth errors may arrive in fragments; the callback only maps their error codes to safe messages.
+Guest scanning still creates/reuses a persisted anonymous Supabase session only on real-scanner entry. Profile keeps the Guest collector label. The hosted deployment enables anonymous Auth and manual identity linking; registering with Google retains the guest UUID instead of refilling its scanner quota. This anonymous session is independent of the removed email signup feature and must stay enabled.
 
-Implementation validation uses controlled Supabase/browser responses, not a Google login. This environment could not resolve the live Supabase host when checking public Auth settings; provider configuration and actual Google consent/redirect delivery still require device/browser testing. The automated checks do not establish that dashboard configuration is correct.
+Collection storage, card identities, session schemas, Free/Pro simulation and server scanner budgets are unchanged. Local inventory is still shared across the guest/account UI on the installation. Signing in is not cloud backup; future synchronization requires explicit guest import, user isolation, RLS and conflict handling.
 
-Google integration validation: TypeScript, lint and offline SDK dependency compatibility passed; all 280 unit tests passed, including 10 new OAuth cases. Browser checks passed 12 account/OAuth scenarios, 14 Scanner/Organize scenarios and 22 general scenarios with no JavaScript runtime errors. Android/iOS JavaScript exports passed with `expo-web-browser`. The raw CDP onboarding gesture test now waits for the startup overlay after the route mounts; unlike Playwright clicks, raw gestures do not wait for an overlay automatically. No onboarding/scanner product behavior was changed by that test adjustment. These exports are not signed native builds or physical-device tests.
-
-## Android / iOS email testing
-
-1. In the existing project folder, run `npm ci` after downloading the updated code. Configure the two public variables above. Existing CardSight proxy instructions and its separate server-only key remain unchanged.
-2. Run `npx expo start --clear` and open Expo Go supporting SDK 58 or a rebuilt development build. SecureStore and Crypto use the SDK 58 versions; existing custom development builds must be rebuilt after this SDK upgrade. Linux bundle exports are not a replacement for that native build. Keep the actual callback produced by `Linking.createURL('/auth/callback')` in Supabase's redirect allowlist: SDK 58 may generate `exps://` when the development server uses HTTPS. Do not replace the callback with a guessed host or scheme.
-3. As a guest, verify that Home, Collection and Organize retain existing data. From Profile create a test account you control. If email confirmation is enabled, the app must remain a guest until confirmation. Open the email on the initiating device; verify the allowlisted callback and subsequent identity check.
-4. Sign in, restart the app, verify the Profile identity and log out. Collection copies, pending scan rows, currency and Free/Pro simulation must remain unchanged. Sign-in is not a cloud backup.
-5. Request a reset email explicitly from Sign In → Forgot password. Open it on the same device, set a new password and verify a later sign-in. Expired/invalid links must offer a recoverable error. Do not expose codes or tokens in screenshots/logs.
-6. Check background/foreground session refresh, native secure storage, interrupted connectivity and links opened with the app closed. These native and real-email checks remain unexecuted in this cloud environment.
-
-## Storage, privacy and migration
-
-`AuthProvider` is independent of `ChaseProvider` and `ScanSessionProvider`. Auth sessions use `chase.auth.<project>.v1`; no collection storage version or card identity is migrated. No collection or camera image is sent to Supabase by these account methods. Email/password credentials and tokens are sent directly to Supabase Auth over HTTPS. Tokens/verifiers use chunked SecureStore on native devices and browser localStorage on web, never collection AsyncStorage. Passwords are not persisted by Chase.
-
-SecureStore chunks are ASCII and at most 1,024 characters each, with a manifest switched after successful writes. Native storage failures propagate without plaintext fallback. Identity is checked with the Auth server rather than trusted from cached session metadata. HTTP timeouts include response body reads and abort-ignorant transports; displayed account errors do not include upstream URLs or tokens.
-
-The local collection currently belongs to this installation and is shared across its guest/account UI. Switching accounts does not create separate local inventories. Before enabling cloud sync, implement an explicit import decision, per-user ownership, validated versioned migration and RLS; never silently upload a pre-existing guest collection to whichever account signs in first. Pending ScanSession remains a distinct staging layer. This implementation does not grant Pro based on user metadata.
-
-## Reusable validation
+## Validation
 
 ```bash
 npm run typecheck
 npm run lint
 npm test
 npm run export:mobile
-# With the web dev server running and the public configuration present:
+# With a local web server and public Supabase configuration:
 npm run test:auth
 npm run test:smoke
 npm run test:scanner
 ```
 
-Set `CHASE_SMOKE_URL` and `CHASE_BROWSER_EXECUTABLE` when needed. `tests/auth.test.ts` exercises the actual Supabase SDK with controlled HTTP responses, configuration/error parsing, secure chunk storage, bounded networking, registration, identity verification, logout and overlapping PKCE email flows. `scripts/auth-smoke.mjs` covers browser account UI, persistence, recovery entry, guest access, mobile-width layout and unchanged collection/pending/subscription data. Provider requests in these automated tests are fixtures; they prove neither live project reachability nor real email/native callback delivery.
+`tests/auth.test.ts` covers public configuration, bounded networking, secure storage, existing-session verification/logout and PKCE flow handling. `tests/oauth.test.ts` covers Google requests, guest linking, callback validation/deduplication, old email-link rejection, runtime restrictions and recoverable errors using the actual Supabase SDK with controlled transports. `tests/scannerGuest.test.ts` preserves anonymous scanner access and Google upgrade identity. Browser tests cover social-only UI, old route handling, Google completion/cancellation/errors, narrow layouts and unchanged Collection/Organize data. No test grants a real purchase or proves native/provider delivery.
 
-Validation on October 21, 2026: TypeScript and lint passed; all 232 unit tests passed (including 13 authentication cases). Browser checks passed 22 general scenarios, 6 account scenarios and 14 Scanner/Organize scenarios. The focused live-camera browser stress scenario also passed 20 saved presentations across a provider failure and Organize round trips, using intercepted recognition responses (`CHASE_LIVE_FOCUS=art`). Android/iOS JavaScript exports passed with the new native module imports. Offline Expo dependency validation reported compatible installed dependencies using bundled SDK metadata; remote Expo compatibility checks and physical-device testing were not performed.
+Social-only validation passed TypeScript, lint, all 280 unit tests, 10 account browser scenarios, 22 general browser scenarios and 14 Scanner/Organize scenarios. Android/iOS JavaScript exports passed. Google provider responses in these tests are simulated; no real Google login or physical-device verification was performed for this change.
 
-## Next Supabase phases
+## Remaining account work
 
-1. Verify the real Auth project, dashboard redirects and device email flows.
-2. Add versioned SQL migrations, per-user RLS and collection sync with explicit guest import, conflict handling and offline replay receipts. Preserve pending scans independently.
-3. Deploy and validate the hosted CardSight beta function and its scanner-only SQL, secrets and account grants. This implementation is now prepared in [HOSTED_SCANNER.md](HOSTED_SCANNER.md); it is not automatically deployed. Verified product entitlements and public Free trial enforcement remain a later phase.
-4. Connect RevenueCat/native purchases, verified webhooks and backend entitlement enforcement before charging for scans.
-5. Implement authenticated account deletion and its retention/cascade policy; then finalize Privacy Policy and Terms against the actual deployed data flows and providers. Existing legal placeholders do not become reviewed legal documents through this change.
-
-## Automatic scanner guests
-
-The hosted scanner now creates a persisted anonymous Supabase Auth session on scanner entry, without a registration screen. This technical identity remains hidden from Profile (Guest collector); email/password creation upgrades that same UUID via updateUser and uses the configured confirmation policy. It does not refill scanner usage or upload local ownership. The deployment workflow enables `external_anonymous_users_enabled` and `security_manual_linking_enabled`, and applies additive scanner access SQL. No manual account grant is needed for the Free scan. See HOSTED_SCANNER.md for server limits and the still-pending verified RevenueCat boundary.
+Configure and implement Apple, verify real Google consent and native redirects, implement collection synchronization with explicit import, connect verified RevenueCat entitlements, and implement authenticated account deletion/retention. Legal documents must describe the actual deployed services. Guest use remains available independently of these integrations.

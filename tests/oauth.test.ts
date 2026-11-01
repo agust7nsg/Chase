@@ -98,9 +98,14 @@ test('callbacks reject wrong origins, bearer-token URLs, malformed codes and arr
   for (const url of [`https://evil.example/auth/callback?provider=google&code=${code}`, `${redirect}&code=short`, `${redirect}&code=${code}#access_token=secret`, `chase://other/callback?provider=google&code=${code}`, `chase://auth/callback?code=${code}`]) {
     assert.throws(() => parseGoogleCallback(url, redirect));
   }
-  assert.throws(() => authCallbackParameters({ code: [code, code] }));
-  assert.throws(() => authCallbackParameters({ code, sb_flow_id: '../unsafe' }));
+  assert.throws(() => authCallbackParameters({ provider: 'google', code: [code, code] }));
+  assert.throws(() => authCallbackParameters({ provider: 'google', code, sb_flow_id: '../unsafe' }));
   assert.deepEqual(parseGoogleCallback(`${redirect}&code=${code}&sb_flow_id=valid-flow-123`, redirect), { code, flowId: 'valid-flow-123' });
+});
+test('old email verification/recovery callbacks cannot enter the OAuth flow', () => {
+  for (const params of [{ code }, { code, type: 'recovery' }, { provider: 'email', code }, { provider: ['google', 'email'], code }]) {
+    assert.throws(() => authCallbackParameters(params), error => accountError(error).includes('no longer supported'));
+  }
 });
 test('OAuth provider failures are sanitized and access denial remains recoverable', async () => {
   for (const params of ['&error=access_denied&error_description=secret-upstream', '#error_code=identity_already_exists&error_description=secret-upstream']) {

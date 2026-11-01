@@ -68,7 +68,8 @@ export function AccountScreen() {
   const isHttpsUrl = configuredUrl !== null && /^https:\/\/[^\s/]+(?:\/[^\s]*)?$/i.test(configuredUrl);
   const [linkError, setLinkError] = useState<string | null>(null);
 
-  if (['create', 'signin', 'logout', 'forgot', 'reset'].includes(requestedSection ?? '')) return <AccountAuthScreen key={requestedSection} mode={requestedSection as AuthMode} />;
+  if (requestedSection === 'forgot' || requestedSection === 'reset') return <AccountAuthScreen key="signin" mode="signin" />;
+  if (['create', 'signin', 'logout'].includes(requestedSection ?? '')) return <AccountAuthScreen key={requestedSection} mode={requestedSection as AuthMode} />;
 
   const openConfiguredLink = async () => {
     if (!configuredUrl || !isHttpsUrl) return;

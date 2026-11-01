@@ -4,7 +4,7 @@
 
 ## Automatic guest and account access
 
-Opening the real scanner automatically creates a Supabase anonymous Auth session when no session exists. Overlapping requests share one sign-in, and the encrypted/native or browser Auth store restores it on subsequent launches. Profile still shows **Guest collector**. Creating an email/password account from this guest links the same UUID with `updateUser` and sends an email-verification link before asking for a password, as required by Supabase. Passwords are never persisted while waiting for verification. The callback opens the existing New password screen; a UI-only metadata flag is cleared after setup and never authorizes scanning. It never creates a new allowance just for registering, uploads ownership or changes Collection/ScanSession storage.
+Opening the real scanner automatically creates a Supabase anonymous Auth session when no session exists. Overlapping requests share one sign-in, and the encrypted/native or browser Auth store restores it on subsequent launches. Profile still shows **Guest collector**. Creating a Google account from this guest links the same UUID with `linkIdentity`. The app offers only Google and the pending Apple button; it no longer collects passwords or sends email verification/recovery requests. Google registration never creates a new allowance, uploads ownership or changes Collection/ScanSession storage.
 
 The server validates guests and registered accounts with Auth `/user`, then automatically provisions Free on the first health/recognition call. **No User UID, manual grant, allowlist entry or account activation is needed for Free.** Anonymous Auth is different from unauthenticated access: a public publishable key alone can never call the vendor.
 

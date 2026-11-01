@@ -76,11 +76,7 @@ export interface SubscriptionService {
 /** Account identity is independent from device-local collections and entitlements. */
 export interface AccountAuthenticationService {
   current(): Promise<UserProfile | null>;
-  signIn(email: string, password: string): Promise<void>;
   startGoogle(redirectTo: string, existingAccount?: boolean): Promise<{ url: string; flowId?: string }>;
-  signUp(email: string, password: string, redirectTo: string): Promise<boolean>;
   signOut(): Promise<void>;
-  sendReset(email: string, redirectTo: string): Promise<void>;
-  updatePassword(password: string): Promise<void>;
-  completeRedirect(code: string, flowId?: string): Promise<boolean>;
+  completeRedirect(code: string, flowId?: string): Promise<void>;
 }
