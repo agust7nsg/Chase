@@ -31,6 +31,7 @@ function CardDetailContent({ cardId, previewOnly = false }: { cardId: string; pr
   const [detailsReady, setDetailsReady] = useState(() => Boolean(card && (!card.catalogIdentity || card.availableVariants?.length)));
   const { state, ready, loadError, retryLoad, persistenceError, entitlements, summary, addToCollection, updateQuantity, removeFromCollection } = useChase();
   const item = state.items.find((entry) => entry.cardId === (card?.id ?? cardId));
+  const [saving, setSaving] = useState(false);
   const [feedback, setFeedback] = useState<{ ok: boolean; message: string } | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [showImageInfo, setShowImageInfo] = useState(false);
@@ -66,13 +67,15 @@ function CardDetailContent({ cardId, previewOnly = false }: { cardId: string; pr
   if (!card) return <Screen safeTop={false}>{loading ? <View style={{ alignItems: 'center', gap: 12, paddingVertical: 40 }}><ActivityIndicator color={colors.primary} accessibilityLabel="Loading card details" /><Label style={uiStyles.muted}>Loading card details…</Label></View> : catalogError ? <EmptyState title="Card unavailable" message={catalogError} action="Try again" onPress={retryCard} icon="cloud-offline-outline" /> : <EmptyState title="Card not found" message="This printing is not available in the catalog." action="Browse cards" onPress={() => router.replace('/search')} icon="search-outline" />}</Screen>;
   if (!ready) return <Screen safeTop={false}>{loadError ? <EmptyState title="Collection unavailable" message={loadError} action="Try again" onPress={retryLoad} /> : <ActivityIndicator color={colors.primary} accessibilityLabel="Loading card" />}</Screen>;
 
-  const add = () => {
-    const result = addToCollection(card.id);
+  const add = async () => {
+    if (saving) return; setSaving(true);
+    const result = await addToCollection(card.id); setSaving(false);
     setFeedback(result.ok ? { ok: true, message: `One copy of ${card.name} added to your collection.` } : result);
     setConfirmRemove(false);
   };
-  const changeQuantity = (quantity: number) => {
-    const result = updateQuantity(card.id, quantity);
+  const changeQuantity = async (quantity: number) => {
+    if (saving) return; setSaving(true);
+    const result = await updateQuantity(card.id, quantity); setSaving(false);
     setFeedback(result.ok ? { ok: true, message: `Quantity updated to ${quantity}.` } : result);
     setConfirmRemove(false);
   };
@@ -110,7 +113,7 @@ function CardDetailContent({ cardId, previewOnly = false }: { cardId: string; pr
       <Label kind="caption" style={uiStyles.muted}>Sample prices · {asOf}</Label></> : quote ? <><Label kind="caption" style={uiStyles.muted}>{sourceName}{quoteDate ? ` · updated ${quoteDate}` : ''} · {quote.currency}</Label><Label kind="caption" style={uiStyles.muted}>Estimate for this variant. Price history is unavailable.</Label></> : <Label kind="caption" style={uiStyles.muted}>No ungraded quote is available for this variant.</Label>}
     </View>
     {card.description ? <Label style={uiStyles.muted}>{card.description}</Label> : null}
-    {!previewOnly ? <Button title={item ? 'Add one copy' : 'Add to collection'} icon="add-outline" onPress={add} disabled={!detailsReady || loading} /> : null}
+    {!previewOnly ? <Button title={item ? 'Add one copy' : 'Add to collection'} icon="add-outline" onPress={() => { void add(); }} loading={saving} disabled={!detailsReady || loading || saving} /> : null}
     {feedback ? <View style={{ gap: 12 }}>
       <Label accessibilityRole={feedback.ok ? undefined : 'alert'} accessibilityLiveRegion="polite" style={{ color: feedback.ok ? colors.success : colors.danger }}>{feedback.message}</Label>
       {!feedback.ok && atLimit ? <Button title="Upgrade to Chase Pro" onPress={() => router.push('/paywall')} /> : null}
@@ -121,16 +124,16 @@ function CardDetailContent({ cardId, previewOnly = false }: { cardId: string; pr
       <View style={[uiStyles.between, { flexWrap: 'wrap' }]}>
         <Label style={{ flex: 1 }}>Quantity</Label>
         <View style={uiStyles.row}>
-          <View style={{ minWidth: 52 }}><Button title="−" variant="secondary" accessibilityLabel={`Remove one ${card.name} copy`} disabled={item.quantity <= 1} onPress={() => changeQuantity(item.quantity - 1)} /></View>
+          <View style={{ minWidth: 52 }}><Button title="−" variant="secondary" accessibilityLabel={`Remove one ${card.name} copy`} disabled={saving || item.quantity <= 1} onPress={() => { void changeQuantity(item.quantity - 1); }} /></View>
           <Label kind="heading" accessibilityLabel={`${item.quantity} copies`} style={{ minWidth: 24, textAlign: 'center' }}>{item.quantity}</Label>
-          <View style={{ minWidth: 52 }}><Button title="+" variant="secondary" accessibilityLabel={`Add one ${card.name} copy`} onPress={() => changeQuantity(item.quantity + 1)} /></View>
+          <View style={{ minWidth: 52 }}><Button title="+" variant="secondary" accessibilityLabel={`Add one ${card.name} copy`} disabled={saving} onPress={() => { void changeQuantity(item.quantity + 1); }} /></View>
         </View>
       </View>
       <Label kind="caption" style={uiStyles.muted}>{quote ? `Estimated total: ${money(quote.amount * item.quantity, quote.currency)}${sample ? ` · demo ${currency}` : ''}` : 'Estimated total unavailable · price missing'}</Label>
       {confirmRemove ? <View style={{ gap: 12 }}>
         <Label accessibilityRole="alert">Remove all {item.quantity} {item.quantity === 1 ? 'copy' : 'copies'} of this card from your collection?</Label>
         <Button title="Keep card" variant="secondary" onPress={() => setConfirmRemove(false)} />
-        <Button title="Remove all copies" variant="danger" onPress={() => { removeFromCollection(card.id); setConfirmRemove(false); setFeedback({ ok: true, message: `${card.name} removed from your collection.` }); }} />
+        <Button title="Remove all copies" variant="danger" loading={saving} onPress={() => { if (saving) return; setSaving(true); void removeFromCollection(card.id).then(result => { setSaving(false); setConfirmRemove(false); setFeedback(result.ok ? { ok: true, message: `${card.name} removed from your collection.` } : result); }); }} />
       </View> : <Button title="Remove from collection" variant="danger" icon="trash-outline" onPress={() => setConfirmRemove(true)} />}
     </View> : null}
     {previewOnly ? <Button title="Return to Organize" variant="secondary" onPress={() => { if (router.canGoBack()) router.back(); else router.replace('/organize'); }} /> : <Button title="View My Cards" variant="ghost" icon="albums-outline" onPress={() => router.push('/my-cards')} />}

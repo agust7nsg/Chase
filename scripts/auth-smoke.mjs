@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
 import { chromium } from 'playwright-core';
 import { installTCGdexFixtures } from './fixtures/tcgdex.mjs';
+import { collectionFixtures } from './fixtures/collections.mjs';
 
 const url = process.env.CHASE_SMOKE_URL ?? 'http://localhost:8085';
 const browser = await chromium.launch({ executablePath: process.env.CHASE_BROWSER_EXECUTABLE ?? '/usr/bin/chromium', headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
@@ -14,6 +15,7 @@ const user = { id: '12345678-1234-1234-1234-123456789abc', aud: 'authenticated',
 const token = () => ['eyJhbGciOiJIUzI1NiJ9', Buffer.from(JSON.stringify({ sub: user.id, exp: Math.floor(Date.now() / 1000) + 3600, aud: 'authenticated', role: 'authenticated' })).toString('base64url'), 'fixture-signature'].join('.');
 async function fixture(guest = false) {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const collections = collectionFixtures();
   const state = { calls: [], offline: false, oauth: 'success', pkce: [], user: { ...user, is_anonymous: guest } };
   await installTCGdexFixtures(context);
   await context.route('https://*.supabase.co/**', async route => {
@@ -29,6 +31,7 @@ async function fixture(guest = false) {
     }
     assert.ok(request.headers().apikey?.startsWith('sb_publishable_'), 'Only a public project key may reach the client.');
     const headers = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*', 'access-control-expose-headers': 'x-supabase-api-version', 'x-supabase-api-version': '2024-01-01' };
+    if (await collections.handle(route, state.user, headers)) return;
     if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
     if (parsed.pathname.endsWith('/user/identities/authorize')) {
       assert.ok(request.headers().authorization?.startsWith('Bearer '));
@@ -52,7 +55,7 @@ async function fixture(guest = false) {
     if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify({ access_token: token, refresh_token: 'guest-refresh', expires_in: 3600, expires_at: Math.floor(Date.now() / 1000) + 3600, token_type: 'bearer', user }));
   }, { token: token(), user: state.user });
   const page = await context.newPage(); page.setDefaultTimeout(25_000); page.on('pageerror', error => errors.push(error.message));
-  const stored = () => page.evaluate(() => JSON.parse(localStorage.getItem('chase.prototype.v1')));
+  const stored = () => page.evaluate(() => { const { collectionSync, ...guest } = JSON.parse(localStorage.getItem('chase.prototype.v1')); return guest; });
   return { page, context, state, stored };
 }
 async function socialOnly(page) {

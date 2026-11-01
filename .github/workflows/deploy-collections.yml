@@ -1,0 +1,29 @@
+name: Deploy collection sync
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: chase-collection-sync-deploy
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - name: Install isolated PostgreSQL test engine
+        run: npm install --prefix "$RUNNER_TEMP/chase-sql-tools" --no-package-lock --no-audit --no-fund --ignore-scripts @electric-sql/pglite@0.3.15
+      - name: Validate collection migration and role isolation
+        run: CHASE_PGLITE_MODULE="$RUNNER_TEMP/chase-sql-tools/node_modules/@electric-sql/pglite/dist/index.js" npm run test:collection-sql
+      - name: Apply additive collection migration
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: node scripts/configure-collection-sync.mjs

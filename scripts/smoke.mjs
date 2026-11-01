@@ -338,7 +338,7 @@ try {
       await button(page, 'Continue with Google').waitFor();
       await button(page, 'Continue with Apple').waitFor();
       assert.equal(await page.getByRole('textbox').count(), 0, 'Account pages expose social sign-in only.');
-      await visibleText(page, 'Your collection stays on this device. Cloud backup is not connected yet.').waitFor();
+      await visibleText(page, 'Sign in to sync your account collection. Guest cards stay separate until you import them.').waitFor();
       await page.goBack();
     }
     const destinations = [

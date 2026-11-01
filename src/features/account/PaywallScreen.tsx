@@ -17,7 +17,7 @@ export default function PaywallScreen() {
   const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
   const close = useCallback(() => {
     if (returnTo === 'scanner' || returnTo === 'organize') { if (router.canGoBack()) router.back(); else router.replace(returnTo === 'scanner' ? '/scanner' : '/organize'); }
-    else { completeOnboarding(); router.replace('/(tabs)'); }
+    else { void completeOnboarding().then(() => router.replace('/(tabs)')).catch(() => {}); }
   }, [completeOnboarding, returnTo]);
   useFocusEffect(useCallback(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => { close(); return true; });

@@ -18,9 +18,18 @@ const browserStorage: SecureKeyValue = {
   setItem: async (key, value) => { if (typeof window === 'undefined') throw new Error('Browser storage unavailable.'); window.localStorage.setItem(key, value); },
   removeItem: async key => { if (typeof window !== 'undefined') window.localStorage.removeItem(key); },
 };
+const localOwnerKey = `chase.auth.${supabaseConfig?.project ?? 'unconfigured'}.local-owner`;
+const authStorage = Platform.OS === 'web' ? browserStorage : nativeStorage;
+/** A cache selector only; this value must never authorize a cloud request. */
+export async function rememberedLocalOwner(): Promise<string | null> {
+  try { const id = await authStorage.getItem(localOwnerKey); return id && /^[a-f\d]{8}-(?:[a-f\d]{4}-){3}[a-f\d]{12}$/i.test(id) ? id : null; } catch { return null; }
+}
+export async function rememberLocalOwner(id: string | null): Promise<void> {
+  try { if (id) await authStorage.setItem(localOwnerKey, id); else await authStorage.removeItem(localOwnerKey); } catch { /* Session storage failures are reported by the Auth SDK; this is only a cache hint. */ }
+}
 export const supabase = supabaseConfig ? createClient(supabaseConfig.url, supabaseConfig.publishableKey, {
   global: { fetch: accountFetch() },
-  auth: { storage: Platform.OS === 'web' ? browserStorage : nativeStorage,
+  auth: { storage: authStorage,
     storageKey: `chase.auth.${supabaseConfig.project}.v1`, persistSession: true,
     autoRefreshToken: true, detectSessionInUrl: false, flowType: 'pkce' },
 }) : null;

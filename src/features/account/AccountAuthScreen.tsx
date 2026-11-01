@@ -37,11 +37,11 @@ export function AccountAuthScreen({ mode }: { mode: AuthMode }) {
       {error?.includes('Use existing Google account') ? <Button title="Use existing Google account" variant="secondary" disabled={auth.busy}
         onPress={() => { void signInGoogle(true); }} /> : null}
       {notice ? <Label kind="caption" accessibilityLiveRegion="polite" style={uiStyles.muted}>{notice}</Label> : null}
-      <Label kind="caption" style={uiStyles.muted}>Your collection stays on this device. Cloud backup is not connected yet.</Label>
+      <Label kind="caption" style={uiStyles.muted}>Sign in to sync your account collection. Guest cards stay separate until you import them.</Label>
     </View> : auth.configured ? <View style={{ gap: 16 }}>
-      <Label>{auth.user ? `Sign out of ${auth.user.email ?? 'your account'}?` : 'You are using Chase as a guest.'}</Label>
+      <Label>{auth.user || auth.localAccountId ? `Sign out of ${auth.user?.email ?? 'your account'}?` : 'You are using Chase as a guest.'}</Label>
       <Label kind="caption" style={uiStyles.muted}>Your collection and pending scans stay on this device.</Label>
-      {auth.user ? <Button title="Log Out" loading={auth.busy} onPress={() => { void signOut(); }} /> : null}
+      {auth.user || auth.localAccountId ? <Button title="Log Out" loading={auth.busy} onPress={() => { void signOut(); }} /> : null}
     </View> : null}
     {!auth.configured ? <Label accessibilityRole="alert">Account connection is not configured yet. Guest mode and your saved cards are available.</Label> : null}
     {error ? <Label accessibilityRole="alert" style={{ color: colors.danger }}>{error}</Label> : null}

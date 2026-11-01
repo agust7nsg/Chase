@@ -31,7 +31,7 @@ function TopCardRow({ item }: { item: CollectionPosition }) {
 export function CollectionScreen() {
   const { formatMoney: money } = useCurrency();
   const signedMoney = (value: number) => `${sign(value)}${money(Math.abs(value))}`;
-  const { state, summary, entitlements, ready, loadError, retryLoad, persistenceError, catalogRevision } = useChase();
+  const { state, summary, entitlements, ready, loadError, retryLoad, persistenceError, catalogRevision, collectionSync } = useChase();
   const [range, setRange] = useState<HistoryRange>('1M');
   const [preview, setPreview] = useState(false);
   const items = preview ? exampleItems : state.items;
@@ -61,6 +61,7 @@ export function CollectionScreen() {
   if (!ready) return <Screen>{loadError ? <EmptyState title="Collection unavailable" message={loadError} action="Try again" onPress={retryLoad} icon="cloud-offline-outline" /> : <View style={styles.loading}><ActivityIndicator color={colors.primary} /><Label>Loading your collection…</Label></View>}</Screen>;
   return <Screen style={{ gap: 24 }}>
     <View style={uiStyles.between}><View style={uiStyles.row}><View style={styles.walletIcon}><Icon name="wallet-outline" color={colors.primary} size={22} /></View><Label kind="title" accessibilityRole="header">Collection</Label></View><CurrencyShortcut /></View>
+    <Label kind="caption" style={uiStyles.muted}>{collectionSync.owner ? 'Account collection' : 'Guest collection · on this device'}</Label>
     {preview ? <View style={styles.preview}><Icon name="information-circle-outline" color={colors.primary} /><Label kind="caption" style={{ flex: 1 }}>Sample collection · preview only</Label><Pressable accessibilityRole="button" accessibilityLabel="Return to my collection" onPress={() => setPreview(false)} style={styles.closePreview}><Icon name="close" size={22} color={colors.primary} /></Pressable></View> : null}
     <View style={{ gap: 10 }}>
       <View style={uiStyles.between}><Label kind="caption" style={uiStyles.muted}>{unpricedCopies > 0 && !allUnpriced ? 'Priced value' : 'Collection value'}</Label></View>
