@@ -22,6 +22,10 @@ export interface CatalogQuery {
   page?: number;
   pageSize?: number;
   signal?: AbortSignal;
+  /** Cooperative background work yields between bounded groups. */
+  /** Warm snapshots without registering unseen cards or rerendering ownership views. */
+  background?: boolean;
+  beforeBatch?: () => Promise<void>;
   onProgress?: (progress: { loaded: number; total: number }) => void;
 }
 
@@ -53,6 +57,8 @@ export interface TcgDexOptions {
   language?: string;
   baseUrl?: string;
   maxCacheEntries?: number;
+  /** Separate compact set snapshots from individual-card LRU churn. */
+  maxSetCacheEntries?: number;
 }
 
 export type CatalogErrorCode = 'NETWORK' | 'TIMEOUT' | 'HTTP' | 'INVALID_RESPONSE' | 'ABORTED';

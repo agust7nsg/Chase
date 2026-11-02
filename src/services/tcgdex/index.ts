@@ -16,6 +16,9 @@ const abortError = () => new CatalogError('ABORTED', 'Catalog request canceled.'
 export class TcgDexCatalogService implements CardCatalogService {
   private readonly options: TcgDexOptions;
   private readonly cache = new Map<string, Cached>();
+  private readonly setCache = new Map<string, Cached>();
+  private isSetSnapshot(path: string) { return Boolean(this.options.maxSetCacheEntries) && (path.startsWith('sets/') || path.startsWith('ranked-sets-price-v1/')); }
+  private memory(path: string) { return this.isSetSnapshot(path) ? this.setCache : this.cache; }
   private readonly pending = new Map<string, Promise<Resource>>();
   private readonly language: string;
   private readonly base: string;
@@ -43,9 +46,10 @@ export class TcgDexCatalogService implements CardCatalogService {
   private key(path: string): string { return `chase.tcgdex.v1:${this.language}:${path}`; }
 
   private remember(path: string, entry: Cached): void {
-    this.cache.delete(path);
-    this.cache.set(path, entry);
-    while (this.cache.size > this.maxCacheEntries) this.cache.delete(this.cache.keys().next().value!);
+    const cache = this.memory(path);
+    cache.delete(path); cache.set(path, entry);
+    const limit = this.isSetSnapshot(path) ? 12 : this.maxCacheEntries;
+    while (cache.size > limit) cache.delete(cache.keys().next().value!);
   }
 
   /** AsyncStorage cannot cancel a started write. Quarantine it after a timeout:
@@ -68,15 +72,16 @@ export class TcgDexCatalogService implements CardCatalogService {
     this.queuedPersistence++;
     const next = this.persistence.then(async () => {
       if (this.storageUnavailable) return;
-      const indexKey = this.key('cache-index');
+      const snapshot = this.isSetSnapshot(path);
+      const indexKey = this.key(snapshot ? 'set-snapshot-index' : 'cache-index');
       let paths: string[] = [];
       try {
         const value: unknown = JSON.parse(await this.cacheIO(() => storage.getItem(indexKey)) ?? '[]');
-        if (Array.isArray(value)) paths = value.filter((item): item is string => typeof item === 'string' && item !== path);
+        if (Array.isArray(value)) paths = value.filter((item): item is string => typeof item === 'string' && item !== path && this.isSetSnapshot(item) === snapshot);
       } catch { /* A corrupt index does not prevent saving a new cache entry. */ }
       if (this.storageUnavailable) return;
       paths.push(path);
-      const evicted = paths.splice(0, Math.max(0, paths.length - this.maxCacheEntries));
+      const evicted = paths.splice(0, Math.max(0, paths.length - (snapshot ? this.options.maxSetCacheEntries! : this.maxCacheEntries)));
       await this.cacheIO(() => storage.setItem(this.key(path), JSON.stringify({ version: 1, ...entry })));
       await this.cacheIO(() => storage.setItem(indexKey, JSON.stringify(paths)));
       if (storage.removeItem) for (const old of evicted) await this.cacheIO(() => storage.removeItem!(this.key(old)));
@@ -117,7 +122,7 @@ export class TcgDexCatalogService implements CardCatalogService {
   }
 
   private async readCache(path: string): Promise<Cached | undefined> {
-    const memory = this.cache.get(path);
+    const memory = this.memory(path).get(path);
     if (memory) return memory;
     try {
       if (!this.options.storage || this.storageUnavailable) return undefined;
@@ -128,7 +133,7 @@ export class TcgDexCatalogService implements CardCatalogService {
         || parsed.savedAt > this.now() || !('value' in parsed)) return undefined;
       this.validate(path, parsed.value);
       const entry = { savedAt: parsed.savedAt, value: parsed.value };
-      const current = this.cache.get(path);
+      const current = this.memory(path).get(path);
       if (current && current.savedAt >= entry.savedAt) return current;
       this.remember(path, entry);
       return entry;
@@ -262,8 +267,9 @@ export class TcgDexCatalogService implements CardCatalogService {
     query.onProgress?.({ loaded: 0, total: matching.length });
     try {
       // Rank the entire matching index BEFORE slicing into pages. Six requests at
-      // a time, with cancellation between groups; a stationary UI never starts a global crawl.
+      // a time, with cancellation and optional background pacing between groups.
       for (let start = 0; start < matching.length; start += 6) {
+        await query.beforeBatch?.();
         if (query.signal?.aborted) throw abortError();
         const group = await Promise.all(matching.slice(start, start + 6).map(brief => this.resource(`cards/${encodeURIComponent(brief.id)}`, query.signal)));
         for (const detail of group) {
@@ -313,7 +319,7 @@ export class TcgDexCatalogService implements CardCatalogService {
     const ranked = (prices.value as unknown[]).map(raw => priceRepresentative(normalizeCards(raw, this.language)))
       .filter(card => ids.has(card.catalogIdentity!.id)).sort(compareCardPrices);
     const cards = ranked.slice((page - 1) * pageSize, page * pageSize);
-    return { cards: this.publish(cards), page, total: matching.length, hasMore: page * pageSize < matching.length,
+    return { cards: query.background ? clone(cards) : this.publish(cards), page, total: matching.length, hasMore: page * pageSize < matching.length,
       set: normalizeSet(result.value), fromCache: result.fromCache || prices.fromCache, stale: result.stale || prices.stale };
   }
 

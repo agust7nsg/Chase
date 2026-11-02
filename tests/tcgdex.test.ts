@@ -371,3 +371,18 @@ test('a failed full-set lookup is recoverable and a stale complete ranking stays
   const restored=await new TcgDexCatalogService({ fetch:source.fetch,storage:backing.storage }).queryCards({ setId:'xy12',pageSize:2 });
   assert.deepEqual(restored.cards.map(card=>card.localId),['158','010']);
 });
+
+test('startup warm snapshots survive card LRU churn and a cold offline reopening without publishing unseen cards', async () => {
+  const source = fixture(Array.from({ length: 30 }, (_, i) => raw(`xy12-${i + 1}`, `Card ${i + 1}`, String(i + 1))));
+  const backing = memoryStorage(); let published = 0;
+  const options = { fetch: source.fetch, storage: backing.storage, maxCacheEntries: 2, maxSetCacheEntries: 20, onCards: () => { published++; } };
+  const service = new TcgDexCatalogService(options);
+  const warmed = await service.queryCards({ setId: 'xy12', background: true });
+  assert.equal(published, 0);
+  for (let i = 1; i <= 12; i++) await service.getVariants(`xy12-${i}`);
+  const before = source.requests.length; const reopened = await service.queryCards({ setId: 'xy12' });
+  assert.deepEqual(reopened.cards.map(card => card.id), warmed.cards.map(card => card.id)); assert.equal(source.requests.length, before);
+  source.offline(); const restarted = new TcgDexCatalogService(options);
+  assert.deepEqual((await restarted.queryCards({ setId: 'xy12' })).cards.map(card => card.id), warmed.cards.map(card => card.id));
+  assert.equal(source.requests.length, before, 'No network is required while snapshots are fresh.');
+});

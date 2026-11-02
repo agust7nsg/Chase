@@ -8,6 +8,7 @@ export { CatalogError } from './tcgdex';
 /** Public catalog calls have no dependency on authentication or scanner simulation. */
 export const catalogService = new TcgDexCatalogService({
   storage: AsyncStorage,
+  maxSetCacheEntries: 1024,
   onCards: cards => { cards.forEach(registerCatalogCard); },
 });
 

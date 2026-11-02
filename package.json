@@ -59,7 +59,8 @@
     "test:collection-sql": "node scripts/collection-sync-sql.mjs",
     "test:collection-sync": "node scripts/collection-sync-smoke.mjs",
     "test:account-deletion-sql": "node scripts/account-deletion-sql.mjs",
-    "test:account-deletion": "node scripts/account-deletion-smoke.mjs"
+    "test:account-deletion": "node scripts/account-deletion-smoke.mjs",
+    "test:catalog-preload": "node scripts/catalog-preload-smoke.mjs"
   },
   "private": true,
   "packageManager": "npm@11.9.0"
