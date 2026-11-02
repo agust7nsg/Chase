@@ -3,9 +3,11 @@ import { loadEnvFile } from 'node:process';
 import { fileURLToPath } from 'node:url';
 const root = new URL('../', import.meta.url);
 try { loadEnvFile(fileURLToPath(new URL('.env.local', root))); }
-catch { throw new Error('Copia tu .env.local que ya funciona a esta carpeta antes de continuar. Se requiere Node 22 o superior.'); }
-const url = process.env.EXPO_PUBLIC_SUPABASE_URL?.trim();
-const key = process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim();
+catch (error) { if (error.code !== 'ENOENT') throw error; }
+const defaults = JSON.parse(await readFile(new URL('src/config/publicProject.json', root), 'utf8'));
+const overrides = Boolean(process.env.EXPO_PUBLIC_SUPABASE_URL?.trim() || process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim());
+const url = overrides ? process.env.EXPO_PUBLIC_SUPABASE_URL?.trim() : defaults.url;
+const key = overrides ? process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim() : defaults.publishableKey;
 if (url !== 'https://vzjekkgyrdxzlhaupnrw.supabase.co' || !/^sb_publishable_[A-Za-z0-9_-]{10,200}$/.test(key ?? '')) {
   throw new Error('Revisa la URL y la Publishable key PUBLICA de Supabase en .env.local. No uses service_role ni claves secretas.');
 }

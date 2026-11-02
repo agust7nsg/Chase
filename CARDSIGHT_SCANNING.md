@@ -48,6 +48,7 @@ notepad .env.local
 Set these values using the address and local token printed by the server, never the vendor key:
 
 ```dotenv
+EXPO_PUBLIC_SCANNER_BACKEND=local
 EXPO_PUBLIC_SCANNER_URL=http://192.168.1.10:8787
 EXPO_PUBLIC_SCANNER_TOKEN=the-local-pairing-token-from-the-server
 ```
@@ -92,7 +93,7 @@ Unit tests exercise the actual server adapter against schema-based fixtures, aut
 For the separate live-mode browser server:
 
 ```bash
-EXPO_OFFLINE=1 EXPO_PUBLIC_SCANNER_URL=http://localhost:8787 EXPO_PUBLIC_SCANNER_TOKEN=chase-browser-fixture-pairing-only-1234 npm run web -- --localhost --port 8083
+EXPO_OFFLINE=1 EXPO_PUBLIC_SCANNER_BACKEND=local EXPO_PUBLIC_SCANNER_URL=http://localhost:8787 EXPO_PUBLIC_SCANNER_TOKEN=chase-browser-fixture-pairing-only-1234 npm run web -- --localhost --port 8083
 # In another terminal:
 npm run test:live-scanner
 ```

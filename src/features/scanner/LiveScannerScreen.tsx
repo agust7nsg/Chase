@@ -150,8 +150,8 @@ export function LiveScannerScreen({ onDemo }: { onDemo: () => void }) {
   const openDiagnostics = () => { diagnosticsOpen.current = true; const preview = camera.current?.preview(); if (preview) diagnostics.record('preview-layout', preview); setDiagnosticReport(diagnostics.report()); };
   const closeDiagnostics = () => { diagnosticsOpen.current = false; setDiagnosticReport(null); };
   const scanningMessage = captureError ?? (status.phase === 'ERROR' ? status.error : !scan.allowed ? 'Free scan used' : title);
-  const connectionMessage = !hosted ? (!liveScannerConfig ? 'Configure the local scanner URL and pairing token, then restart Expo.' : 'The local server must be online with CardSight recognition configured.')
-    : connectionCode === 'pro_simulation_disabled' ? 'Pro simulation is disabled on the scanner server. Deploy with Pro testing enabled.'
+  const connectionMessage = !hosted ? (!liveScannerConfig ? 'The scanner configuration is invalid. Install the current Chase build.' : 'The local server must be online with CardSight recognition configured.')
+    : connectionCode === 'pro_simulation_disabled' ? 'The server test period for Simulate Pro has ended or is disabled. It must be renewed on the hosted service; your computer does not need to stay on.'
       : connectionCode === 'trial_used' ? 'Your free scan has been used. Your pending cards are still in Organize.'
       : connectionCode === 'access_required' ? 'Scanning is unavailable for this session. Contact support.'
         : connectionCode === 'account_limit' ? 'Your scanner request allowance has been reached.'

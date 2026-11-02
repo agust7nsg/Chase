@@ -3,11 +3,11 @@ import './nativeCrypto';
 import { createClient } from '@supabase/supabase-js';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
-import { parseSupabaseConfig } from './config';
+import { resolveSupabaseConfig } from './config';
 import { ChunkedAuthStorage, type SecureKeyValue } from './secureStorage';
 import { accountFetch } from './fetch';
 
-export const supabaseConfig = parseSupabaseConfig(process.env.EXPO_PUBLIC_SUPABASE_URL, process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY);
+export const supabaseConfig = resolveSupabaseConfig(process.env.EXPO_PUBLIC_SUPABASE_URL, process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY);
 const nativeStorage = new ChunkedAuthStorage({
   getItem: key => SecureStore.getItemAsync(key),
   setItem: (key, value) => SecureStore.setItemAsync(key, value, { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }),

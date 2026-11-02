@@ -19,7 +19,7 @@ export interface ClientOptions {
 }
 
 const messages: Record<string, string> = {
-  pro_simulation_disabled: 'Pro simulation is disabled on the scanner server. Deploy with Pro testing enabled.',
+  pro_simulation_disabled: 'The hosted Simulate Pro test period is disabled or expired. Your computer does not need to stay on.',
   login_required: 'Your scanning session could not be verified. Reopen the scanner to reconnect.',
   access_required: 'Scanning is unavailable for this session. Contact support.',
   trial_used: 'Your free scan has been used. Your pending cards are still in Organize.',

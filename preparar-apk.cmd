@@ -1,7 +1,7 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-echo Preparando Chase APK. Necesitas Node 22 o superior y tu .env.local en esta carpeta.
+echo Preparando Chase APK. Necesitas Node 22 o superior. La conexion alojada ya viene integrada.
 node scripts/prepare-apk.mjs
 if errorlevel 1 goto failed
 call npm ci
@@ -10,6 +10,8 @@ call npx eas-cli@latest login
 if errorlevel 1 goto failed
 call npx eas-cli@latest init
 if errorlevel 1 goto failed
+where git >nul 2>nul
+if errorlevel 1 set EAS_NO_VCS=1
 call npx eas-cli@latest build --platform android --profile preview
 if errorlevel 1 goto failed
 echo Abre el enlace de EAS para descargar e instalar el archivo APK.

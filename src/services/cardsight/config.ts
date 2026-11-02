@@ -1,11 +1,11 @@
-import { parseSupabaseConfig } from '../auth/config';
+import { resolveSupabaseConfig } from '../auth/config';
 
 export interface DevelopmentScannerConfig { proxyUrl: string; token: string }
 export interface HostedScannerConfig { mode: 'supabase-hosted'; proxyUrl: string; publishableKey: string }
 export type LiveScannerConfig = DevelopmentScannerConfig | HostedScannerConfig;
 
 export function hostedScannerConfig(url?: string, publishableKey?: string): HostedScannerConfig | null {
-  const config = parseSupabaseConfig(url, publishableKey);
+  const config = resolveSupabaseConfig(url, publishableKey);
   return config ? { mode: 'supabase-hosted', proxyUrl: `${config.url}/functions/v1/cardsight-scanner`, publishableKey: config.publishableKey } : null;
 }
 export const isHostedScanner = (config: LiveScannerConfig | null): config is HostedScannerConfig => Boolean(config && 'mode' in config && config.mode === 'supabase-hosted');
@@ -22,8 +22,16 @@ export function developmentScannerConfig(development: boolean, endpoint?: string
   } catch { return null; }
 }
 
-// Expo inlines these explicitly public, development-only pairing settings. The
-// CardSight vendor key is deliberately never read anywhere under src/.
-export const liveScannerConfig = process.env.EXPO_PUBLIC_SCANNER_BACKEND === 'supabase'
-  ? hostedScannerConfig(process.env.EXPO_PUBLIC_SUPABASE_URL, process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY)
-  : developmentScannerConfig(typeof __DEV__ !== 'undefined' && __DEV__, process.env.EXPO_PUBLIC_SCANNER_URL, process.env.EXPO_PUBLIC_SCANNER_TOKEN);
+export function resolveScannerConfig(options: { development: boolean; backend?: string; url?: string; publishableKey?: string; localUrl?: string; localToken?: string }): LiveScannerConfig | null {
+  // An installed release must never target a workstation, even with obsolete pairing variables.
+  if (options.backend === 'local' && options.development) return developmentScannerConfig(true, options.localUrl, options.localToken);
+  if (options.backend && !['supabase', 'local'].includes(options.backend)) return null;
+  return hostedScannerConfig(options.url, options.publishableKey);
+}
+
+// Only public deployment settings are bundled. Vendor and service-role keys stay server-only.
+export const liveScannerConfig = resolveScannerConfig({
+  development: typeof __DEV__ !== 'undefined' && __DEV__, backend: process.env.EXPO_PUBLIC_SCANNER_BACKEND,
+  url: process.env.EXPO_PUBLIC_SUPABASE_URL, publishableKey: process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+  localUrl: process.env.EXPO_PUBLIC_SCANNER_URL, localToken: process.env.EXPO_PUBLIC_SCANNER_TOKEN,
+});

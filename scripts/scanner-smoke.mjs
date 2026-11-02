@@ -15,10 +15,13 @@ const check = async (name, action) => { await action(); console.log(`PASS ${++pa
 async function fixture(plan = 'pro', items = []) {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   await installTCGdexFixtures(context);
+  // This suite exercises demo/Organize; online connection and Auth are fixture-tested separately.
+  await context.route('https://*.supabase.co/**', route => route.fulfill({ status: 503, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' }, json: { error: { code: 'fixture_unavailable' } } }));
   await context.addInitScript(({ plan, items }) => {
     if (!localStorage.getItem('chase.prototype.v1')) localStorage.setItem('chase.prototype.v1', JSON.stringify({ onboardingComplete: true, plan, trial: { successfulRecognitions: 0 }, items }));
   }, { plan, items });
   const page = await context.newPage(); activePage = page; page.setDefaultTimeout(15_000); page.on('pageerror', e => errors.push(e.stack ?? e.message));
+  await page.addLocatorHandler(button(page, 'Use demo scanner').first(), async locator => { await locator.click(); });
   await page.goto(`${url}/scanner`); await button(page, 'Organize (0)').waitFor();
   return { page, context };
 }

@@ -10,7 +10,14 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_ENABLE_PRO_SIMULATION": "true"
+        "EXPO_PUBLIC_ENABLE_PRO_SIMULATION": "true",
+        "EXPO_PUBLIC_SCANNER_BACKEND": "supabase"
+      }
+    },
+    "production": {
+      "environment": "production",
+      "env": {
+        "EXPO_PUBLIC_SCANNER_BACKEND": "supabase"
       }
     }
   }

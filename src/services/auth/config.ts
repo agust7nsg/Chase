@@ -1,3 +1,4 @@
+import publicProject from '../../config/publicProject.json';
 export interface SupabaseConfig { url: string; publishableKey: string; project: string }
 
 export function parseSupabaseConfig(url?: string, key?: string): SupabaseConfig | null {
@@ -25,4 +26,9 @@ export function accountError(error: unknown): string {
   if (code === 'signup_disabled') return 'Account registration is currently unavailable.';
   if (code === 'otp_expired' || code === 'flow_state_not_found' || code === 'bad_code_verifier') return 'Google sign-in has expired or belongs to another device. Try signing in again on this device.';
   return 'Could not connect to your account. Check your connection and try again.';
+}
+
+/** Public deployment identity ships with the app; override projects only with a complete valid pair. */
+export function resolveSupabaseConfig(url?: string, key?: string): SupabaseConfig | null {
+  return !url?.trim() && !key?.trim() ? parseSupabaseConfig(publicProject.url, publicProject.publishableKey) : parseSupabaseConfig(url, key);
 }
