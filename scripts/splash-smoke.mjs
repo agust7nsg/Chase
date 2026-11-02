@@ -17,6 +17,10 @@ try {
     if (reducedMotion === 'no-preference') {
       await splash.waitFor();
       await page.waitForFunction(() => {
+        const mark = document.querySelector('[data-testid="splash-brand-mark"] img');
+        return mark?.complete && mark.naturalWidth > 0;
+      });
+      await page.waitForFunction(() => {
         const word = document.querySelector('[data-testid="splash-wordmark"]');
         return word && Number(getComputedStyle(word).opacity) > 0.98;
       });
@@ -44,5 +48,18 @@ try {
   assert.equal(await page.evaluate(() => localStorage.getItem('chase.prototype.v1')), '{invalid');
   console.log('PASS: failed storage remains recoverable after splash without overwriting data');
   await context.close();
+  const brokenMark = await browser.newContext({ reducedMotion: 'reduce' });
+  await brokenMark.route('https://**/*', route => route.abort());
+  let failedImages = 0;
+  await brokenMark.route(url => url.href.includes('mark.png'), route => { failedImages++; return route.abort(); });
+  await brokenMark.addInitScript(seed => localStorage.setItem('chase.prototype.v1', JSON.stringify(seed)), seed);
+  const fallbackPage = await brokenMark.newPage(); fallbackPage.on('pageerror', error => errors.push(error.message));
+  await fallbackPage.goto(url);
+  await fallbackPage.getByTestId('startup-splash').waitFor({ state: 'detached', timeout: 6000 });
+  await fallbackPage.getByRole('button', { name: 'Scan a Card', exact: true }).waitFor();
+  assert.deepEqual(await fallbackPage.evaluate(() => JSON.parse(localStorage.getItem('chase.prototype.v1'))), seed);
+  assert.ok(failedImages > 0, 'The brand image request must actually fail in this scenario.');
+  console.log('PASS: unavailable brand image cannot trap startup or alter saved cards');
+  await brokenMark.close();
   assert.deepEqual(errors, []);
 } finally { await browser.close(); }

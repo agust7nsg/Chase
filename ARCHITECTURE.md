@@ -165,3 +165,7 @@ Android preview restoration now separates native-stack focus from completed appe
 ## Account deletion
 
 `AccountDeletion` persists a private recovery intent before submission; `DeleteAccountScreen` requires explicit typed confirmation. The `delete-account` Edge handler verifies fresh Google Auth before creating a hashed receipt and uses server-only Admin Auth hard deletion. Proof-bound replay recovers lost responses after Auth removal. Confirmed deletion purges only the matching local replica; blocked late cloud results cannot recreate it. Guest/Organize and installation-wide scan receipts remain. See ACCOUNT_DELETION.md for deployment, receipt expiry and device/retention limits.
+
+## Launcher and startup branding
+
+The approved icon and its transparent symbol are bundled under `assets/brand`. `app.json` uses the opaque 1024px icon for iOS/web and a separately padded transparent foreground on blue for Android adaptive icons. The splash plugin and StartupSplash use the same local symbol at 240 logical pixels on primary blue. The native screen is released after layout and the local image completes loading (including error), before the 800ms JS introduction. Reduced Motion, bounded startup release, navigation continuity and storage-error recovery remain intact. Icon/native splash changes require a new installed build; JS exports and browser tests do not validate a native launcher or iOS/Android launch transition.

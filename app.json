@@ -10,7 +10,11 @@
       "supportsTablet": true
     },
     "android": {
-      "package": "com.chase.prototype"
+      "package": "com.chase.prototype",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/brand/adaptive-foreground.png",
+        "backgroundColor": "#245DE8"
+      }
     },
     "web": {
       "output": "single",
@@ -30,7 +34,10 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#245DE8"
+          "backgroundColor": "#245DE8",
+          "image": "./assets/brand/mark.png",
+          "imageWidth": 240,
+          "resizeMode": "contain"
         }
       ],
       "expo-secure-store",
