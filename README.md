@@ -107,3 +107,7 @@ npx ui-ux-pro-max-cli@2.15.0 init --ai codex
 Its guidance is available at `.agents/skills/ui-ux-pro-max/SKILL.md`; its local search scripts require Python 3.x (Python 3.12 is available in this environment). This developer tool is separate from application runtime dependencies.
 
 An internal Android APK build profile is prepared; see [ANDROID_TEST_APK.md](ANDROID_TEST_APK.md) for EAS linking, public environment configuration and the remaining signed-build/device checks.
+
+## Legal drafts
+
+English [Terms of Service](legal/TERMS_OF_SERVICE.md) and [Privacy Policy](legal/PRIVACY_POLICY.md) are drafted for BluePeak Global LLC (Wyoming, United States). They are not effective policies or published app destinations. See [publication review items](legal/README.md) for missing contact/address/age/date decisions and provider-retention, platform, and legal review requirements. The app's legal URLs remain unset.
