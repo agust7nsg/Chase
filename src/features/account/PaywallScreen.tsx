@@ -1,20 +1,60 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { BackHandler, Pressable, StyleSheet, View } from 'react-native';
-import { Badge, Button, Icon, Label, Screen, uiStyles } from '@/components/ui';
+import { BackHandler, Modal, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Image } from 'expo-image';
+import { Button, Icon, Label } from '@/components/ui';
+import { CardPrint } from '@/components/CardPrint';
+import { getLegacyCard } from '@/data/mocks/catalog';
 import { colors } from '@/theme/tokens';
 import { useChase } from '@/features/app/ChaseProvider';
+import { useCurrency } from '@/features/currency/CurrencyProvider';
 
-const comparison = [
-  { feature: 'Sample scans', free: '1 successful scan', pro: 'Unlimited' },
-  { feature: 'Saved copies', free: '50 total', pro: 'Unlimited' },
-  { feature: 'Manual search', free: 'Included', pro: 'Included' },
-  { feature: 'Sample prices', free: 'Included', pro: 'Included' },
-];
+const showcase = [
+  { position: 'left', card: getLegacyCard('base1-4')! },
+  { position: 'center', card: getLegacyCard('swsh7-215')! },
+  { position: 'right', card: getLegacyCard('sv6-214')! },
+] as const;
+
+/** Bundled editorial artwork: never requests a quote, consumes a scan or changes ownership. */
+function ProCardHero() {
+  const { width } = useWindowDimensions();
+  const { currency, formatMoney } = useCurrency();
+  const [availableWidth, setAvailableWidth] = useState(Math.min(width - 48, 400));
+  const stageWidth = Math.min(availableWidth, 400);
+  const centerWidth = stageWidth * 0.46;
+  const sideWidth = stageWidth * 0.36;
+  const cardHeight = centerWidth * 825 / 600;
+  return <View testID="pro-card-hero" style={styles.hero} onLayout={event => setAvailableWidth(event.nativeEvent.layout.width)}>
+    <View style={{ width: stageWidth, height: cardHeight + 72 }}>
+      {showcase.map(({ position, card }) => {
+        const centered = position === 'center';
+        const left = centered ? (stageWidth - centerWidth) / 2 : position === 'left' ? stageWidth * 0.02 : stageWidth * 0.62;
+        return <View key={position} testID={`pro-card-${position}`} style={[styles.card, {
+          width: centered ? centerWidth : sideWidth, left,
+          top: centered ? 0 : (centerWidth - sideWidth) * 825 / 600,
+          zIndex: centered ? 3 : 1,
+          transform: [{ rotate: centered ? '0deg' : position === 'left' ? '-12deg' : '12deg' }],
+        }]}><CardPrint card={card} /></View>;
+      })}
+      <View style={[styles.priceRow, { top: cardHeight + 24 }]}>
+        {showcase.map(({ position, card }) => <View key={position} style={[styles.priceColumn, position === 'center' && { flex: 1.2 }]}>
+          <View testID={`pro-price-${position}`} style={[styles.priceBadge, position === 'center' && styles.centerPrice]}>
+            <Label maxFontSizeMultiplier={1.2} accessibilityLabel={`${card.name}, illustrative value ${formatMoney(card.marketPrice!.amount, card.marketPrice!.currency)} ${currency}`}
+              style={[styles.cardPrice, position === 'center' && styles.centerPriceText]}>{formatMoney(card.marketPrice!.amount, card.marketPrice!.currency)}</Label>
+          </View>
+        </View>)}
+      </View>
+    </View>
+    <Label kind="caption" style={styles.illustrationNote}>Illustrative values · {currency}</Label>
+  </View>;
+}
 
 export default function PaywallScreen() {
   const { completeOnboarding } = useChase();
+  const { width } = useWindowDimensions();
   const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
+  const [purchaseNotice, setPurchaseNotice] = useState(false);
   const close = useCallback(() => {
     if (returnTo === 'scanner' || returnTo === 'organize') { if (router.canGoBack()) router.back(); else router.replace(returnTo === 'scanner' ? '/scanner' : '/organize'); }
     else { void completeOnboarding().then(() => router.replace('/(tabs)')).catch(() => {}); }
@@ -23,52 +63,79 @@ export default function PaywallScreen() {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => { close(); return true; });
     return () => subscription.remove();
   }, [close]));
+  const openAccount = (section: 'restore' | 'terms' | 'privacy') => router.push({ pathname: '/account', params: { section } });
 
-  return <Screen>
-    <View style={uiStyles.between}>
-      <Badge tone="neutral">Membership preview</Badge>
-      <Pressable onPress={close} accessibilityRole="button" accessibilityLabel={returnTo ? 'Close Chase Pro and return' : 'Close Chase Pro and go to Home'} style={({ pressed }) => [styles.close, pressed && { opacity: 0.6 }]}><Icon name="close" size={27} /></Pressable>
-    </View>
-    <View style={{ gap: 12 }}>
-      <View style={styles.proMark}><Icon name="layers-outline" color={colors.primary} size={28} /></View>
-      <Label kind="title" accessibilityRole="header">Chase Pro</Label>
-      <Label style={uiStyles.muted}>More capacity for your collection and sample scans.</Label>
-    </View>
-
-    <View>
-      <View style={styles.tableHeader}>
-        <View style={styles.featureColumn}><Label kind="caption" style={uiStyles.muted}>COMPARE ACCESS</Label></View>
-        <View style={styles.planColumn}><Label style={{ fontWeight: '600' }}>Free</Label></View>
-        <View style={[styles.planColumn, styles.proColumn]}><Label style={{ color: colors.primary, fontWeight: '700' }}>Pro</Label></View>
+  return <SafeAreaView style={styles.screen} edges={['top', 'bottom', 'left', 'right']}>
+    <View style={styles.header}>
+      <View style={styles.brand} accessible accessibilityLabel="Chase Pro">
+        <Image source={require('@/assets/brand/icon.png')} style={styles.brandIcon} contentFit="contain" accessible={false} />
+        <Label style={styles.brandName}>chase</Label><View style={styles.proBadge}><Label style={styles.proText}>PRO</Label></View>
       </View>
-      {comparison.map(row => <View key={row.feature} style={styles.tableRow} accessible accessibilityLabel={`${row.feature}. Free: ${row.free}. Pro: ${row.pro}.`}>
-        <View style={styles.featureColumn}><Label kind="caption" style={{ fontWeight: '600' }}>{row.feature}</Label></View>
-        <View style={styles.planColumn}><Label kind="caption" style={uiStyles.muted}>{row.free}</Label></View>
-        <View style={[styles.planColumn, styles.proColumn]}><Label kind="caption" style={{ color: colors.primary, fontWeight: '600' }}>{row.pro}</Label></View>
-      </View>)}
+      <Pressable onPress={close} accessibilityRole="button" accessibilityLabel={returnTo ? 'Close Chase Pro and return' : 'Close Chase Pro and go to Home'} style={({ pressed }) => [styles.close, pressed && { opacity: 0.6 }]}><Icon name="close" size={24} /></Pressable>
     </View>
-
-    <View style={{ gap: 12 }}>
-      <Label style={{ fontWeight: '600' }}>Planned for Pro</Label>
-      <View style={[uiStyles.row, { alignItems: 'flex-start' }]}><Icon name="time-outline" size={19} color={colors.muted} /><Label kind="caption" style={[uiStyles.muted, { flex: 1 }]}>Multiple collections, graded-card prices and CSV export are not available yet.</Label></View>
-    </View>
-
-    <View style={styles.purchaseStatus}>
-      <Icon name="information-circle-outline" color={colors.muted} size={21} />
-      <View style={{ flex: 1, gap: 4 }}><Label style={{ fontWeight: '600' }}>Purchases are not connected</Label><Label kind="caption" style={uiStyles.muted}>No payment is taken. Pro access is a local development simulation.</Label></View>
-    </View>
-    <Button title="Continue with Free" onPress={close} />
-    {__DEV__ ? <Label kind="caption" style={{ color: colors.muted, textAlign: 'center' }}>Preview Pro using the development switch in Profile.</Label> : null}
-  </Screen>;
+    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+      <View style={styles.pitch}>
+        <Label accessibilityRole="header" style={[styles.headline, width < 360 && styles.compactHeadline]}>{'Know what every\npull is worth.'}</Label>
+        <Label style={styles.subtitle}>Keep scanning. Find your next chase.</Label>
+      </View>
+      <ProCardHero />
+      <View testID="pro-benefits" style={styles.benefits}>
+        <View style={styles.benefit}><Icon name="scan-outline" color={colors.primary} size={21} /><Label style={styles.benefitText}>Keep scanning, pack after pack.</Label></View>
+        <View style={styles.benefit}><Icon name="layers-outline" color={colors.primary} size={21} /><Label style={styles.benefitText}>Save beyond the 50-card limit.</Label></View>
+      </View>
+      <View style={styles.actions}>
+        <Button title="Get Chase Pro" icon="arrow-forward-outline" onPress={() => setPurchaseNotice(true)} />
+        <Button title="Continue with Free" variant="ghost" onPress={close} />
+        <View style={styles.links}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Restore purchases" onPress={() => openAccount('restore')} style={styles.link}><Label kind="caption" style={styles.linkText}>Restore purchases</Label></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Terms" onPress={() => openAccount('terms')} style={styles.link}><Label kind="caption" style={styles.linkText}>Terms</Label></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Privacy" onPress={() => openAccount('privacy')} style={styles.link}><Label kind="caption" style={styles.linkText}>Privacy</Label></Pressable>
+        </View>
+      </View>
+    </ScrollView>
+    <Modal visible={purchaseNotice} transparent animationType="none" onRequestClose={() => setPurchaseNotice(false)}>
+      <View style={styles.scrim}>
+        <View role="dialog" accessibilityLabel="Chase Pro" accessibilityViewIsModal style={styles.notice}>
+          <Label kind="heading" accessibilityRole="header">Chase Pro</Label>
+          <Label style={styles.noticeText}>Subscriptions are currently unavailable. Please try again later. No payment has been taken.</Label>
+          <Button title="Got it" onPress={() => setPurchaseNotice(false)} />
+        </View>
+      </View>
+    </Modal>
+  </SafeAreaView>;
 }
 
 const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: colors.background },
+  header: { width: '100%', maxWidth: 520, alignSelf: 'center', paddingLeft: 24, paddingRight: 12, minHeight: 60, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  brand: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  brandIcon: { width: 28, height: 28, borderRadius: 8 },
+  brandName: { fontSize: 22, lineHeight: 28, fontWeight: '800', letterSpacing: -0.8 },
+  proBadge: { backgroundColor: colors.primary, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3, marginLeft: 2 },
+  proText: { fontSize: 10, lineHeight: 14, fontWeight: '800', letterSpacing: 1, color: colors.white },
   close: { minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center' },
-  proMark: { width: 56, height: 56, backgroundColor: colors.primarySoft, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
-  tableHeader: { flexDirection: 'row', borderBottomWidth: 1, borderColor: colors.border, minHeight: 56 },
-  tableRow: { flexDirection: 'row', borderBottomWidth: 1, borderColor: colors.border, minHeight: 72 },
-  featureColumn: { width: '40%', justifyContent: 'center', paddingVertical: 15, paddingRight: 10 },
-  planColumn: { width: '30%', justifyContent: 'center', alignItems: 'center', paddingVertical: 15, paddingHorizontal: 7 },
-  proColumn: { backgroundColor: colors.primarySoft },
-  purchaseStatus: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingVertical: 20, borderTopWidth: 1, borderColor: colors.border },
+  content: { flexGrow: 1, width: '100%', maxWidth: 520, alignSelf: 'center', paddingHorizontal: 24, paddingTop: 12, paddingBottom: 8, gap: 24 },
+  pitch: { alignItems: 'center', gap: 10 },
+  headline: { fontSize: 36, lineHeight: 41, letterSpacing: -1.2, fontWeight: '800', textAlign: 'center' },
+  compactHeadline: { fontSize: 32, lineHeight: 38 },
+  subtitle: { fontSize: 15, lineHeight: 22, textAlign: 'center', color: colors.muted },
+  hero: { width: '100%', alignItems: 'center', paddingTop: 6, gap: 6 },
+  card: { position: 'absolute', borderRadius: 10, backgroundColor: colors.surface, shadowColor: colors.heroInk, shadowOpacity: 0.16, shadowRadius: 12, shadowOffset: { width: 0, height: 8 }, elevation: 5 },
+  priceRow: { position: 'absolute', left: 0, right: 0, flexDirection: 'row', alignItems: 'center', gap: 6, zIndex: 4 },
+  priceColumn: { flex: 1, alignItems: 'center' },
+  priceBadge: { backgroundColor: colors.scanner, borderRadius: 9, paddingHorizontal: 8, paddingVertical: 7 },
+  centerPrice: { paddingHorizontal: 10, paddingVertical: 9 },
+  cardPrice: { color: colors.scannerPrice, fontSize: 14, lineHeight: 20, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  centerPriceText: { fontSize: 17, lineHeight: 22 },
+  illustrationNote: { color: colors.muted, textAlign: 'center', fontSize: 12, lineHeight: 18 },
+  benefits: { alignSelf: 'center', gap: 14, paddingVertical: 2 },
+  benefit: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  benefitText: { fontSize: 15, lineHeight: 22, fontWeight: '600', flexShrink: 1 },
+  actions: { gap: 0, marginTop: 'auto', paddingTop: 2 },
+  links: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', columnGap: 12 },
+  link: { minHeight: 48, minWidth: 48, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 3 },
+  linkText: { color: colors.muted, fontSize: 12 },
+  scrim: { flex: 1, backgroundColor: colors.scrim, padding: 24, alignItems: 'center', justifyContent: 'center' },
+  notice: { backgroundColor: colors.surface, width: '100%', maxWidth: 380, padding: 24, borderRadius: 20, gap: 16 },
+  noticeText: { color: colors.muted },
 });

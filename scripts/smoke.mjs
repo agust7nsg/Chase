@@ -23,6 +23,8 @@ let browser;
 async function fixtureContext(options) {
   const context = await browser.newContext(options);
   await installTCGdexFixtures(context);
+  // These scenarios use deterministic demo recognition, never a live Auth/scanner service.
+  await context.route('https://*.supabase.co/**', route => route.fulfill({ status: 503, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' }, json: { error: { code: 'fixture_unavailable' } } }));
   return context;
 }
 
@@ -64,11 +66,12 @@ async function scenario(name, action) {
   console.log(`PASS ${passed}: ${name}`);
 }
 
-function watchPage(page) {
+async function watchPage(page) {
   activePage = page;
   page.setDefaultTimeout(15_000);
   page.setDefaultNavigationTimeout(60_000);
   page.on('pageerror', (error) => runtimeErrors.push(error.stack ?? error.message));
+  await page.addLocatorHandler(button(page, 'Use demo scanner').first(), async locator => { await locator.click(); });
 }
 
 async function setSwitch(page, name, enabled) {
@@ -109,7 +112,7 @@ try {
   browser = await chromium.launch({ executablePath, headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
   const context = await fixtureContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
   const page = await context.newPage();
-  watchPage(page);
+  await watchPage(page);
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
 
   await scenario('three introduction screens, skip scan, and paywall close preserve the complimentary scan', async () => {
@@ -128,7 +131,9 @@ try {
     await button(page, 'Get started').click();
     await button(page, 'Try Free Scan').waitFor();
     await button(page, 'Skip for now').click();
-    await visibleText(page, 'Purchases are not connected').waitFor();
+    await button(page, 'Get Chase Pro').click();
+    await visibleText(page, 'Subscriptions are currently unavailable. Please try again later. No payment has been taken.').waitFor();
+    await button(page, 'Got it').click();
     await button(page, 'Close Chase Pro and go to Home').click();
     await home(page);
     const state = await waitForState(page, (value) => value.onboardingComplete, 'completed onboarding');
@@ -262,7 +267,9 @@ try {
     await tab(page, 'Home').click();
     await button(page, 'Scan a Card').click();
     await button(page, 'Explore Chase Pro').click();
-    await visibleText(page, 'Purchases are not connected').waitFor();
+    await button(page, 'Get Chase Pro').click();
+    await visibleText(page, 'Subscriptions are currently unavailable. Please try again later. No payment has been taken.').waitFor();
+    await button(page, 'Got it').click();
     await button(page, 'Close Chase Pro and return').click();
     await button(page, 'Close scanner, keep pending cards').click();
     await home(page);
@@ -367,7 +374,9 @@ try {
     const order = await page.getByRole('button').evaluateAll(elements => elements.map(element => element.textContent));
     assert.ok(order.findIndex(text => text.includes('About Chase')) < order.findIndex(text => text.includes('Explore Chase Pro')), 'Subscription controls belong below Settings & support.');
     await button(page, /Explore Chase Pro/).click();
-    await visibleText(page, 'Purchases are not connected').waitFor();
+    await button(page, 'Get Chase Pro').click();
+    await visibleText(page, 'Subscriptions are currently unavailable. Please try again later. No payment has been taken.').waitFor();
+    await button(page, 'Got it').click();
     await button(page, 'Close Chase Pro and go to Home').click();
     await tab(page, 'Profile').click();
     assert.deepEqual(await stateOf(page), before);
@@ -402,7 +411,7 @@ try {
     ] };
     await small.addInitScript(({ key, value }) => { if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(value)); }, { key: storageKey, value: fixture });
     const mobile = await small.newPage();
-    watchPage(mobile);
+    await watchPage(mobile);
     await mobile.goto(baseUrl, { waitUntil: 'domcontentloaded' });
     await home(mobile);
     await checkHorizontalLayout(mobile, '320px Home');
@@ -431,7 +440,7 @@ try {
       if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(value));
     }, { key: storageKey, value: { ...initialState, onboardingComplete: true } });
     const chasePage = await chaseContext.newPage();
-    watchPage(chasePage);
+    await watchPage(chasePage);
     await chasePage.goto(new URL('/search?view=cards', baseUrl).href, { waitUntil: 'domcontentloaded' });
     const chases = [
       ['swsh7-215', 'Umbreon VMAX', 'Evolving Skies', '215/203'],
@@ -476,7 +485,7 @@ try {
       { cardId: 'base2-68', quantity: 10, addedAt: '2026-10-17T03:00:00.000Z' },
     ] };
     await walletContext.addInitScript(({ key, value }) => { if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(value)); }, { key: storageKey, value: fixture });
-    const wallet = await walletContext.newPage(); watchPage(wallet);
+    const wallet = await walletContext.newPage(); await watchPage(wallet);
     await wallet.goto(new URL('/collection', baseUrl).href, { waitUntil: 'domcontentloaded' });
     await visibleText(wallet, '$1,176.60').waitFor();
     await wallet.getByRole('radio', { name: '7D history', exact: true }).click();
@@ -527,7 +536,7 @@ try {
   await scenario('empty-wallet preview and Home set shortcuts do not mutate owned cards or scan allowance', async () => {
     const previewContext = await fixtureContext({ viewport: { width: 320, height: 568 }, deviceScaleFactor: 1 });
     await previewContext.addInitScript(({ key, value }) => { if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(value)); }, { key: storageKey, value: { ...initialState, onboardingComplete: true } });
-    const previewPage = await previewContext.newPage(); watchPage(previewPage);
+    const previewPage = await previewContext.newPage(); await watchPage(previewPage);
     await previewPage.goto(new URL('/collection', baseUrl).href, { waitUntil: 'domcontentloaded' });
     await button(previewPage, 'Preview sample wallet').waitFor(); assert.equal(await previewPage.getByRole('slider').count(), 0, 'An empty wallet should prioritize adding cards rather than an empty curve.'); const before = await stateOf(previewPage);
     await button(previewPage, 'Preview sample wallet').click();
@@ -556,7 +565,7 @@ try {
     const artworkContext = await fixtureContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1 });
     const fixture = { ...initialState, onboardingComplete: true, trial: { successfulRecognitions: 1 }, items: [{ cardId: 'base1-4', quantity: 2, addedAt: '2026-10-01T00:00:00.000Z' }] };
     await artworkContext.addInitScript(({ key, value }) => { if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(value)); }, { key: storageKey, value: fixture });
-    const artworkPage = await artworkContext.newPage(); watchPage(artworkPage);
+    const artworkPage = await artworkContext.newPage(); await watchPage(artworkPage);
     await artworkPage.goto(baseUrl, { waitUntil: 'domcontentloaded' });
     const pool = ['swsh7-192', 'sv6-214', 'swsh7-215'];
     const launches = [];
@@ -600,7 +609,7 @@ try {
     const carouselContext = await fixtureContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true, reducedMotion: 'reduce' });
     const fixture = { ...initialState, trial: { successfulRecognitions: 1 }, items: [{ cardId: 'base1-4', quantity: 2, addedAt: '2026-10-01T00:00:00.000Z' }] };
     await carouselContext.addInitScript(({ key, value }) => { if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(value)); }, { key: storageKey, value: fixture });
-    const carouselPage = await carouselContext.newPage(); watchPage(carouselPage);
+    const carouselPage = await carouselContext.newPage(); await watchPage(carouselPage);
     await carouselPage.goto(new URL('/onboarding', baseUrl).href, { waitUntil: 'domcontentloaded' });
     const carousel = carouselPage.getByRole('slider', { name: 'Card price carousel', exact: true });
     await carousel.waitFor();
@@ -650,7 +659,7 @@ try {
       { cardId: 'swsh7-215', quantity: 1, addedAt: '2026-10-02T00:00:00.000Z' },
     ] };
     await currencyContext.addInitScript(({ key, value }) => { if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(value)); }, { key: storageKey, value: fixture });
-    const currencyPage = await currencyContext.newPage(); watchPage(currencyPage);
+    const currencyPage = await currencyContext.newPage(); await watchPage(currencyPage);
     await currencyPage.goto(baseUrl, { waitUntil: 'domcontentloaded' });
     await home(currencyPage); await tab(currencyPage, 'Collection').click();
     await visibleText(currencyPage, '$895.00').waitFor();
@@ -720,7 +729,7 @@ try {
     const retryContext = await fixtureContext({ viewport: { width: 320, height: 568 }, deviceScaleFactor: 1 });
     const fixture = { ...initialState, onboardingComplete: true, items: [{ cardId: 'base1-4', quantity: 1, addedAt: '2026-10-01T00:00:00.000Z' }] };
     await retryContext.addInitScript(({ key, value }) => { if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(value)); }, { key: storageKey, value: fixture });
-    const retryPage = await retryContext.newPage(); watchPage(retryPage);
+    const retryPage = await retryContext.newPage(); await watchPage(retryPage);
     await retryPage.goto(new URL('/collection', baseUrl).href, { waitUntil: 'domcontentloaded' });
     await button(retryPage, 'Change currency, USD').click();
     const dialog = retryPage.getByRole('dialog', { name: 'Currency', exact: true }); await dialog.waitFor();

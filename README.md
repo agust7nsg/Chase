@@ -111,3 +111,5 @@ An internal Android APK build profile is prepared; see [ANDROID_TEST_APK.md](AND
 ## Legal drafts
 
 English [Terms of Service](legal/TERMS_OF_SERVICE.md) and [Privacy Policy](legal/PRIVACY_POLICY.md) are drafted for BluePeak Global LLC (Wyoming, United States). They are not effective policies or published app destinations. See [publication review items](legal/README.md) for missing contact/address/age/date decisions and provider-retention, platform, and legal review requirements. The app's legal URLs remain unset.
+
+Chase Pro now uses a price-first three-card composition with green illustrative values and concise benefits. Its purchase action preserves the existing unconnected commerce boundary through an on-demand notice; it never grants or charges Pro. Run `npm run test:paywall` with a local web server for responsive layout, USD/EUR, checkout notice and navigation/state-preservation checks.
