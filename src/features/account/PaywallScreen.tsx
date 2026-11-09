@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { BackHandler, Modal, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Image } from 'expo-image';
+import { ChaseBrand } from '@/components/ChaseBrand';
 import { Button, Icon, Label } from '@/components/ui';
 import { CardPrint } from '@/components/CardPrint';
 import { getLegacyCard } from '@/data/mocks/catalog';
@@ -68,8 +68,7 @@ export default function PaywallScreen() {
   return <SafeAreaView style={styles.screen} edges={['top', 'bottom', 'left', 'right']}>
     <View style={styles.header}>
       <View style={styles.brand} accessible accessibilityLabel="Chase Pro">
-        <Image source={require('@/assets/brand/icon.png')} style={styles.brandIcon} contentFit="contain" accessible={false} />
-        <Label style={styles.brandName}>chase</Label><View style={styles.proBadge}><Label style={styles.proText}>PRO</Label></View>
+        <ChaseBrand /><View style={styles.proBadge}><Label style={styles.proText}>PRO</Label></View>
       </View>
       <Pressable onPress={close} accessibilityRole="button" accessibilityLabel={returnTo ? 'Close Chase Pro and return' : 'Close Chase Pro and go to Home'} style={({ pressed }) => [styles.close, pressed && { opacity: 0.6 }]}><Icon name="close" size={24} /></Pressable>
     </View>
@@ -109,8 +108,6 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   header: { width: '100%', maxWidth: 520, alignSelf: 'center', paddingLeft: 24, paddingRight: 12, minHeight: 60, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   brand: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  brandIcon: { width: 28, height: 28, borderRadius: 8 },
-  brandName: { fontSize: 22, lineHeight: 28, fontWeight: '800', letterSpacing: -0.8 },
   proBadge: { backgroundColor: colors.primary, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3, marginLeft: 2 },
   proText: { fontSize: 10, lineHeight: 14, fontWeight: '800', letterSpacing: 1, color: colors.white },
   close: { minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center' },

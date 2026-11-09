@@ -132,6 +132,8 @@ The catalog opens a newest-first expansion directory with real set logos, names 
 
 ## Chase Pro presentation
 
+Home, onboarding and Chase Pro share the `ChaseBrand` header: approved blue launcher mark at 28px, lowercase 22px bold wordmark and 8px spacing. Do not substitute the generic scanner icon for the brand symbol.
+
 The Pro page leads with price discovery: “Know what every pull is worth.” A three-card fan uses bundled Charizard, Umbreon VMAX and Greninja ex printings, with Umbreon centered and side cards rotated outward. All three illustrative values use the shared currency formatter and the scanner's bright green on solid dark plaques; one currency-aware illustrative-values caption covers the composition. The green-on-dark treatment is explicitly requested for this page as well as scanner reveals.
 
 Keep the page concise: two concrete benefits (continued scanning and saving beyond 50 copies), a clear primary action, a Free exit and restore/legal links. Do not bring back comparison tables, roadmap lists or large construction-status panels. The close action stays outside the scrolling body. Cards and price plaques have reserved geometry and bundled art so remote catalog/pricing failures do not delay the presentation. Standard interface copy grows and scrolls with text scaling; illustrative price labels use a bounded multiplier and full spoken labels.
