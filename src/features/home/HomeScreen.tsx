@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { StyleSheet, useWindowDimensions, View } from 'react-native';
+import { Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { Badge, Button, Label, Screen, Section, uiStyles } from '@/components/ui';
 import { CardPrint } from '@/components/CardPrint';
 import { CardRow } from '@/components/CardRow';
@@ -19,7 +19,11 @@ export default function HomeScreen() {
   return <Screen>
     <View style={uiStyles.between}>
       <ChaseBrand />
-      <Badge tone={state.plan === 'pro' ? 'warm' : 'neutral'}>{state.plan === 'pro' ? 'Pro · demo' : 'Free'}</Badge>
+      {state.plan === 'pro' ? <Badge tone="warm">Pro · demo</Badge> :
+        <Pressable accessibilityRole="button" accessibilityLabel="Turn Pro" onPress={() => router.push('/paywall')}
+          style={({ pressed }) => [styles.upgradeButton, pressed && { opacity: 0.6 }]}>
+          <View style={styles.upgradeBadge}><Label kind="caption" style={styles.upgradeText}>Turn Pro</Label></View>
+        </Pressable>}
     </View>
 
     <View style={styles.findSection}>
@@ -48,6 +52,9 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
+  upgradeButton: { minHeight: 48, minWidth: 48, justifyContent: 'center', alignItems: 'center' },
+  upgradeBadge: { backgroundColor: colors.primary, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 },
+  upgradeText: { color: colors.white, fontWeight: '700' },
   findSection: { gap: 16 },
   scanHero: { marginHorizontal: -24, paddingHorizontal: 24, paddingTop: 20, paddingBottom: 16, gap: 12, backgroundColor: colors.heroBlue, overflow: 'hidden' },
   heroStory: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, minHeight: 206, paddingBottom: 12 },
