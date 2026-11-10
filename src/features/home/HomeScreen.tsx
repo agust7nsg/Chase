@@ -12,12 +12,15 @@ import { HomeSetsShelf } from './HomeSetsShelf';
 export default function HomeScreen() {
   const { state, featuredCardId } = useChase();
   const { fontScale } = useWindowDimensions();
+  // Preserve the former badge/brand row height, including system text scaling.
+  const previousHeaderHeight = Math.max(28, 28 * fontScale, 19 * fontScale + 10);
+  const headerMargin = -Math.max(0, 48 - previousHeaderHeight) / 2;
   const startScan = () => router.push('/scanner');
   const recent = [...state.items].sort((a, b) => b.addedAt.localeCompare(a.addedAt)).slice(0, 3);
   const featuredCard = getCatalogCard(featuredCardId)!;
 
   return <Screen>
-    <View style={uiStyles.between}>
+    <View style={[uiStyles.between, state.plan !== 'pro' && { marginVertical: headerMargin }]}>
       <ChaseBrand />
       {state.plan === 'pro' ? <Badge tone="warm">Pro · demo</Badge> :
         <Pressable accessibilityRole="button" accessibilityLabel="Turn Pro" onPress={() => router.push('/paywall')}
