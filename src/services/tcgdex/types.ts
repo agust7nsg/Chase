@@ -1,4 +1,5 @@
 import type { Card } from '../../types/domain';
+import type { CatalogPackStore } from './packs';
 
 export interface CatalogSet {
   id: string;
@@ -46,6 +47,8 @@ export interface CatalogStorage {
 }
 
 export interface TcgDexOptions {
+  packs?: CatalogPackStore;
+  getSavedCard?: (id: string) => Card | undefined;
   fetch?: typeof globalThis.fetch;
   storage?: CatalogStorage;
   now?: () => number;

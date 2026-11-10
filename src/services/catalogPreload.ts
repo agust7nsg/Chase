@@ -1,6 +1,7 @@
 import { cardArtworkSources } from './tcgdex/artwork';
 import type { CatalogPage, CatalogQuery, CatalogSet } from './tcgdex/types';
 export interface PreloadCatalog {
+  syncInstalledCatalog?(signal: AbortSignal, beforeBatch: () => Promise<void>): Promise<void>;
   listSets(): Promise<CatalogSet[]>;
   queryCards(query: CatalogQuery): Promise<CatalogPage>;
 }
@@ -14,6 +15,7 @@ export class CatalogPreloader {
     this.running = true;
     try {
       // listSets already requests releaseDate DESC, including briefs without dates.
+      await this.catalog.syncInstalledCatalog?.(signal, () => this.wait(signal));
       const sets = await this.catalog.listSets();
       for (const set of sets) {
         if (signal.aborted) return;

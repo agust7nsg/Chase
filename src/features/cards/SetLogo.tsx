@@ -5,6 +5,7 @@ import { Icon, Label } from '@/components/ui';
 import { colors } from '@/theme/tokens';
 import type { CatalogSet } from '@/services/tcgdex/types';
 import { setLogoSources, usesAnniversaryBranding } from '@/services/tcgdex/artwork';
+import { bundledCatalogArtwork } from '@/data/catalogArtwork';
 
 const anniversaryLogo = require('../../../assets/sets/30th-celebration.png');
 
@@ -21,7 +22,7 @@ export function SetLogo({ set, width = 88, height = 52 }: { set: CatalogSet; wid
     style={{ width, height, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.subtle, borderRadius: 8 }}>
     <Icon name="layers-outline" color={colors.muted} size={26} />
   </View>;
-  return <Image source={{ uri: source }} contentFit="contain" cachePolicy="memory-disk" recyclingKey={`${set.id}:${source}`}
+  return <Image source={bundledCatalogArtwork(source) ?? { uri: source }} contentFit="contain" cachePolicy="memory-disk" recyclingKey={`${set.id}:${source}`}
     accessibilityLabel={`${set.name} set ${set.logo && source.startsWith(set.logo.replace(/\/$/, '')) ? 'logo' : 'symbol'}`} onError={() => setFailed(previous => previous.includes(source) ? previous : [...previous, source])}
     style={{ width, height }} />;
 }

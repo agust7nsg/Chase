@@ -61,7 +61,8 @@
     "test:account-deletion-sql": "node scripts/account-deletion-sql.mjs",
     "test:account-deletion": "node scripts/account-deletion-smoke.mjs",
     "test:catalog-preload": "node scripts/catalog-preload-smoke.mjs",
-    "test:paywall": "node scripts/paywall-smoke.mjs"
+    "test:paywall": "node scripts/paywall-smoke.mjs",
+    "test:local-catalog": "node scripts/local-catalog-smoke.mjs"
   },
   "private": true,
   "packageManager": "npm@11.9.0"

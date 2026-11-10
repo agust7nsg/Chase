@@ -4,6 +4,7 @@ import { usePathname } from 'expo-router';
 import { Image } from 'expo-image';
 import { catalogService } from '@/services/catalog';
 import { CatalogPreloader, preloadDelay, prefetchCatalogImages } from '@/services/catalogPreload';
+import { bundledCatalogArtwork } from '@/data/catalogArtwork';
 
 const pendingImages = new Map<string, Promise<boolean>>();
 function prefetchImage(url: string): Promise<boolean> {
@@ -14,7 +15,7 @@ function prefetchImage(url: string): Promise<boolean> {
   void request.finally(() => pendingImages.delete(url)).catch(() => {});
   return request;
 }
-const preloader = new CatalogPreloader(catalogService, (urls, signal) => prefetchCatalogImages(urls, signal,
+const preloader = new CatalogPreloader(catalogService, (urls, signal) => prefetchCatalogImages(urls.filter(url => bundledCatalogArtwork(url) === undefined), signal,
   prefetchImage), preloadDelay);
 
 export function CatalogPreload({ ready }: { ready: boolean }) {

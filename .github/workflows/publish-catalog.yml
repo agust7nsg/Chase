@@ -1,0 +1,38 @@
+name: Publish catalog packages
+on:
+  workflow_dispatch:
+    inputs:
+      refresh_prices:
+        description: 'Refresh public exact-printing prices (longer run); saved dated quotes survive provider failures'
+        type: boolean
+        default: true
+  schedule:
+    - cron: '15 7 * * 1'
+permissions:
+  contents: read
+concurrency:
+  group: chase-catalog-publication
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Fetch official structural catalog
+        run: |
+          git clone --depth 1 https://github.com/tcgdex/cards-database.git "$RUNNER_TEMP/tcgdex"
+          curl -fsSL --retry 2 https://assets.tcgdex.net/datas.json -o "$RUNNER_TEMP/catalog-images.json"
+          node scripts/catalog/build-base.mjs "$RUNNER_TEMP/tcgdex" "$RUNNER_TEMP/catalog-images.json"
+      - name: Validate generated package identities
+        run: node --import tsx scripts/catalog/validate.ts
+      - name: Publish public read-only catalog packages
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          CATALOG_REFRESH_PRICES: ${{ github.event_name == 'schedule' || inputs.refresh_prices }}
+        run: node scripts/catalog/publish.mjs

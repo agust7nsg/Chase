@@ -3,13 +3,14 @@ import { useEffect, useState } from 'react';
 import { View, type ImageStyle } from 'react-native';
 import type { Card } from '@/types/domain';
 import { cardVisuals, visualFor } from '@/data/cardVisuals';
+import { bundledCatalogArtwork } from '@/data/catalogArtwork';
 import { colors } from '@/theme/tokens';
 import { cardArtworkSources } from '@/services/tcgdex/artwork';
 import { Icon, Label } from './ui';
 
 export function CardPrint({ card, style, onLoad, onError }: { card: Card; style?: ImageStyle; onLoad?: () => void; onError?: () => void }) {
   const advertised = visualFor(card).source;
-  const bundledSource = cardVisuals[card.id]?.source;
+  const bundledSource = cardVisuals[card.id]?.source ?? bundledCatalogArtwork(card.imageUrl);
   const imageId = `${card.id}:${typeof advertised === 'number' || typeof advertised === 'string' ? advertised : advertised?.uri ?? ''}`;
   const remoteUri = typeof advertised === 'string' ? advertised : typeof advertised === 'object' ? advertised?.uri : undefined;
   // Metro resolves bundled artwork to numeric native IDs or local web URIs.

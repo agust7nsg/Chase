@@ -113,3 +113,7 @@ An internal Android APK build profile is prepared; see [ANDROID_TEST_APK.md](AND
 English [Terms of Service](legal/TERMS_OF_SERVICE.md) and [Privacy Policy](legal/PRIVACY_POLICY.md) are drafted for BluePeak Global LLC (Wyoming, United States). They are not effective policies or published app destinations. See [publication review items](legal/README.md) for missing contact/address/age/date decisions and provider-retention, platform, and legal review requirements. The app's legal URLs remain unset.
 
 Chase Pro now uses a price-first three-card composition with green illustrative values and concise benefits. Its purchase action preserves the existing unconnected commerce boundary through an on-demand notice; it never grants or charges Pro. Run `npm run test:paywall` with a local web server for responsive layout, USD/EUR, checkout notice and navigation/state-preservation checks.
+
+## Installed catalog
+
+The app now includes the complete pinned English structural catalog and original artwork for recent available sets, so cold browsing does not wait for individual card API calls. Public Supabase package updates and exact dated prices are separate from the installed structural base. See [LOCAL_CATALOG.md](LOCAL_CATALOG.md) for the one-time **Publish catalog packages** workflow, retained image quality, first-install/offline limits, regeneration and tests. No native dependency or ownership migration is added.

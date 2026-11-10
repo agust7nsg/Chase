@@ -30,10 +30,14 @@ export class TcgDexCatalogService implements CardCatalogService {
   private storageUnavailable = false;
   private readonly cacheIoTimeoutMs: number;
   private recognitionRefreshAt = -Infinity;
+  private readonly priceRefresh = new Set<string>();
+  private readonly detailRefresh = new Set<string>();
+  private readonly recognitionSets = new Map<string, CatalogSetDetails>();
 
   constructor(options: TcgDexOptions = {}) {
     this.options = options;
     this.language = options.language ?? 'en';
+    if (options.packs && this.language !== 'en') throw new Error('The installed catalog is English.');
     if (!/^[a-z]{2}(?:-[a-z]{2})?$/.test(this.language)) throw new Error('Invalid catalog language.');
     this.base = `${(options.baseUrl ?? 'https://api.tcgdex.net/v2').replace(/\/$/, '')}/${this.language}`;
     if (!this.base.startsWith('https://')) throw new Error('Catalog requests require HTTPS.');
@@ -175,8 +179,17 @@ export class TcgDexCatalogService implements CardCatalogService {
     return operation;
   }
 
-  private async resource(path: string, signal?: AbortSignal): Promise<Resource> {
+  private async resource(path: string, signal?: AbortSignal, live = false): Promise<Resource> {
     if (signal?.aborted) throw abortError();
+    if (!live && this.options.packs) {
+      const installed = await this.options.packs.read(path);
+      if (signal?.aborted) throw abortError();
+      if (installed) {
+        const saved = path.startsWith('cards/') ? await this.readCache(path) : undefined;
+        if (saved && saved.savedAt >= installed.savedAt) return { value: clone(saved.value), savedAt: saved.savedAt, fromCache: true, stale: false };
+        return { ...installed, value: clone(installed.value) };
+      }
+    }
     if (!signal) return this.request(path);
     let listener: (() => void) | undefined;
     try {
@@ -188,7 +201,14 @@ export class TcgDexCatalogService implements CardCatalogService {
     } finally { if (listener) signal.removeEventListener('abort', listener); }
   }
 
-  private publish(cards: Card[]): Card[] {
+  private savedQuote(card: Card): Card {
+    const saved = this.options.getSavedCard?.(card.id);
+    return !card.marketPrice && saved?.marketPrice && saved.catalogIdentity?.id === card.catalogIdentity?.id && saved.catalogIdentity?.variant === card.catalogIdentity?.variant
+      ? { ...card, marketPrice: { ...saved.marketPrice }, prices: saved.prices?.map(quote => ({ ...quote })) } : card;
+  }
+
+  private publish(cards: Card[], structural = false): Card[] {
+    if (structural) cards = cards.map(card => this.savedQuote(card));
     this.options.onCards?.(clone(cards));
     return clone(cards).map(card => {
       card.prices?.forEach(Object.freeze);
@@ -209,22 +229,30 @@ export class TcgDexCatalogService implements CardCatalogService {
   async refreshRecognitionIndex(setIds: string[] = []): Promise<CatalogSet[]> {
     if (this.now() - this.recognitionRefreshAt < 60_000) return this.listSets();
     this.recognitionRefreshAt = this.now();
-    const [result] = await Promise.all(['sets?sort:field=releaseDate&sort:order=DESC',
+    const [result, ...details] = await Promise.all(['sets?sort:field=releaseDate&sort:order=DESC',
       ...[...new Set(setIds)].slice(0, 4).map(id => `sets/${encodeURIComponent(id)}`)].map(path => this.request(path, true)));
+    for (const detail of details) if (detail.value && !detail.stale) {
+      const set = normalizeSetDetails(detail.value);
+      this.recognitionSets.set(set.id, set);
+      while (this.recognitionSets.size > 8) this.recognitionSets.delete(this.recognitionSets.keys().next().value!);
+    }
     if (!Array.isArray(result.value)) throw new CatalogError('INVALID_RESPONSE', 'TCGdex returned an invalid set list.');
     return result.value.map(normalizeSet);
   }
 
   async getSet(id: string): Promise<CatalogSetDetails | undefined> {
+    const refreshed = this.recognitionSets.get(id);
+    if (refreshed) return clone(refreshed);
     const result = await this.resource(`sets/${encodeURIComponent(id)}`);
     return result.value === null ? undefined : normalizeSetDetails(result.value);
   }
 
   async getCard(id: string): Promise<Card | undefined> {
     const identity = parseCollectibleId(id, this.language);
+    if (this.options.packs) this.detailRefresh.add(identity.id);
     const result = await this.resource(`cards/${encodeURIComponent(identity.id)}`);
     if (result.value === null) return undefined;
-    const cards = this.publish(normalizeCards(result.value, this.language));
+    const cards = this.publish(normalizeCards(result.value, this.language), result.savedAt === 0);
     const selected = identity.variant ? cards.find(card => card.catalogIdentity?.variant === identity.variant) : cards[0];
     if (result.stale) {
       const error = new CatalogError('NETWORK', 'Could not refresh this card. Showing the saved printing.');
@@ -236,8 +264,9 @@ export class TcgDexCatalogService implements CardCatalogService {
 
   async getVariants(id: string): Promise<Card[]> {
     const identity = parseCollectibleId(id, this.language);
+    if (this.options.packs) this.detailRefresh.add(identity.id);
     const result = await this.resource(`cards/${encodeURIComponent(identity.id)}`);
-    const cards = result.value === null ? [] : this.publish(normalizeCards(result.value, this.language));
+    const cards = result.value === null ? [] : this.publish(normalizeCards(result.value, this.language), result.savedAt === 0);
     if (result.stale) {
       const error = new CatalogError('NETWORK', 'Could not refresh this card. Showing the saved printing.');
       error.cachedCards = cards; error.cachedCard = cards.find(card => card.catalogIdentity?.variant === identity.variant) ?? cards[0];
@@ -249,7 +278,7 @@ export class TcgDexCatalogService implements CardCatalogService {
   async listCards(): Promise<Card[]> { return (await this.queryCards()).cards; }
   async searchCards(query: string): Promise<Card[]> { return (await this.queryCards({ query })).cards; }
 
-  private async setPrices(set: CatalogSetDetails, matching: typeof set.cards, query: CatalogQuery): Promise<Resource> {
+  private async setPrices(set: CatalogSetDetails, matching: typeof set.cards, query: CatalogQuery, live = false): Promise<Resource> {
     const path = `ranked-sets-price-v1/${encodeURIComponent(set.id)}`;
     const cached = await this.readCache(path);
     if (query.signal?.aborted) throw abortError();
@@ -257,8 +286,16 @@ export class TcgDexCatalogService implements CardCatalogService {
     // A changed printing index invalidates a complete-set ranking, even within its TTL.
     const reusable = cached && Array.isArray(cached.value) && cached.value.length === currentIds.size
       && cached.value.every(raw => record(raw) && typeof raw.id === 'string' && currentIds.has(raw.id)) ? cached : undefined;
+    if (!live && this.options.packs) {
+      const pack = await this.options.packs.getSet(set.id);
+      if (pack) {
+        if (!query.background) this.priceRefresh.add(set.id);
+        if (reusable && reusable.savedAt >= (pack.fetchedAt ?? 0)) return { value: clone(reusable.value), savedAt: reusable.savedAt, fromCache: true, stale: false };
+        return { value: pack.cards.map(card => ({ ...card, set: pack.set })), savedAt: pack.fetchedAt ?? 0, fromCache: true, stale: false };
+      }
+    }
     if (reusable && this.now() - reusable.savedAt < this.ttl) {
-      return { value: clone(reusable.value), fromCache: true, stale: false };
+      return { value: clone(reusable.value), savedAt: reusable.savedAt, fromCache: true, stale: false };
     }
     const values: unknown[] = [];
     let fromCache = false;
@@ -271,7 +308,7 @@ export class TcgDexCatalogService implements CardCatalogService {
       for (let start = 0; start < matching.length; start += 6) {
         await query.beforeBatch?.();
         if (query.signal?.aborted) throw abortError();
-        const group = await Promise.all(matching.slice(start, start + 6).map(brief => this.resource(`cards/${encodeURIComponent(brief.id)}`, query.signal)));
+        const group = await Promise.all(matching.slice(start, start + 6).map(brief => this.resource(`cards/${encodeURIComponent(brief.id)}`, query.signal, live)));
         for (const detail of group) {
           if (!record(detail.value)) throw new CatalogError('INVALID_RESPONSE', 'A printing in this set could not be loaded. Please retry.');
           const card = normalizeCards(detail.value, this.language)[0];
@@ -298,7 +335,7 @@ export class TcgDexCatalogService implements CardCatalogService {
       this.remember(path, entry);
       try { await this.persist(path, entry); } catch { /* Full cache does not hide successfully loaded prices. */ }
     }
-    return { value: values, fromCache, stale };
+    return { value: values, savedAt: oldestQuote, fromCache, stale };
   }
 
   private async querySetCards(query: CatalogQuery, page: number, pageSize: number): Promise<CatalogPage> {
@@ -309,14 +346,14 @@ export class TcgDexCatalogService implements CardCatalogService {
     const prices = matching.length ? await this.setPrices(set, matching, query) : { value: [], fromCache: result.fromCache, stale: result.stale };
     // A large set can evict its own index during hydration. Keep the index and
     // complete ranking together so pagination and cold offline reopening work.
-    if (matching.length === set.cards.length && result.savedAt !== undefined) {
+    if (!this.options.packs && matching.length === set.cards.length && result.savedAt !== undefined) {
       const path = `sets/${encodeURIComponent(set.id)}`;
       const entry = { value: result.value, savedAt: result.savedAt };
       this.remember(path, entry);
       try { await this.persist(path, entry); } catch { /* The in-memory index remains usable. */ }
     }
     const ids = new Set(matching.map(card => card.id));
-    const ranked = (prices.value as unknown[]).map(raw => priceRepresentative(normalizeCards(raw, this.language)))
+    const ranked = (prices.value as unknown[]).map(raw => priceRepresentative(normalizeCards(raw, this.language).map(card => prices.savedAt === 0 ? this.savedQuote(card) : card)))
       .filter(card => ids.has(card.catalogIdentity!.id)).sort(compareCardPrices);
     const cards = ranked.slice((page - 1) * pageSize, page * pageSize);
     return { cards: query.background ? clone(cards) : this.publish(cards), page, total: matching.length, hasMore: page * pageSize < matching.length,
@@ -329,6 +366,7 @@ export class TcgDexCatalogService implements CardCatalogService {
     const pageSize = Math.max(1, Math.min(100, Math.floor(query.pageSize ?? 24)));
     if (!Number.isFinite(page) || !Number.isFinite(pageSize)) throw new Error('Invalid catalog page.');
     if (query.setId) return this.querySetCards(query, page, pageSize);
+    if (this.options.packs) return this.queryLocalCards(query, page, pageSize);
     const text = (query.collectorNumber ?? query.query ?? '').trim();
     const fraction = text.match(/^(.*?)\s*([a-z]*\d+[a-z]*)\s*\/\s*(\d+)$/i);
     const numberOnly = text.match(/^(?:\d+[a-z]*|(?:TG|GG|SV|RC|SH|SM|SWSH|XY|BW|DP|HGSS)\d+[a-z]*)$/i);
@@ -396,5 +434,46 @@ export class TcgDexCatalogService implements CardCatalogService {
     return { cards: this.publish(cards), page, hasMore: sorted.length > page * pageSize,
       ...(sorted.length < take ? { total: sorted.length } : {}),
       fromCache: resources.some(resource => resource.fromCache), stale: resources.some(resource => resource.stale) };
+  }
+
+  private async queryLocalCards(query: CatalogQuery, page: number, pageSize: number): Promise<CatalogPage> {
+    const matches: { id: string }[] = [];
+    for (const set of this.options.packs!.listSets()) {
+      if (!this.options.packs!.hasBundledSet(set.id)) await this.options.packs!.getSet(set.id);
+    }
+    // Search the installed index locally; do not register thousands of unseen cards.
+    for (const { set, cards } of this.options.packs!.searchSets()) {
+      if (query.signal?.aborted) throw abortError();
+      const matchesSetName = query.query?.trim() && set.name.toLowerCase().includes(query.query.trim().toLowerCase());
+      matches.push(...orderedSetCards({ ...set, cards }, matchesSetName && !query.collectorNumber ? { ...query, query: '' } : query));
+    }
+    matches.sort((a,b) => a.id.localeCompare(b.id));
+    const selected = matches.slice((page - 1) * pageSize, page * pageSize);
+    const resources = await Promise.all(selected.map(card => this.resource(`cards/${encodeURIComponent(card.id)}`, query.signal)));
+    const cards = resources.filter(resource => resource.value).map(resource => priceRepresentative(normalizeCards(resource.value, this.language).map(card => resource.savedAt === 0 ? this.savedQuote(card) : card)));
+    return { cards: query.background ? clone(cards) : this.publish(cards), page, total: matches.length, hasMore: page * pageSize < matches.length, fromCache: true, stale: false };
+  }
+
+  /** Called only by the idle preloader; never a prerequisite for browsing or recognition. */
+  async syncInstalledCatalog(signal: AbortSignal, beforeBatch: () => Promise<void>): Promise<void> {
+    if (!this.options.packs) return;
+    for (const id of [...this.detailRefresh].slice(0, 6)) {
+      await beforeBatch(); if (signal.aborted) return;
+      try { await this.resource(`cards/${encodeURIComponent(id)}`, signal, true); this.detailRefresh.delete(id); } catch { break; }
+    }
+    for (const id of [...this.priceRefresh]) {
+      await beforeBatch(); if (signal.aborted) return;
+      try {
+        const result = await this.resource(`sets/${encodeURIComponent(id)}`, signal, true);
+        if (!result.value) continue;
+        const set = normalizeSetDetails(result.value);
+        const prices = await this.setPrices(set, set.cards, { signal, background: true, beforeBatch }, true);
+        if (prices.stale || signal.aborted) return;
+        await this.options.packs.save({ schema: 1, language: 'en', revision: `device-${prices.savedAt ?? this.now()}`, set,
+          fetchedAt: Math.min(result.savedAt ?? this.now(), prices.savedAt ?? this.now()), cards: prices.value as Record<string, unknown>[] });
+        this.priceRefresh.delete(id);
+      } catch { break; }
+    }
+    await this.options.packs.sync(signal, beforeBatch);
   }
 }
