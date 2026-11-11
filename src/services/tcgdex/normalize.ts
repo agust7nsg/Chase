@@ -1,3 +1,4 @@
+import { isPocketSet, isPocketCard } from './policy';
 import type { Card, CardVariant, MarketPrice } from '../../types/domain';
 import { CatalogError, type CatalogSet, type CatalogSetDetails } from './types';
 import { cardArtworkSources } from './artwork';
@@ -69,6 +70,7 @@ export function normalizeCards(value: unknown, language: string): Card[] {
     || !record(value.set) || !text(value.set.id) || !text(value.set.name)) {
     throw new CatalogError('INVALID_RESPONSE', 'TCGdex returned an invalid card.');
   }
+  if (isPocketSet(value.set) || isPocketCard(value.id as string)) throw new CatalogError('HTTP', 'TCG Pocket is not supported.', 404);
   const supported = finishes.filter(finish => record(value.variants) && value.variants[finish.flag] === true);
   if (supported.length === 0) supported.push({ key: 'unspecified', label: 'Unspecified', flag: 'unspecified' });
   const availableVariants = supported.map(finish => ({ id: collectibleId(language, value.id as string, finish.key), label: finish.label }));
@@ -98,6 +100,7 @@ export function normalizeSet(value: unknown): CatalogSet {
   if (!record(value) || !text(value.id) || !text(value.name)) throw new CatalogError('INVALID_RESPONSE', 'TCGdex returned an invalid set.');
   const count = value.cardCount;
   return { id: value.id, name: value.name,
+    ...(typeof value.seriesId === 'string' ? { seriesId: value.seriesId } : record(value.serie) && typeof value.serie.id === 'string' ? { seriesId: value.serie.id } : {}),
     ...(date(value.releaseDate) ? { releaseDate: value.releaseDate } : {}),
     ...(record(count) && number(count.official) && number(count.total) ? { cardCount: { official: count.official, total: count.total } } : {}),
     ...(https(value.logo) ? { logo: https(value.logo) } : {}), ...(https(value.symbol) ? { symbol: https(value.symbol) } : {}),
@@ -112,5 +115,6 @@ export function normalizeSetDetails(value: unknown): CatalogSetDetails {
 
 export function normalizeBrief(value: unknown): { id: string; name: string; localId: string; image?: string } {
   if (!record(value) || !text(value.id) || !text(value.name) || !text(value.localId)) throw new CatalogError('INVALID_RESPONSE', 'TCGdex returned an invalid card list.');
-  return { id: value.id, name: value.name, localId: value.localId, ...(https(value.image) ? { image: https(value.image) } : {}) };
+  return { id: value.id, name: value.name,
+    ...(typeof value.seriesId === 'string' ? { seriesId: value.seriesId } : record(value.serie) && typeof value.serie.id === 'string' ? { seriesId: value.serie.id } : {}), localId: value.localId, ...(https(value.image) ? { image: https(value.image) } : {}) };
 }

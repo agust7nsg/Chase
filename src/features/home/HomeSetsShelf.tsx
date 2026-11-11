@@ -4,15 +4,17 @@ import { Button, Label, Section, uiStyles } from '@/components/ui';
 import { SetLogo } from '@/features/cards/SetLogo';
 import { useCatalogSets } from '@/features/cards/useCatalogSets';
 import { colors } from '@/theme/tokens';
+import { showSetOnHome } from '@/services/tcgdex/policy';
 
 export function HomeSetsShelf() {
   const { sets, loading, error, retry } = useCatalogSets();
+  const homeSets = sets.filter(showSetOnHome);
   const { fontScale } = useWindowDimensions();
   return <View style={{ gap: 8 }}>
     <Section title="Browse by set" action="See all" onPress={() => router.push('/search')} />
-    {sets.length ? <>
-      <Label kind="caption" style={uiStyles.muted}>{sets.length} expansions · Newest first</Label>
-      <FlatList horizontal data={sets} keyExtractor={set => set.id} initialNumToRender={4} windowSize={5} showsHorizontalScrollIndicator={false}
+    {homeSets.length ? <>
+      <Label kind="caption" style={uiStyles.muted}>{homeSets.length} expansions · Newest first</Label>
+      <FlatList horizontal data={homeSets} keyExtractor={set => set.id} initialNumToRender={4} windowSize={5} showsHorizontalScrollIndicator={false}
         accessibilityLabel="Pokémon TCG expansions" contentContainerStyle={{ gap: 12, paddingVertical: 8 }}
         renderItem={({ item }) => <Pressable accessibilityRole="button" accessibilityLabel={`Browse ${item.name}`}
           onPress={() => router.push({ pathname: '/search', params: { view: 'cards', setId: item.id, setName: item.name } })}

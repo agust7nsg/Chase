@@ -1,3 +1,4 @@
+import { isPocketSet } from '../../src/services/tcgdex/policy.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -55,11 +56,11 @@ for (const serie of fs.readdirSync(path.join(root, 'data'), { withFileTypes: tru
   const folder = path.join(root, 'data', serie.name);
   for (const name of fs.readdirSync(folder).filter(n => n.endsWith('.ts'))) {
     const source = read(path.join(folder, name), ['id', 'name', 'serie', 'releaseDate', 'cardCount']);
-    if (!source.name?.en || !source.serie?.name?.en) continue;
+    if (!source.name?.en || !source.serie?.name?.en || isPocketSet(source)) continue;
     const cardFolder = path.join(folder, name.slice(0, -3));
     const pictures = assets.en?.[source.serie.id]?.[source.id] ?? {};
     const symbol = assets.univ?.[source.serie.id]?.[source.id]?.symbol;
-    const set = { id: source.id, name: source.name.en, releaseDate: typeof source.releaseDate === 'string' ? source.releaseDate : source.releaseDate?.en ?? Object.values(source.releaseDate ?? {})[0], cardCount: { official: source.cardCount.official, total: 0 }, ...(pictures.logo ? { logo: `https://assets.tcgdex.net/en/${source.serie.id}/${source.id}/logo` } : {}), ...(symbol ? { symbol: `https://assets.tcgdex.net/univ/${source.serie.id}/${source.id}/symbol` } : {}) };
+    const set = { id: source.id, seriesId: source.serie.id, name: source.name.en, releaseDate: typeof source.releaseDate === 'string' ? source.releaseDate : source.releaseDate?.en ?? Object.values(source.releaseDate ?? {})[0], cardCount: { official: source.cardCount.official, total: 0 }, ...(pictures.logo ? { logo: `https://assets.tcgdex.net/en/${source.serie.id}/${source.id}/logo` } : {}), ...(symbol ? { symbol: `https://assets.tcgdex.net/univ/${source.serie.id}/${source.id}/symbol` } : {}) };
     const cards = [];
     if (fs.existsSync(cardFolder)) for (const cardFile of fs.readdirSync(cardFolder).filter(n => n.endsWith('.ts'))) {
       const card = read(path.join(cardFolder, cardFile), ['name', 'variants', 'description']); if (!card.name?.en) continue;

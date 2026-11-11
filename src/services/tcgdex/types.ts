@@ -2,6 +2,7 @@ import type { Card } from '../../types/domain';
 import type { CatalogPackStore } from './packs';
 
 export interface CatalogSet {
+  seriesId?: string;
   id: string;
   name: string;
   cardCount?: { official: number; total: number };

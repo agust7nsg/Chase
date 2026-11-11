@@ -1,3 +1,4 @@
+import { isPocketSet } from './policy';
 import { normalizeCards, normalizeSet, record } from './normalize';
 import { CatalogError, type CatalogSet, type CatalogStorage, type CatalogCardBrief } from './types';
 
@@ -8,7 +9,7 @@ const failure = () => new CatalogError('INVALID_RESPONSE', 'Invalid catalog pack
 const safeId = (id: string) => /^[a-zA-Z0-9.-]{1,80}$/.test(id);
 export function validatePack(value: unknown, id: string): CatalogPack {
   if (!record(value) || value.schema !== 1 || value.language !== 'en' || typeof value.revision !== 'string' || value.revision.length > 160 || !Array.isArray(value.cards) || value.cards.length > 3000) throw failure();
-  const set = normalizeSet(value.set); if (set.id !== id || !safeId(id)) throw failure();
+  const set = normalizeSet(value.set); if (set.id !== id || !safeId(id) || isPocketSet(set)) throw failure();
   const ids = new Set();
   for (const raw of value.cards) {
     if (!record(raw) || typeof raw.localId !== 'string' || raw.id !== `${id}-${raw.localId}` || ids.has(raw.id)) throw failure();
@@ -20,12 +21,15 @@ export function validatePack(value: unknown, id: string): CatalogPack {
 }
 export function validatePackIndex(value: unknown): PackIndex {
   if (!record(value) || value.schema !== 1 || value.language !== 'en' || typeof value.revision !== 'string' || typeof value.generatedAt !== 'string' || !Number.isFinite(Date.parse(value.generatedAt)) || !Array.isArray(value.sets) || value.sets.length > 2000) throw failure();
-  const sets = value.sets.map(normalizeSet); const ids = new Set();
+  const all = value.sets.map(normalizeSet);
+  const excluded = new Set(all.filter(isPocketSet).map(set => set.id));
+  const sets = all.filter(set => !isPocketSet(set)); const ids = new Set();
   for (const set of sets) { if (!safeId(set.id) || ids.has(set.id)) throw failure(); ids.add(set.id); }
   const packs: Record<string, string> = {};
   if (value.packs !== undefined) {
     if (!record(value.packs)) throw failure();
     for (const [id, file] of Object.entries(value.packs)) {
+      if (excluded.has(id) || isPocketSet({ id })) continue;
       if (!ids.has(id) || typeof file !== 'string' || !/^packs\/[a-f0-9]{64}\.json$/.test(file)) throw failure();
       packs[id] = file;
     }
@@ -73,7 +77,7 @@ export class CatalogPackStore {
     return pack;
   }
   async getSet(id: string): Promise<CatalogPack | undefined> {
-    if (!safeId(id)) return undefined;
+    if (!safeId(id) || isPocketSet({ id })) return undefined;
     if (this.memory.has(id)) return this.memory.get(id);
     if (this.pending.has(id)) return this.pending.get(id);
     const work = (async () => {

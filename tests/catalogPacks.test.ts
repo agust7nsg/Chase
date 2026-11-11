@@ -15,10 +15,10 @@ const store = (extra = {}) => new CatalogPackStore({ index: base, loaders: { tes
 const offline = async () => { throw Error('No network may be required'); };
 const storage = () => { const data = new Map<string,string>(); return { data, getItem: async (k:string)=>data.get(k)??null, setItem: async (k:string,v:string)=>{ assert.ok(k.startsWith('chase.catalog-packs.v1:')); data.set(k,v); } }; };
 
-test('all 221 installed sets and every printing validate with exact stable identities', () => {
-  assert.equal(index.sets.length,221); let count = 0;
+test('all 206 installed sets and every printing validate with exact stable identities', () => {
+  assert.equal(index.sets.length,206); let count = 0;
   for (const set of index.sets) count += validatePack(bundledPacks[set.id](), set.id).cards.length;
-  assert.equal(count,23912); assert.equal(search.length,count);
+  assert.equal(count,21432); assert.equal(search.length,count);
   assert.equal(new Set(search.map(c=>c.id)).size,count);
   assert.deepEqual([...index.sets].sort((a,b)=>b.releaseDate.localeCompare(a.releaseDate)||a.id.localeCompare(b.id)),index.sets);
 });
@@ -100,4 +100,25 @@ test('new structural updates keep fresher quotes while adding new printings', as
   const local=store();await local.save(validatePack({...pack,fetchedAt:now,cards:[{...cards[0],pricing:{tcgplayer:{unit:'USD',updated:'2026-11-09',normal:{marketPrice:5}}}},cards[1]]},'test'));
   await local.save(validatePack({...pack,revision:'next',cards:[...cards,{id:'test-3',localId:'3',name:'New',variants:{normal:true}}]},'test'));
   const saved=await local.getSet('test');assert.equal(saved?.cards.length,3);assert.ok(saved?.cards[0].pricing);assert.equal(saved?.cards[2].pricing,undefined);
+});
+
+test('Home omits small supplements only; main special expansions stay and small physical sets remain searchable', async () => {
+  const { showSetOnHome } = await import('../src/services/tcgdex/policy');
+  const all=new CatalogPackStore({index,loaders:bundledPacks,search:()=>search});
+  const sets=all.listSets();assert.equal(showSetOnHome(sets.find(s=>s.id==='30th-c')!),false);
+  for(const id of ['me02.5','sv10.5b','sv10.5w']) assert.equal(showSetOnHome(sets.find(s=>s.id===id)!),true);
+  const catalog=new TcgDexCatalogService({packs:all,fetch:offline});
+  assert.ok((await catalog.getSet('30th-c'))?.cards.length);
+  assert.ok((await catalog.queryCards({query:'30th Classic Collection'})).total!>0);
+});
+test('Pocket cannot reappear from old published manifests, direct links or API searches', async () => {
+  const { isPocketSet }=await import('../src/services/tcgdex/policy');
+  assert.equal(isPocketSet({id:'B2a'}),true);assert.equal(isPocketSet({id:'future',serie:{id:'tcgp'}}),true);
+  const old={...base,sets:[set,{id:'B2a',name:'Paldean Wonders'}],packs:{B2a:`packs/${'b'.repeat(64)}.json`}};
+  assert.deepEqual(validatePackIndex(old).sets.map(s=>s.id),['test']);
+  assert.throws(()=>validatePack({...pack,set:{...set,id:'B2a'}},'B2a'));
+  let requests=0;const catalog=new TcgDexCatalogService({fetch:async()=>{requests++;return Response.json([]);}});
+  assert.equal(await catalog.getSet('B2a'),undefined);assert.equal(await catalog.getCard('tcgdex:en:B2a-1:normal'),undefined);
+  assert.deepEqual(await catalog.getVariants('B2a-1'),[]);assert.equal((await catalog.queryCards({setId:'B2a'})).total,0);assert.equal(requests,0);
+  assert.equal(index.sets.some(isPocketSet),false);assert.equal(search.some(c=>/^B2a-|^A1-/.test(c.id)),false);
 });

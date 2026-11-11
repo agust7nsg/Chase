@@ -1,3 +1,4 @@
+import { isPocketSet, isPocketCard } from './policy';
 import type { Card } from '../../types/domain';
 import type { CardCatalogService } from '../contracts';
 import { compareCardPrices, orderedSetCards, priceRepresentative } from './organization';
@@ -222,7 +223,7 @@ export class TcgDexCatalogService implements CardCatalogService {
     // before projection, rather than downloading hundreds of set details or guessing from IDs.
     const result = await this.resource('sets?sort:field=releaseDate&sort:order=DESC');
     if (!Array.isArray(result.value)) throw new CatalogError('INVALID_RESPONSE', 'TCGdex returned an invalid set list.');
-    return result.value.map(normalizeSet);
+    return result.value.map(normalizeSet).filter(set => !isPocketSet(set));
   }
 
   /** A catalog miss can refresh its small index once/minute, never on every frame. */
@@ -230,24 +231,29 @@ export class TcgDexCatalogService implements CardCatalogService {
     if (this.now() - this.recognitionRefreshAt < 60_000) return this.listSets();
     this.recognitionRefreshAt = this.now();
     const [result, ...details] = await Promise.all(['sets?sort:field=releaseDate&sort:order=DESC',
-      ...[...new Set(setIds)].slice(0, 4).map(id => `sets/${encodeURIComponent(id)}`)].map(path => this.request(path, true)));
+      ...[...new Set(setIds)].filter(id => !isPocketSet({ id })).slice(0, 4).map(id => `sets/${encodeURIComponent(id)}`)].map(path => this.request(path, true)));
     for (const detail of details) if (detail.value && !detail.stale) {
       const set = normalizeSetDetails(detail.value);
+      if (isPocketSet(set)) continue;
       this.recognitionSets.set(set.id, set);
       while (this.recognitionSets.size > 8) this.recognitionSets.delete(this.recognitionSets.keys().next().value!);
     }
     if (!Array.isArray(result.value)) throw new CatalogError('INVALID_RESPONSE', 'TCGdex returned an invalid set list.');
-    return result.value.map(normalizeSet);
+    return result.value.map(normalizeSet).filter(set => !isPocketSet(set));
   }
 
   async getSet(id: string): Promise<CatalogSetDetails | undefined> {
+    if (isPocketSet({ id })) return undefined;
     const refreshed = this.recognitionSets.get(id);
     if (refreshed) return clone(refreshed);
     const result = await this.resource(`sets/${encodeURIComponent(id)}`);
-    return result.value === null ? undefined : normalizeSetDetails(result.value);
+    if (result.value === null) return undefined;
+    const set = normalizeSetDetails(result.value);
+    return isPocketSet(set) ? undefined : set;
   }
 
   async getCard(id: string): Promise<Card | undefined> {
+    if (isPocketCard(id)) return undefined;
     const identity = parseCollectibleId(id, this.language);
     if (this.options.packs) this.detailRefresh.add(identity.id);
     const result = await this.resource(`cards/${encodeURIComponent(identity.id)}`);
@@ -263,6 +269,7 @@ export class TcgDexCatalogService implements CardCatalogService {
   }
 
   async getVariants(id: string): Promise<Card[]> {
+    if (isPocketCard(id)) return [];
     const identity = parseCollectibleId(id, this.language);
     if (this.options.packs) this.detailRefresh.add(identity.id);
     const result = await this.resource(`cards/${encodeURIComponent(identity.id)}`);
@@ -365,6 +372,7 @@ export class TcgDexCatalogService implements CardCatalogService {
     const page = Math.max(1, Math.floor(query.page ?? 1));
     const pageSize = Math.max(1, Math.min(100, Math.floor(query.pageSize ?? 24)));
     if (!Number.isFinite(page) || !Number.isFinite(pageSize)) throw new Error('Invalid catalog page.');
+    if (query.setId && isPocketSet({ id: query.setId })) return { cards: [], page, total: 0, hasMore: false, fromCache: true, stale: false };
     if (query.setId) return this.querySetCards(query, page, pageSize);
     if (this.options.packs) return this.queryLocalCards(query, page, pageSize);
     const text = (query.collectorNumber ?? query.query ?? '').trim();
@@ -418,7 +426,7 @@ export class TcgDexCatalogService implements CardCatalogService {
     const briefs = new Map<string, ReturnType<typeof normalizeBrief>>();
     for (const result of lists) {
       if (!Array.isArray(result.value)) throw new CatalogError('INVALID_RESPONSE', 'TCGdex returned an invalid card list.');
-      for (const row of result.value) { const brief = normalizeBrief(row); briefs.set(brief.id, brief); }
+      for (const row of result.value) { const brief = normalizeBrief(row); if (!isPocketCard(brief.id) && !brief.image?.includes('/tcgp/')) briefs.set(brief.id, brief); }
     }
     const sorted = [...briefs.values()].sort((a, b) => a.id.localeCompare(b.id));
     const selected = sorted.slice((page - 1) * pageSize, page * pageSize);
